@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="RocketTool.Avalonia/RocketTool.Avalonia.csproj" />
+  <Project Path="RocketTool.Cli/RocketTool.Cli.csproj" />
+  <Project Path="RocketTool.Core/RocketTool.Core.csproj" />
+</Solution>

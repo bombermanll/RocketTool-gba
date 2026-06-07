@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-label="mGBA bridge workflow">
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#102e4a"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="360" rx="28" fill="#f7f2e8"/>
+  <text x="60" y="64" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="30" font-weight="700" fill="#102e4a">工作流程</text>
+  <g font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="19" fill="#102e4a" font-weight="650">
+    <rect x="64" y="118" width="210" height="112" rx="20" fill="#efe5d3"/><text x="105" y="166">1. 启动 mGBA</text><text x="102" y="197" font-size="15" font-weight="400">加载 ROM / 存档</text>
+    <rect x="354" y="118" width="210" height="112" rx="20" fill="#efe5d3"/><text x="385" y="166">2. 加载 Lua</text><text x="384" y="197" font-size="15" font-weight="400">mgba_bridge.lua</text>
+    <rect x="644" y="118" width="210" height="112" rx="20" fill="#efe5d3"/><text x="682" y="166">3. 连接工具</text><text x="678" y="197" font-size="15" font-weight="400">127.0.0.1:8765</text>
+    <rect x="934" y="118" width="210" height="112" rx="20" fill="#efe5d3"/><text x="972" y="166">4. 实时修改</text><text x="966" y="197" font-size="15" font-weight="400">队伍 / 背包 / 箱子</text>
+  </g>
+  <line x1="284" y1="174" x2="344" y2="174" stroke="#102e4a" stroke-width="4" marker-end="url(#arrow)"/>
+  <line x1="574" y1="174" x2="634" y2="174" stroke="#102e4a" stroke-width="4" marker-end="url(#arrow)"/>
+  <line x1="864" y1="174" x2="924" y2="174" stroke="#102e4a" stroke-width="4" marker-end="url(#arrow)"/>
+  <text x="64" y="292" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#7a2f1d">建议：修改前先创建 mGBA 即时存档；写入会直接改变模拟器内存。</text>
+</svg>

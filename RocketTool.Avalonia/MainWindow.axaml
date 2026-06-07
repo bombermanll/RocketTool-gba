@@ -1,0 +1,455 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        d:DesignWidth="1180"
+        d:DesignHeight="760"
+        Width="1180"
+        Height="760"
+        MinWidth="980"
+        MinHeight="680"
+        x:Class="RocketTool.Avalonia.MainWindow"
+        Title="火箭队修改工具 - mGBA 实时编辑">
+    <Panel>
+        <Border>
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                    <GradientStop Color="#0E2B3D" Offset="0" />
+                    <GradientStop Color="#E8A34A" Offset="0.54" />
+                    <GradientStop Color="#F7F2E8" Offset="1" />
+                </LinearGradientBrush>
+            </Border.Background>
+        </Border>
+
+        <Grid RowDefinitions="Auto,*" Margin="24" RowSpacing="18">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+                <StackPanel>
+                    <TextBlock Text="火箭队修改工具" FontSize="34" FontWeight="Bold" Foreground="#F7F2E8" />
+                    <TextBlock Text="mGBA 实时队伍/背包编辑" Foreground="#F7F2E8" Opacity="0.82" />
+                </StackPanel>
+                <Border Classes="card" Grid.Column="1" MinWidth="420">
+                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="6">
+                        <TextBox x:Name="HostBox" Text="127.0.0.1" IsVisible="False" />
+                        <TextBox x:Name="PortBox" Text="8765" IsVisible="False" />
+                        <TextBox x:Name="BaseBox" IsVisible="False" />
+                        <Button x:Name="ReloadPartyButton" Content="刷新队伍" Click="OnReloadPartyClicked" IsVisible="False" />
+                        <TextBlock x:Name="ConnectionStatusText" Text="尚未连接 mGBA bridge" VerticalAlignment="Center" Foreground="#2B2016" />
+                        <Button x:Name="ScanButton" Grid.Column="1" Content="连接 mGBA" Click="OnScanClicked" Classes="primary" />
+                        <TextBlock x:Name="LastWriteText" Grid.Row="1" Grid.ColumnSpan="2" Text="最近写入：暂无" Foreground="#6C6255" TextWrapping="Wrap" />
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <Border Grid.Row="1" Classes="card" Padding="0">
+                <TabControl>
+                    <TabItem Header="队伍编辑">
+                        <Grid ColumnDefinitions="330,*" ColumnSpacing="0" Margin="0">
+                            <Border Background="#EFE5D3" Padding="16" CornerRadius="18,0,0,18">
+                                <Grid RowDefinitions="Auto,*" RowSpacing="12">
+                                    <TextBlock Text="队伍槽位" FontSize="20" FontWeight="SemiBold" Foreground="#102E4A" />
+                                    <ListBox x:Name="PartyList" Grid.Row="1" SelectionChanged="OnPartySelectionChanged">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Padding="8" Margin="0,0,0,5" CornerRadius="10" Background="#FFF9EE">
+                                                    <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="SemiBold" Foreground="#102E4A" />
+                                                </Border>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Column="1" Padding="20">
+                                <StackPanel Spacing="16">
+                                    <TextBlock x:Name="SelectedTitleText" Text="请选择或刷新槽位" FontSize="24" FontWeight="Bold" Foreground="#102E4A" />
+                                    <TextBlock x:Name="SelectedDetailText" Text="" IsVisible="False" />
+                                    <Button Content="写入当前精灵" HorizontalAlignment="Right" Click="OnApplyPokemonClicked" Classes="primary" />
+
+                                    <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
+                                        <StackPanel Spacing="10">
+                                            <TextBlock Text="基础信息" FontWeight="SemiBold" Foreground="#102E4A" />
+                                            <Grid ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+                                                <TextBlock Text="宝可梦" Classes="label" />
+                                                <TextBlock Text="性格" Classes="label" Grid.Column="1" />
+                                                <TextBlock Text="特性" Classes="label" Grid.Column="2" />
+                                                <ComboBox x:Name="SpeciesBox" Grid.Row="1" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <ComboBox x:Name="NatureBox" Grid.Row="1" Grid.Column="1" />
+                                                <ComboBox x:Name="AbilityBox" Grid.Row="1" Grid.Column="2" />
+
+                                                <TextBlock Text="携带道具" Classes="label" Grid.Row="2" />
+                                                <TextBlock Text="经验" Classes="label" Grid.Row="2" Grid.Column="1" />
+                                                <TextBlock Text="亲密度" Classes="label" Grid.Row="2" Grid.Column="2" />
+                                                <ComboBox x:Name="ItemBox" Grid.Row="3" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <TextBox x:Name="ExpBox" Grid.Row="3" Grid.Column="1" />
+                                                <TextBox x:Name="FriendshipBox" Grid.Row="3" Grid.Column="2" />
+
+                                                <TextBlock Text="等级" Classes="label" Grid.Row="4" />
+                                                <TextBlock Text="最大HP" Classes="label" Grid.Row="4" Grid.Column="1" />
+                                                <TextBlock Text="状态" Classes="label" Grid.Row="4" Grid.Column="2" />
+                                                <TextBox x:Name="LevelBox" Grid.Row="5" />
+                                                <TextBox x:Name="MaxHpBox" Grid.Row="5" Grid.Column="1" />
+                                                <ComboBox x:Name="StatusBox" Grid.Row="5" Grid.Column="2" />
+                                                <CheckBox x:Name="ShinyBox" Grid.Row="6" Grid.ColumnSpan="3" Content="闪光宝可梦" />
+                                            </Grid>
+                                            <TextBlock x:Name="BasicNameText" Text="" IsVisible="False" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
+                                        <StackPanel Spacing="10">
+                                            <TextBlock Text="招式" FontWeight="SemiBold" Foreground="#102E4A" />
+                                            <Grid ColumnDefinitions="330,62,78,70" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="8">
+                                                <TextBlock Text="招式名称（下拉框，可输入中文筛选）" Classes="label" />
+                                                <TextBlock Text="当前PP" Classes="label" Grid.Column="1" />
+                                                <TextBlock Text="PP提升" Classes="label" Grid.Column="2" />
+                                                <TextBlock Text="最大PP" Classes="label" Grid.Column="3" />
+                                                <ComboBox x:Name="Move1Box" Grid.Row="1" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <TextBox x:Name="Pp1Box" Grid.Row="1" Grid.Column="1" />
+                                                <ComboBox x:Name="PpUp1Box" Grid.Row="1" Grid.Column="2" />
+                                                <TextBlock x:Name="Move1MaxPpText" Grid.Row="1" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#102E4A" />
+                                                <ComboBox x:Name="Move2Box" Grid.Row="2" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <TextBox x:Name="Pp2Box" Grid.Row="2" Grid.Column="1" />
+                                                <ComboBox x:Name="PpUp2Box" Grid.Row="2" Grid.Column="2" />
+                                                <TextBlock x:Name="Move2MaxPpText" Grid.Row="2" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#102E4A" />
+                                                <ComboBox x:Name="Move3Box" Grid.Row="3" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <TextBox x:Name="Pp3Box" Grid.Row="3" Grid.Column="1" />
+                                                <ComboBox x:Name="PpUp3Box" Grid.Row="3" Grid.Column="2" />
+                                                <TextBlock x:Name="Move3MaxPpText" Grid.Row="3" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#102E4A" />
+                                                <ComboBox x:Name="Move4Box" Grid.Row="4" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <TextBox x:Name="Pp4Box" Grid.Row="4" Grid.Column="1" />
+                                                <ComboBox x:Name="PpUp4Box" Grid.Row="4" Grid.Column="2" />
+                                                <TextBlock x:Name="Move4MaxPpText" Grid.Row="4" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#102E4A" />
+                                            </Grid>
+                                            <TextBlock x:Name="MoveNameText" Text="" Foreground="#6C6255" TextWrapping="Wrap" IsVisible="False" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
+                                        <StackPanel Spacing="10">
+                                            <TextBlock Text="个体值 / 努力值" FontWeight="SemiBold" Foreground="#102E4A" />
+                                            <Grid ColumnDefinitions="90,*,*,*,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="8">
+                                                <TextBlock Grid.Column="1" Text="个体值" Classes="label" HorizontalAlignment="Center" />
+                                                <TextBlock Grid.Column="2" Text="努力值" Classes="label" HorizontalAlignment="Center" />
+                                                <TextBlock Grid.Column="3" Text="当前值" Classes="label" HorizontalAlignment="Center" />
+                                                <TextBlock Grid.Column="4" Text="种族值" Classes="label" HorizontalAlignment="Center" />
+                                                <TextBlock Grid.Row="1" Text="HP" Classes="label" VerticalAlignment="Center" />
+                                                <TextBox x:Name="IvHpBox" Grid.Row="1" Grid.Column="1" />
+                                                <TextBox x:Name="EvHpBox" Grid.Row="1" Grid.Column="2" />
+                                                <TextBlock x:Name="CurrentHpStatText" Grid.Row="1" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock x:Name="BaseHpStatText" Grid.Row="1" Grid.Column="4" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock Grid.Row="2" Text="攻击" Classes="label" VerticalAlignment="Center" />
+                                                <TextBox x:Name="IvAtkBox" Grid.Row="2" Grid.Column="1" />
+                                                <TextBox x:Name="EvAtkBox" Grid.Row="2" Grid.Column="2" />
+                                                <TextBlock x:Name="CurrentAtkStatText" Grid.Row="2" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock x:Name="BaseAtkStatText" Grid.Row="2" Grid.Column="4" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock Grid.Row="3" Text="防御" Classes="label" VerticalAlignment="Center" />
+                                                <TextBox x:Name="IvDefBox" Grid.Row="3" Grid.Column="1" />
+                                                <TextBox x:Name="EvDefBox" Grid.Row="3" Grid.Column="2" />
+                                                <TextBlock x:Name="CurrentDefStatText" Grid.Row="3" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock x:Name="BaseDefStatText" Grid.Row="3" Grid.Column="4" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock Grid.Row="4" Text="特攻" Classes="label" VerticalAlignment="Center" />
+                                                <TextBox x:Name="IvSpaBox" Grid.Row="4" Grid.Column="1" />
+                                                <TextBox x:Name="EvSpaBox" Grid.Row="4" Grid.Column="2" />
+                                                <TextBlock x:Name="CurrentSpaStatText" Grid.Row="4" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock x:Name="BaseSpaStatText" Grid.Row="4" Grid.Column="4" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock Grid.Row="5" Text="特防" Classes="label" VerticalAlignment="Center" />
+                                                <TextBox x:Name="IvSpdBox" Grid.Row="5" Grid.Column="1" />
+                                                <TextBox x:Name="EvSpdBox" Grid.Row="5" Grid.Column="2" />
+                                                <TextBlock x:Name="CurrentSpdStatText" Grid.Row="5" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock x:Name="BaseSpdStatText" Grid.Row="5" Grid.Column="4" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock Grid.Row="6" Text="速度" Classes="label" VerticalAlignment="Center" />
+                                                <TextBox x:Name="IvSpeBox" Grid.Row="6" Grid.Column="1" />
+                                                <TextBox x:Name="EvSpeBox" Grid.Row="6" Grid.Column="2" />
+                                                <TextBlock x:Name="CurrentSpeStatText" Grid.Row="6" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock x:Name="BaseSpeStatText" Grid.Row="6" Grid.Column="4" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock Grid.Row="7" Text="合计" Classes="label" VerticalAlignment="Center" />
+                                                <TextBlock x:Name="IvTotalText" Grid.Row="7" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock x:Name="EvTotalText" Grid.Row="7" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock x:Name="BaseTotalText" Grid.Row="7" Grid.Column="4" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                            </Grid>
+                                            <TextBlock Text="个体值范围 0..31；努力值单项 0..255，总和超过 510 时仍会写入，但会弹出风险提示。" Foreground="#6C6255" TextWrapping="Wrap" />
+                                            <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8">
+                                                <Button Content="个体一键31" Click="OnIvAll31Clicked" />
+                                                <Button Grid.Column="1" Content="个体一键30" Click="OnIvAll30Clicked" />
+                                                <TextBlock Grid.Column="2" Text="这两个按钮只修改界面数值，不会直接写入游戏。" Foreground="#6C6255" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Height="72" Background="Transparent" />
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Grid>
+                    </TabItem>
+
+                    <TabItem Header="背包编辑">
+                        <Grid ColumnDefinitions="520,*" ColumnSpacing="0" Margin="0">
+                            <Border Background="#EFE5D3" Padding="14" CornerRadius="18,0,0,18">
+                                <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="5">
+                                    <WrapPanel>
+                                        <Button Content="读取背包" Margin="0,0,6,4" Click="OnBagScanClicked" Classes="primary" />
+                                        <Button Content="校准背包" Margin="0,0,6,4" Click="OnBagSnapshotClicked" />
+                                    </WrapPanel>
+                                    <TextBlock Grid.Row="1" Text="请先对比下方道具列表是否和游戏中一致；如不一致，请先校准背包。" Foreground="#B3261E" FontWeight="SemiBold" FontSize="12" TextWrapping="Wrap" />
+                                    <StackPanel Grid.Row="2" Spacing="2">
+                                        <TabControl x:Name="BagPocketTabs" Classes="pocketTabs" SelectionChanged="OnBagPocketChanged">
+                                            <TabControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Name}" />
+                                                </DataTemplate>
+                                            </TabControl.ItemTemplate>
+                                            <TabControl.ContentTemplate>
+                                                <DataTemplate>
+                                                    <Border Height="0" />
+                                                </DataTemplate>
+                                            </TabControl.ContentTemplate>
+                                        </TabControl>
+                                    </StackPanel>
+                                    <ListBox x:Name="BagList" Grid.Row="3" SelectionChanged="OnBagSelectionChanged">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Padding="7,5" Margin="0,0,0,4" CornerRadius="8" Background="#FFF9EE">
+                                                    <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold" Foreground="#102E4A" />
+                                                </Border>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Column="1" Padding="20">
+                                <StackPanel Spacing="16">
+                                    <TextBlock Text="背包槽编辑" FontSize="24" FontWeight="Bold" Foreground="#102E4A" />
+                                    <TextBlock Text="这里直接改内存中的背包格子。选中左侧口袋槽位后编辑；数量会按原修改器的口袋密钥编码写回。" Foreground="#6C6255" TextWrapping="Wrap" />
+                                    <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
+                                        <StackPanel Spacing="10">
+                                            <Grid ColumnDefinitions="340,70" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="8">
+                                                <TextBlock Text="道具名字" Classes="label" />
+                                                <TextBlock Text="数量" Classes="label" Grid.Column="1" />
+                                                <ComboBox x:Name="BagItemBox" Grid.Row="1" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <TextBox x:Name="BagQuantityBox" Grid.Row="1" Grid.Column="1" />
+                                                <TextBlock Text="道具信息" Classes="label" Grid.Row="2" />
+                                                <TextBlock x:Name="BagItemNameText" Grid.Row="3" Grid.ColumnSpan="2" Text="选择候选槽后显示。" Foreground="#102E4A" TextWrapping="Wrap" />
+                                                <TextBlock Text="当前槽地址（只读）" Classes="label" Grid.Row="4" />
+                                                <TextBlock x:Name="BagAddressBox" Grid.Row="5" Grid.ColumnSpan="2" Text="未选择" Foreground="#6C6255" TextWrapping="Wrap" />
+                                            </Grid>
+                                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                                                <TextBlock Text="写入会直接生效，建议先保存 mGBA 即时存档。" Foreground="#6C6255" VerticalAlignment="Center" />
+                                                <Button Grid.Column="1" Content="添加到当前背包" Click="OnBagAddClicked" />
+                                                <Button Grid.Column="2" Content="覆盖当前道具" Click="OnBagApplyClicked" Classes="primary" />
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
+                                    <TextBox x:Name="BagHelpBox" AcceptsReturn="True" IsReadOnly="True" MinHeight="120" TextWrapping="Wrap"
+                                             Text="背包定位流程：
+1. 日常使用只需要点击“读取背包”。
+2. 如果列表和游戏不一致，点击“校准背包”，按弹窗填写各口袋第一个道具和数量。
+3. 空口袋可以留空；只填写不一致或有内容的口袋即可。
+4. 用左侧口袋标签筛选分类，选中槽位，确认中文名、口袋和数量，再写入。" />
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Grid>
+                    </TabItem>
+
+                    <TabItem Header="ROM 数据" IsVisible="False">
+                        <ScrollViewer Padding="20">
+                            <StackPanel Spacing="16">
+                                <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
+                                    <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+                                        <TextBlock Text="ROM 路径" Classes="label" VerticalAlignment="Center" />
+                                        <TextBox x:Name="RomPathBox" Grid.Column="1" />
+                                        <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="使用从原修改器抽取的中文表：宝可梦、招式、道具、特性、道具效果。" Foreground="#6C6255" />
+                                    </Grid>
+                                </Border>
+
+                                <Grid ColumnDefinitions="*,*,*" ColumnSpacing="14">
+                                    <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
+                                        <StackPanel Spacing="10">
+                                            <TextBlock Text="种族值" FontSize="18" FontWeight="SemiBold" Foreground="#102E4A" />
+                                            <TextBox x:Name="SpeciesLookupBox" Watermark="例如 42" />
+                                            <Button Content="查询宝可梦" Click="OnLookupSpeciesClicked" />
+                                            <TextBox x:Name="SpeciesResultBox" AcceptsReturn="True" IsReadOnly="True" MinHeight="220" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Grid.Column="1" Background="#FFF9EE" CornerRadius="14" Padding="14">
+                                        <StackPanel Spacing="10">
+                                            <TextBlock Text="招式数据" FontSize="18" FontWeight="SemiBold" Foreground="#102E4A" />
+                                            <TextBox x:Name="MoveLookupBox" Watermark="例如 17" />
+                                            <Button Content="查询招式" Click="OnLookupMoveClicked" />
+                                            <TextBox x:Name="MoveResultBox" AcceptsReturn="True" IsReadOnly="True" MinHeight="220" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Grid.Column="2" Background="#FFF9EE" CornerRadius="14" Padding="14">
+                                        <StackPanel Spacing="10">
+                                            <TextBlock Text="道具数据" FontSize="18" FontWeight="SemiBold" Foreground="#102E4A" />
+                                            <TextBox x:Name="ItemLookupBox" Watermark="例如 44" />
+                                            <Button Content="查询道具" Click="OnLookupItemClicked" />
+                                            <TextBox x:Name="ItemResultBox" AcceptsReturn="True" IsReadOnly="True" MinHeight="220" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+
+                    <TabItem Header="箱子编辑">
+                        <Grid ColumnDefinitions="360,*" ColumnSpacing="0" Margin="0">
+                            <Border Background="#EFE5D3" Padding="14" CornerRadius="18,0,0,18">
+                                <Grid RowDefinitions="Auto,*" RowSpacing="8">
+                                    <WrapPanel>
+                                        <Button Content="读取箱子" Margin="0,0,6,4" Click="OnBoxScanClicked" Classes="primary" />
+                                    </WrapPanel>
+                                    <ListBox x:Name="BoxList" Grid.Row="1" SelectionChanged="OnBoxSelectionChanged">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Padding="7,5" Margin="0,0,0,4" CornerRadius="8" Background="#FFF9EE">
+                                                    <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold" Foreground="#102E4A" />
+                                                </Border>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Column="1" Padding="20">
+                                <StackPanel Spacing="14">
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                        <TextBlock Text="箱子槽编辑" FontSize="24" FontWeight="Bold" Foreground="#102E4A" VerticalAlignment="Center" />
+                                        <Button Grid.Column="1" Content="写入当前箱子精灵" HorizontalAlignment="Right" Click="OnBoxApplyClicked" Classes="primary" />
+                                    </Grid>
+                                    <TextBlock Text="先只定位并编辑非空箱子宝可梦。写入会重算校验并重新加密，建议先保存 mGBA 即时存档。" Foreground="#6C6255" TextWrapping="Wrap" />
+                                    <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
+                                        <StackPanel Spacing="10">
+                                            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+                                                <TextBlock Text="宝可梦" Classes="label" />
+                                                <TextBlock Text="携带道具" Classes="label" Grid.Column="1" />
+                                                <ComboBox x:Name="BoxSpeciesBox" Grid.Row="1" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <ComboBox x:Name="BoxItemBox" Grid.Row="1" Grid.Column="1" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <TextBlock Text="性格" Classes="label" Grid.Row="2" />
+                                                <TextBlock Text="特性" Classes="label" Grid.Row="2" Grid.Column="1" />
+                                                <ComboBox x:Name="BoxNatureBox" Grid.Row="3" />
+                                                <ComboBox x:Name="BoxAbilityBox" Grid.Row="3" Grid.Column="1" />
+                                                <TextBlock Text="箱子槽地址（只读）" Classes="label" Grid.Row="4" IsVisible="False" />
+                                                <CheckBox x:Name="BoxShinyBox" Grid.Row="4" Grid.Column="1" Content="闪光宝可梦" />
+                                                <TextBlock x:Name="BoxAddressText" Grid.Row="5" Grid.ColumnSpan="2" Text="未选择" Foreground="#6C6255" IsVisible="False" />
+                                            </Grid>
+                                            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+                                                <TextBlock Text="经验" Classes="label" />
+                                                <TextBlock Text="亲密度" Classes="label" Grid.Column="1" />
+                                                <TextBox x:Name="BoxExpBox" Grid.Row="1" />
+                                                <TextBox x:Name="BoxFriendshipBox" Grid.Row="1" Grid.Column="1" />
+                                            </Grid>
+                                            <TextBlock Text="箱子数据不保存当前HP、状态和直接等级；等级由经验决定。" Foreground="#6C6255" TextWrapping="Wrap" />
+                                            <TextBlock x:Name="BoxNameText" Text="选择箱子槽后显示。" Foreground="#102E4A" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
+                                        <StackPanel Spacing="10">
+                                            <TextBlock Text="招式" FontWeight="SemiBold" Foreground="#102E4A" />
+                                            <Grid ColumnDefinitions="330,62,78,70" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="8">
+                                                <TextBlock Text="招式名称" Classes="label" />
+                                                <TextBlock Text="当前PP" Classes="label" Grid.Column="1" />
+                                                <TextBlock Text="PP提升" Classes="label" Grid.Column="2" />
+                                                <TextBlock Text="最大PP" Classes="label" Grid.Column="3" />
+                                                <ComboBox x:Name="BoxMove1Box" Grid.Row="1" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <TextBox x:Name="BoxPp1Box" Grid.Row="1" Grid.Column="1" />
+                                                <ComboBox x:Name="BoxPpUp1Box" Grid.Row="1" Grid.Column="2" />
+                                                <TextBlock x:Name="BoxMove1MaxPpText" Grid.Row="1" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#102E4A" />
+                                                <ComboBox x:Name="BoxMove2Box" Grid.Row="2" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <TextBox x:Name="BoxPp2Box" Grid.Row="2" Grid.Column="1" />
+                                                <ComboBox x:Name="BoxPpUp2Box" Grid.Row="2" Grid.Column="2" />
+                                                <TextBlock x:Name="BoxMove2MaxPpText" Grid.Row="2" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#102E4A" />
+                                                <ComboBox x:Name="BoxMove3Box" Grid.Row="3" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <TextBox x:Name="BoxPp3Box" Grid.Row="3" Grid.Column="1" />
+                                                <ComboBox x:Name="BoxPpUp3Box" Grid.Row="3" Grid.Column="2" />
+                                                <TextBlock x:Name="BoxMove3MaxPpText" Grid.Row="3" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#102E4A" />
+                                                <ComboBox x:Name="BoxMove4Box" Grid.Row="4" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <TextBox x:Name="BoxPp4Box" Grid.Row="4" Grid.Column="1" />
+                                                <ComboBox x:Name="BoxPpUp4Box" Grid.Row="4" Grid.Column="2" />
+                                                <TextBlock x:Name="BoxMove4MaxPpText" Grid.Row="4" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#102E4A" />
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
+                                        <StackPanel Spacing="10">
+                                            <TextBlock Text="个体值 / 努力值" FontWeight="SemiBold" Foreground="#102E4A" />
+                                            <Grid ColumnDefinitions="90,*,*,*,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="8">
+                                                <TextBlock Grid.Column="1" Text="个体值" Classes="label" HorizontalAlignment="Center" />
+                                                <TextBlock Grid.Column="2" Text="努力值" Classes="label" HorizontalAlignment="Center" />
+                                                <TextBlock Grid.Column="3" Text="当前值" Classes="label" HorizontalAlignment="Center" />
+                                                <TextBlock Grid.Column="4" Text="种族值" Classes="label" HorizontalAlignment="Center" />
+                                                <TextBlock Grid.Row="1" Text="HP" Classes="label" VerticalAlignment="Center" />
+                                                <TextBox x:Name="BoxIvHpBox" Grid.Row="1" Grid.Column="1" />
+                                                <TextBox x:Name="BoxEvHpBox" Grid.Row="1" Grid.Column="2" />
+                                                <TextBlock x:Name="BoxCurrentHpStatText" Grid.Row="1" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock x:Name="BoxBaseHpStatText" Grid.Row="1" Grid.Column="4" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock Grid.Row="2" Text="攻击" Classes="label" VerticalAlignment="Center" />
+                                                <TextBox x:Name="BoxIvAtkBox" Grid.Row="2" Grid.Column="1" />
+                                                <TextBox x:Name="BoxEvAtkBox" Grid.Row="2" Grid.Column="2" />
+                                                <TextBlock x:Name="BoxCurrentAtkStatText" Grid.Row="2" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock x:Name="BoxBaseAtkStatText" Grid.Row="2" Grid.Column="4" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock Grid.Row="3" Text="防御" Classes="label" VerticalAlignment="Center" />
+                                                <TextBox x:Name="BoxIvDefBox" Grid.Row="3" Grid.Column="1" />
+                                                <TextBox x:Name="BoxEvDefBox" Grid.Row="3" Grid.Column="2" />
+                                                <TextBlock x:Name="BoxCurrentDefStatText" Grid.Row="3" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock x:Name="BoxBaseDefStatText" Grid.Row="3" Grid.Column="4" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock Grid.Row="4" Text="特攻" Classes="label" VerticalAlignment="Center" />
+                                                <TextBox x:Name="BoxIvSpaBox" Grid.Row="4" Grid.Column="1" />
+                                                <TextBox x:Name="BoxEvSpaBox" Grid.Row="4" Grid.Column="2" />
+                                                <TextBlock x:Name="BoxCurrentSpaStatText" Grid.Row="4" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock x:Name="BoxBaseSpaStatText" Grid.Row="4" Grid.Column="4" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock Grid.Row="5" Text="特防" Classes="label" VerticalAlignment="Center" />
+                                                <TextBox x:Name="BoxIvSpdBox" Grid.Row="5" Grid.Column="1" />
+                                                <TextBox x:Name="BoxEvSpdBox" Grid.Row="5" Grid.Column="2" />
+                                                <TextBlock x:Name="BoxCurrentSpdStatText" Grid.Row="5" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock x:Name="BoxBaseSpdStatText" Grid.Row="5" Grid.Column="4" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock Grid.Row="6" Text="速度" Classes="label" VerticalAlignment="Center" />
+                                                <TextBox x:Name="BoxIvSpeBox" Grid.Row="6" Grid.Column="1" />
+                                                <TextBox x:Name="BoxEvSpeBox" Grid.Row="6" Grid.Column="2" />
+                                                <TextBlock x:Name="BoxCurrentSpeStatText" Grid.Row="6" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock x:Name="BoxBaseSpeStatText" Grid.Row="6" Grid.Column="4" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock Grid.Row="7" Text="合计" Classes="label" VerticalAlignment="Center" />
+                                                <TextBlock x:Name="BoxIvTotalText" Grid.Row="7" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock x:Name="BoxEvTotalText" Grid.Row="7" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                                <TextBlock x:Name="BoxBaseTotalText" Grid.Row="7" Grid.Column="4" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                            </Grid>
+                                            <TextBlock Text="箱子精灵没有保存当前HP和状态；这里的当前值按经验推算等级后显示，用于对齐队伍编辑的能力预览。" Foreground="#6C6255" TextWrapping="Wrap" />
+                                            <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8">
+                                                <Button Content="个体一键31" Click="OnBoxIvAll31Clicked" />
+                                                <Button Grid.Column="1" Content="个体一键30" Click="OnBoxIvAll30Clicked" />
+                                                <TextBlock Grid.Column="2" Text="这两个按钮只修改界面数值，不会直接写入游戏。" Foreground="#6C6255" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Grid>
+                    </TabItem>
+
+                    <TabItem Header="日志">
+                        <Grid RowDefinitions="*,Auto" Margin="20" RowSpacing="10">
+                            <TextBox x:Name="LogBox" AcceptsReturn="True" IsReadOnly="True" TextWrapping="Wrap" />
+                            <Button Grid.Row="1" Content="清空日志" HorizontalAlignment="Right" Click="OnClearLogClicked" />
+                        </Grid>
+                    </TabItem>
+                </TabControl>
+            </Border>
+        </Grid>
+        <Border x:Name="ToastBorder"
+                IsVisible="False"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Top"
+                Margin="0,18,0,0"
+                Padding="18,10"
+                CornerRadius="18"
+                BoxShadow="0 10 28 #44000000"
+                Background="#102E4A">
+            <TextBlock x:Name="ToastText"
+                       Foreground="#F7F2E8"
+                       FontWeight="SemiBold"
+                       TextWrapping="Wrap"
+                       MaxWidth="760" />
+        </Border>
+    </Panel>
+</Window>

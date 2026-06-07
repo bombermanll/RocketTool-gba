@@ -1,0 +1,51 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="RocketTool.Avalonia.App"
+             RequestedThemeVariant="Light">
+    <Application.Styles>
+        <FluentTheme />
+        <Style Selector="Window">
+            <Setter Property="FontFamily" Value="Avenir Next, Segoe UI, Helvetica Neue" />
+        </Style>
+        <Style Selector="Button">
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Padding" Value="12,8" />
+        </Style>
+        <Style Selector="Button.primary">
+            <Setter Property="Background" Value="#102E4A" />
+            <Setter Property="Foreground" Value="#F7F2E8" />
+        </Style>
+        <Style Selector="Border.card">
+            <Setter Property="Background" Value="#F7F2E8" />
+            <Setter Property="CornerRadius" Value="18" />
+            <Setter Property="Padding" Value="16" />
+            <Setter Property="BoxShadow" Value="0 18 44 #22000000" />
+        </Style>
+        <Style Selector="TextBlock.label">
+            <Setter Property="Foreground" Value="#6C6255" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+        <Style Selector="TextBox">
+            <Setter Property="CornerRadius" Value="8" />
+        </Style>
+        <Style Selector="ComboBox">
+            <Setter Property="CornerRadius" Value="8" />
+        </Style>
+        <Style Selector="TabControl.pocketTabs">
+            <Setter Property="Background" Value="#E3D3B8" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="2" />
+        </Style>
+        <Style Selector="TabControl.pocketTabs TabItem">
+            <Setter Property="Padding" Value="4,1" />
+            <Setter Property="Margin" Value="0,0,1,0" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Background" Value="#FFF9EE" />
+            <Setter Property="Foreground" Value="#102E4A" />
+        </Style>
+        <Style Selector="TabControl.pocketTabs TabItem:selected">
+            <Setter Property="Background" Value="#102E4A" />
+            <Setter Property="Foreground" Value="#F7F2E8" />
+        </Style>
+    </Application.Styles>
+</Application>
