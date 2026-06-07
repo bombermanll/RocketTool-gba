@@ -47,7 +47,10 @@
                         <Grid ColumnDefinitions="330,*" ColumnSpacing="0" Margin="0">
                             <Border Background="#EFE5D3" Padding="16" CornerRadius="18,0,0,18">
                                 <Grid RowDefinitions="Auto,*" RowSpacing="12">
-                                    <TextBlock Text="队伍槽位" FontSize="20" FontWeight="SemiBold" Foreground="#102E4A" />
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                        <TextBlock Text="队伍槽位" FontSize="20" FontWeight="SemiBold" Foreground="#102E4A" VerticalAlignment="Center" />
+                                        <Button Grid.Column="1" Content="读取队伍" Click="OnReloadPartyClicked" Classes="primary" />
+                                    </Grid>
                                     <ListBox x:Name="PartyList" Grid.Row="1" SelectionChanged="OnPartySelectionChanged">
                                         <ListBox.ItemTemplate>
                                             <DataTemplate>

@@ -197,14 +197,9 @@ public partial class MainWindow : Window
         await RunUiTask("连接 mGBA", () =>
         {
             using var bridge = ConnectBridge();
-            var ewram = PartyScanner.ReadEwram(bridge);
-            var run = PartyScanner.LocateParty(ewram) ?? throw new InvalidOperationException("没有定位到队伍基址。");
-            _partyBase = run.StartAddress;
-            BaseBox.Text = $"0x{run.StartAddress:X8}";
             var gameCode = bridge.GameCode();
-            LoadPartyRows(bridge, run.StartAddress, 1);
-            ConnectionStatusText.Text = $"已连接 {gameCode}，队伍已刷新";
-            Log($"已连接 mGBA：游戏={gameCode}，队伍基址=0x{run.StartAddress:X8}。");
+            ConnectionStatusText.Text = $"已连接 {gameCode}；载入存档后点击“读取队伍”";
+            Log($"已连接 mGBA：游戏={gameCode}。队伍数据尚未读取。");
         });
     }
 
@@ -973,7 +968,7 @@ public partial class MainWindow : Window
         LookupTo(SpeciesResultBox, () =>
         {
             var id = ParseIntRequired(SpeciesLookupBox.Text, "宝可梦ID");
-            var s = new SpeciesStatsReader(RomPath()).Read(id);
+            var s = ReadSpeciesStats(id);
             return $"宝可梦 {id}（{_db.NameOf("species", id)}）\n" +
                    $"种族值：HP {s.Hp} / 攻击 {s.Attack} / 防御 {s.Defense} / 速度 {s.Speed} / 特攻 {s.SpAttack} / 特防 {s.SpDefense} / 总和 {s.Bst}\n" +
                    $"特性：{s.Ability1}（{_db.NameOf("abilities", s.Ability1)}） / {s.Ability2}（{_db.NameOf("abilities", s.Ability2)}）" +
@@ -988,7 +983,7 @@ public partial class MainWindow : Window
         LookupTo(MoveResultBox, () =>
         {
             var id = ParseIntRequired(MoveLookupBox.Text, "招式ID");
-            var m = new MoveDataReader(RomPath()).Read(id);
+            var m = ReadMoveData(id);
             return $"招式 {id}（{_db.NameOf("moves", id)}）\n" +
                    $"威力 {m.Power}  属性 {m.Type}（{MoveTypeNameZh(m.Type)}）  命中 {m.Accuracy}  PP {m.Pp}\n" +
                    $"分类 {m.Category}（{MoveCategoryNameZh(m.Category)}）  优先度 {m.Priority}  附加几率 {m.SecondaryEffectChance}\n" +
@@ -1002,7 +997,7 @@ public partial class MainWindow : Window
         LookupTo(ItemResultBox, () =>
         {
             var id = ParseIntRequired(ItemLookupBox.Text, "道具ID");
-            var item = new ItemDataReader(RomPath()).Read(id);
+            var item = ReadItemData(id);
             var effect = item.HoldEffect == 0 ? "无" : _db.NameOf("item_effects", item.HoldEffect);
             return $"道具 {id}（{_db.NameOf("items", id)}）\n" +
                    $"内部ID {item.ItemId}  价格 {item.Price}\n" +
@@ -1141,7 +1136,7 @@ public partial class MainWindow : Window
         }
         if (_partyBase is not null) return _partyBase.Value;
         var ewram = PartyScanner.ReadEwram(bridge);
-        var run = PartyScanner.LocateParty(ewram) ?? throw new InvalidOperationException("没有定位到队伍基址。");
+        var run = PartyScanner.LocateParty(ewram) ?? throw new InvalidOperationException("没有定位到队伍。请先在游戏中载入存档，再点击“读取队伍”。");
         _partyBase = run.StartAddress;
         BaseBox.Text = $"0x{run.StartAddress:X8}";
         return run.StartAddress;
@@ -1716,7 +1711,7 @@ public partial class MainWindow : Window
 
         try
         {
-            var stats = SpeciesReader().Read(species);
+            var stats = ReadSpeciesStats(species);
             BaseHpStatText.Text = stats.Hp.ToString();
             BaseAtkStatText.Text = stats.Attack.ToString();
             BaseDefStatText.Text = stats.Defense.ToString();
@@ -1804,7 +1799,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var stats = SpeciesReader().Read(species);
+        var stats = ReadSpeciesStats(species);
         BoxBaseHpStatText.Text = stats.Hp.ToString();
         BoxBaseAtkStatText.Text = stats.Attack.ToString();
         BoxBaseDefStatText.Text = stats.Defense.ToString();
@@ -1822,7 +1817,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var stats = SpeciesReader().Read(species);
+        var stats = ReadSpeciesStats(species);
         var level = LevelFromExp(exp, stats.GrowthRate);
         var naturePid = pidOrNature;
         var ivs = BuildIntStats(BoxIvHpBox, BoxIvAtkBox, BoxIvDefBox, BoxIvSpeBox, BoxIvSpaBox, BoxIvSpdBox);
@@ -1944,6 +1939,113 @@ public partial class MainWindow : Window
         return _moveReader;
     }
 
+    private SpeciesStats ReadSpeciesStats(int species)
+    {
+        try
+        {
+            return SpeciesReader().Read(species);
+        }
+        catch
+        {
+            if (TryReadEmbeddedSpeciesStats(species, out var stats))
+                return stats;
+            throw;
+        }
+    }
+
+    private bool TryReadEmbeddedSpeciesStats(int species, out SpeciesStats stats)
+    {
+        stats = default!;
+        if (!_db.Table("species_stats").TryGetValue(species, out var raw)) return false;
+        var parts = raw.Split('\t');
+        if (parts.Length < 23) return false;
+        try
+        {
+            int I(int index) => int.Parse(parts[index]);
+            byte B(int index) => byte.Parse(parts[index]);
+            ushort U(int index) => ushort.Parse(parts[index]);
+            stats = new SpeciesStats(
+                I(0), B(1), B(2), B(3), B(4), B(5), B(6), B(7), B(8),
+                U(9), U(10), U(11), U(12), U(13), B(14), B(15), B(16), B(17),
+                B(18), B(19), U(20), U(21), U(22));
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private ItemData ReadItemData(int item)
+    {
+        try
+        {
+            return ItemReader().Read(item);
+        }
+        catch
+        {
+            if (TryReadEmbeddedItemData(item, out var data))
+                return data;
+            throw;
+        }
+    }
+
+    private bool TryReadEmbeddedItemData(int item, out ItemData data)
+    {
+        data = default!;
+        if (!_db.Table("item_data").TryGetValue(item, out var raw)) return false;
+        var parts = raw.Split('\t');
+        if (parts.Length < 14) return false;
+        try
+        {
+            int I(int index) => int.Parse(parts[index]);
+            ushort U(int index) => ushort.Parse(parts[index]);
+            byte B(int index) => byte.Parse(parts[index]);
+            uint UI(int index) => uint.Parse(parts[index]);
+            data = new ItemData(I(0), U(1), U(2), B(3), B(4), UI(5), B(6), B(7), B(8), B(9), UI(10), B(11), UI(12), UI(13), [], []);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private MoveData ReadMoveData(int move)
+    {
+        try
+        {
+            return MoveReader().Read(move);
+        }
+        catch
+        {
+            if (TryReadEmbeddedMoveData(move, out var data))
+                return data;
+            throw;
+        }
+    }
+
+    private bool TryReadEmbeddedMoveData(int move, out MoveData data)
+    {
+        data = default!;
+        if (!_db.Table("move_data").TryGetValue(move, out var raw)) return false;
+        var parts = raw.Split('\t');
+        if (parts.Length < 11) return false;
+        try
+        {
+            int I(int index) => int.Parse(parts[index]);
+            ushort U(int index) => ushort.Parse(parts[index]);
+            byte B(int index) => byte.Parse(parts[index]);
+            sbyte S(int index) => sbyte.Parse(parts[index]);
+            data = new MoveData(I(0), U(1), B(2), B(3), B(4), B(5), U(6), S(7), U(8), B(9), U(10), []);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private void UpdateMaxPpTexts(IReadOnlyList<ComboBox> moveBoxes, IReadOnlyList<ComboBox> ppBonusBoxes, IReadOnlyList<TextBlock> targets)
     {
         for (var i = 0; i < Math.Min(Math.Min(moveBoxes.Count, ppBonusBoxes.Count), targets.Count); i++)
@@ -1951,7 +2053,7 @@ public partial class MainWindow : Window
             try
             {
                 var move = ParseMoveOrNull(moveBoxes[i]) ?? 0;
-                targets[i].Text = move == 0 ? "" : CalculateMaxPp(MoveReader().Read(move).Pp, SelectedPpBonus(ppBonusBoxes[i])).ToString();
+                targets[i].Text = move == 0 ? "" : CalculateMaxPp(ReadMoveData(move).Pp, SelectedPpBonus(ppBonusBoxes[i])).ToString();
             }
             catch
             {
@@ -1972,7 +2074,7 @@ public partial class MainWindow : Window
     private void RecalculateLiveStats(PartyPokemon mon)
     {
         var info = mon.GetInfo();
-        var stats = SpeciesReader().Read(info.Species);
+        var stats = ReadSpeciesStats(info.Species);
         mon.RecalculateStats(stats);
     }
 
@@ -1988,7 +2090,7 @@ public partial class MainWindow : Window
 
         try
         {
-            var stats = SpeciesReader().Read(species);
+            var stats = ReadSpeciesStats(species);
             var choices = new List<ChoiceRow>
             {
                 new(0, $"特性1：{AbilityName(stats.Ability1)}", $"特性1：{AbilityName(stats.Ability1)}"),
@@ -2002,7 +2104,7 @@ public partial class MainWindow : Window
         }
         catch
         {
-            _abilitySpecies = null;
+            SetFallbackAbilityChoices(AbilityBox, species, selectedBit, ref _abilitySpecies);
         }
     }
 
@@ -2018,7 +2120,7 @@ public partial class MainWindow : Window
 
         try
         {
-            var stats = SpeciesReader().Read(species);
+            var stats = ReadSpeciesStats(species);
             var choices = new List<ChoiceRow>
             {
                 new(0, $"特性1：{AbilityName(stats.Ability1)}", $"特性1：{AbilityName(stats.Ability1)}"),
@@ -2032,16 +2134,61 @@ public partial class MainWindow : Window
         }
         catch
         {
-            _boxAbilitySpecies = null;
-            BoxAbilityBox.ItemsSource = null;
+            SetFallbackAbilityChoices(BoxAbilityBox, species, selectedBit, ref _boxAbilitySpecies);
         }
+    }
+
+    private void SetFallbackAbilityChoices(ComboBox target, int species, int? selectedBit, ref int? cacheSpecies)
+    {
+        var choices = FallbackAbilityChoices(species);
+        cacheSpecies = species;
+        target.ItemsSource = choices;
+        target.SelectedItem = choices.FirstOrDefault(c => c.Id == selectedBit) ?? choices.First();
+    }
+
+    private List<ChoiceRow> FallbackAbilityChoices(int species)
+    {
+        if (TryReadSpeciesAbilities(species, out var ability1, out var ability2, out var ability3))
+        {
+            var choices = new List<ChoiceRow>
+            {
+                new(0, $"特性1：{AbilityName(ability1)}", $"特性1：{AbilityName(ability1)}"),
+                new(1, $"特性2：{AbilityName(ability2)}", $"特性2：{AbilityName(ability2)}")
+            };
+            if (ability3 is not null)
+                choices.Add(new(2, $"特性3（隐藏）：{AbilityName(ability3.Value)}", $"特性3（隐藏）：{AbilityName(ability3.Value)}"));
+            return choices;
+        }
+
+        return
+        [
+            new(0, "特性1", "特性1"),
+            new(1, "特性2", "特性2"),
+            new(2, "特性3（隐藏）", "特性3（隐藏）")
+        ];
+    }
+
+    private bool TryReadSpeciesAbilities(int species, out ushort ability1, out ushort ability2, out ushort? ability3)
+    {
+        ability1 = 0;
+        ability2 = 0;
+        ability3 = null;
+        if (!_db.Table("species_abilities").TryGetValue(species, out var raw)) return false;
+        var parts = raw.Split(',', StringSplitOptions.TrimEntries);
+        if (parts.Length < 2 ||
+            !ushort.TryParse(parts[0], out ability1) ||
+            !ushort.TryParse(parts[1], out ability2))
+            return false;
+        if (parts.Length >= 3 && ushort.TryParse(parts[2], out var third) && third != 0)
+            ability3 = third;
+        return true;
     }
 
     private string AbilityText(int species, int abilitySlot)
     {
         try
         {
-            var stats = SpeciesReader().Read(species);
+            var stats = ReadSpeciesStats(species);
             return abilitySlot switch
             {
                 0 => $"{AbilityName(stats.Ability1)}（特性1）",
@@ -2052,6 +2199,17 @@ public partial class MainWindow : Window
         }
         catch
         {
+            if (TryReadSpeciesAbilities(species, out var ability1, out var ability2, out var ability3))
+            {
+                return abilitySlot switch
+                {
+                    0 => $"{AbilityName(ability1)}（特性1）",
+                    1 => $"{AbilityName(ability2)}（特性2）",
+                    2 when ability3 is not null => $"{AbilityName(ability3.Value)}（特性3·隐藏）",
+                    _ => $"特性{abilitySlot + 1}"
+                };
+            }
+
             return $"特性{abilitySlot + 1}";
         }
     }
@@ -2187,6 +2345,9 @@ public partial class MainWindow : Window
                 return _machineMoveIds[machineIndex];
         }
 
+        if (_db.Table("machine_moves").TryGetValue(machineIndex, out var embedded) && int.TryParse(embedded, out var moveId))
+            return moveId;
+
         return machineIndex >= 0 && machineIndex < Gen3TmMoveIds.Length
             ? Gen3TmMoveIds[machineIndex]
             : 0;
@@ -2210,15 +2371,20 @@ public partial class MainWindow : Window
     {
         if (item == 0) return -1;
         if (item < 0 || item > MaxItemId()) return -1;
+
+        if (_db.Table("item_pockets").TryGetValue(item, out var pocketText) &&
+            int.TryParse(pocketText, out var embeddedPocket) &&
+            embeddedPocket is >= 1 and <= 8)
+            return embeddedPocket;
+
         try
         {
-            var fromOriginalRanges = PocketOfItemByOriginalRanges(item);
-            if (fromOriginalRanges is not null) return fromOriginalRanges.Value;
-            return ItemReader().Read(item).Pocket;
+            return ReadItemData(item).Pocket;
         }
         catch
         {
-            return -1;
+            var fromOriginalRanges = PocketOfItemByOriginalRanges(item);
+            return fromOriginalRanges ?? -1;
         }
     }
 
