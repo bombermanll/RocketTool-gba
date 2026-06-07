@@ -1,8 +1,12 @@
 {
   "version": 2,
-  "dgSpecHash": "/AJZEN8FTiE=",
+  "dgSpecHash": "m/I17FtAA1E=",
   "success": true,
   "projectFilePath": "/Users/bombermanll/Downloads/mgba_bridge_prototype_2026-06-06/csharp/RocketTool.Core/RocketTool.Core.csproj",
-  "expectedPackageFiles": [],
+  "expectedPackageFiles": [
+    "/Users/bombermanll/.nuget/packages/microsoft.net.illink.tasks/10.0.7/microsoft.net.illink.tasks.10.0.7.nupkg.sha512",
+    "/Users/bombermanll/.nuget/packages/microsoft.netcore.app.runtime.win-x64/10.0.7/microsoft.netcore.app.runtime.win-x64.10.0.7.nupkg.sha512",
+    "/Users/bombermanll/.nuget/packages/microsoft.aspnetcore.app.runtime.win-x64/10.0.7/microsoft.aspnetcore.app.runtime.win-x64.10.0.7.nupkg.sha512"
+  ],
   "logs": []
 }

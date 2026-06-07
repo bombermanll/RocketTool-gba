@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("RocketTool.Core")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+c91aebfe75d2d5ff4e1dedfb28610e93d2956616")]
 [assembly: System.Reflection.AssemblyProductAttribute("RocketTool.Core")]
 [assembly: System.Reflection.AssemblyTitleAttribute("RocketTool.Core")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

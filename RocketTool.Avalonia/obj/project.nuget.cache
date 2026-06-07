@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "dgSpecHash": "blevDZfvkC8=",
+  "dgSpecHash": "5pTAMP3S3jA=",
   "success": true,
   "projectFilePath": "/Users/bombermanll/Downloads/mgba_bridge_prototype_2026-06-06/csharp/RocketTool.Avalonia/RocketTool.Avalonia.csproj",
   "expectedPackageFiles": [
@@ -24,22 +24,30 @@
     "/Users/bombermanll/.nuget/packages/harfbuzzsharp.nativeassets.webassembly/8.3.1.1/harfbuzzsharp.nativeassets.webassembly.8.3.1.1.nupkg.sha512",
     "/Users/bombermanll/.nuget/packages/harfbuzzsharp.nativeassets.win32/8.3.1.1/harfbuzzsharp.nativeassets.win32.8.3.1.1.nupkg.sha512",
     "/Users/bombermanll/.nuget/packages/microcom.runtime/0.11.0/microcom.runtime.0.11.0.nupkg.sha512",
+    "/Users/bombermanll/.nuget/packages/microsoft.net.illink.tasks/10.0.7/microsoft.net.illink.tasks.10.0.7.nupkg.sha512",
     "/Users/bombermanll/.nuget/packages/skiasharp/2.88.9/skiasharp.2.88.9.nupkg.sha512",
     "/Users/bombermanll/.nuget/packages/skiasharp.nativeassets.linux/2.88.9/skiasharp.nativeassets.linux.2.88.9.nupkg.sha512",
     "/Users/bombermanll/.nuget/packages/skiasharp.nativeassets.macos/2.88.9/skiasharp.nativeassets.macos.2.88.9.nupkg.sha512",
     "/Users/bombermanll/.nuget/packages/skiasharp.nativeassets.webassembly/2.88.9/skiasharp.nativeassets.webassembly.2.88.9.nupkg.sha512",
     "/Users/bombermanll/.nuget/packages/skiasharp.nativeassets.win32/2.88.9/skiasharp.nativeassets.win32.2.88.9.nupkg.sha512",
-    "/Users/bombermanll/.nuget/packages/tmds.dbus.protocol/0.21.2/tmds.dbus.protocol.0.21.2.nupkg.sha512"
+    "/Users/bombermanll/.nuget/packages/tmds.dbus.protocol/0.21.2/tmds.dbus.protocol.0.21.2.nupkg.sha512",
+    "/Users/bombermanll/.nuget/packages/microsoft.netcore.app.runtime.win-x64/10.0.7/microsoft.netcore.app.runtime.win-x64.10.0.7.nupkg.sha512",
+    "/Users/bombermanll/.nuget/packages/microsoft.aspnetcore.app.runtime.win-x64/10.0.7/microsoft.aspnetcore.app.runtime.win-x64.10.0.7.nupkg.sha512",
+    "/Users/bombermanll/.nuget/packages/microsoft.netcore.app.host.win-x64/10.0.7/microsoft.netcore.app.host.win-x64.10.0.7.nupkg.sha512"
   ],
   "logs": [
     {
-      "code": "NU1900",
+      "code": "NU1903",
       "level": "Warning",
-      "message": "获取包漏洞数据时出错: 无法加载源 https://api.nuget.org/v3/index.json 的服务索引。",
+      "message": "包 \"Tmds.DBus.Protocol\" 0.21.2 具有已知的 高 严重性漏洞，https://github.com/advisories/GHSA-xrw6-gwf8-vvr9",
       "projectPath": "/Users/bombermanll/Downloads/mgba_bridge_prototype_2026-06-06/csharp/RocketTool.Avalonia/RocketTool.Avalonia.csproj",
       "warningLevel": 1,
       "filePath": "/Users/bombermanll/Downloads/mgba_bridge_prototype_2026-06-06/csharp/RocketTool.Avalonia/RocketTool.Avalonia.csproj",
-      "targetGraphs": []
+      "libraryId": "Tmds.DBus.Protocol",
+      "targetGraphs": [
+        "net10.0",
+        "net10.0/win-x64"
+      ]
     }
   ]
 }
