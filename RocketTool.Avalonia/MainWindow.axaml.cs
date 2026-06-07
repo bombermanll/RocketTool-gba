@@ -2290,10 +2290,8 @@ public partial class MainWindow : Window
     }
 
     private static string DefaultRom()
-    {
-        var downloads = "/Users/bombermanll/Downloads";
-        return Directory.GetFiles(downloads, "西班牙火箭队*.gba").OrderBy(x => x).FirstOrDefault() ?? string.Empty;
-    }
+        => string.Empty;
+
 
     private static ushort? ParseUShortOrNull(string? text)
     {
