@@ -25,7 +25,7 @@
         <Grid RowDefinitions="Auto,*" Margin="24" RowSpacing="18">
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
                 <StackPanel>
-                    <TextBlock Text="火箭队修改工具" FontSize="34" FontWeight="Bold" Foreground="#F7F2E8" />
+                    <TextBlock x:Name="AppTitleText" Text="火箭队修改工具" FontSize="34" FontWeight="Bold" Foreground="#F7F2E8" />
                     <TextBlock Text="mGBA 实时队伍/背包编辑" Foreground="#F7F2E8" Opacity="0.82" />
                 </StackPanel>
                 <Border Classes="card" Grid.Column="1" MinWidth="420">
@@ -211,7 +211,7 @@
                                     <ListBox x:Name="BagList" Grid.Row="3" SelectionChanged="OnBagSelectionChanged">
                                         <ListBox.ItemTemplate>
                                             <DataTemplate>
-                                                <Border Padding="7,5" Margin="0,0,0,4" CornerRadius="8" Background="#FFF9EE">
+                                                <Border Padding="7,3" Margin="0,0,0,2" CornerRadius="8" Background="#FFF9EE">
                                                     <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold" Foreground="#102E4A" />
                                                 </Border>
                                             </DataTemplate>
@@ -305,7 +305,7 @@
                                     <ListBox x:Name="BoxList" Grid.Row="1" SelectionChanged="OnBoxSelectionChanged">
                                         <ListBox.ItemTemplate>
                                             <DataTemplate>
-                                                <Border Padding="7,5" Margin="0,0,0,4" CornerRadius="8" Background="#FFF9EE">
+                                                <Border Padding="7,3" Margin="0,0,0,2" CornerRadius="8" Background="#FFF9EE">
                                                     <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold" Foreground="#102E4A" />
                                                 </Border>
                                             </DataTemplate>

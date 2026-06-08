@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -34,6 +35,9 @@ public sealed record ChoiceRow(int Id, string Name, string? Display = null)
 
 public partial class MainWindow : Window
 {
+    private const string AppNameBase = "火箭队修改工具";
+    private const string AppTitleBase = "火箭队修改工具 - mGBA 实时编辑";
+
     private static readonly string[] NatureNames =
     [
         "勤奋", "怕寂寞", "勇敢", "固执", "顽皮",
@@ -101,8 +105,9 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        ApplyWindowTitle();
         _db = new ModifierDatabase(Path.Combine(RootDir(), "modifier_db"), typeof(MainWindow).Assembly);
-        _speciesChoices = ChoiceRows("species");
+        _speciesChoices = SpeciesChoiceRows();
         _itemChoices = [new ChoiceRow(0, "无"), .. ChoiceRows("items")];
         _bagItemChoices = _itemChoices;
         _moveChoices = [new ChoiceRow(0, "无"), .. ChoiceRows("moves")];
@@ -170,6 +175,16 @@ public partial class MainWindow : Window
         Log("界面已就绪。请先在 mGBA 加载 bridge 脚本，然后点击“连接 mGBA”。");
     }
 
+    private void ApplyWindowTitle()
+    {
+        var version = typeof(MainWindow).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion;
+        var suffix = string.IsNullOrWhiteSpace(version) ? string.Empty : $" v{version.Split('+')[0]}";
+        Title = AppTitleBase + suffix;
+        AppTitleText.Text = AppNameBase + suffix;
+    }
+
     private void ConfigureNumericInputLimits()
     {
         foreach (var box in new[]
@@ -198,8 +213,8 @@ public partial class MainWindow : Window
         {
             using var bridge = ConnectBridge();
             var gameCode = bridge.GameCode();
-            ConnectionStatusText.Text = $"已连接 {gameCode}；载入存档后点击“读取队伍”";
-            Log($"已连接 mGBA：游戏={gameCode}。队伍数据尚未读取。");
+            ConnectionStatusText.Text = $"上次连接成功 {gameCode}；载入存档后点击“读取队伍”";
+            Log($"已连接 mGBA：游戏={gameCode}。队伍数据尚未读取。连接会在本次操作结束后自动关闭，这是正常现象。");
         });
     }
 
@@ -294,9 +309,9 @@ public partial class MainWindow : Window
         await RunUiTask("刷新队伍", () =>
         {
             using var bridge = ConnectBridge();
-            var baseAddr = ResolvePartyBase(bridge);
+            var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
             LoadPartyRows(bridge, baseAddr, selectSlot);
-            ConnectionStatusText.Text = $"已连接。游戏={bridge.GameCode()} 队伍=0x{baseAddr:X8}";
+            ConnectionStatusText.Text = $"上次连接成功。游戏={bridge.GameCode()} 队伍=0x{baseAddr:X8}";
             Log($"已从 0x{baseAddr:X8} 刷新队伍。");
         });
     }
@@ -327,7 +342,7 @@ public partial class MainWindow : Window
         await RunUiTask("恢复选中宝可梦", () =>
         {
             using var bridge = ConnectBridge();
-            var baseAddr = ResolvePartyBase(bridge);
+            var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
             var addr = SlotAddress(baseAddr, row.Slot);
             var mon = new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize));
             var info = mon.GetInfo();
@@ -344,7 +359,7 @@ public partial class MainWindow : Window
         await RunUiTask("写入基础信息", () =>
         {
             using var bridge = ConnectBridge();
-            var baseAddr = ResolvePartyBase(bridge);
+            var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
             var addr = SlotAddress(baseAddr, row.Slot);
             var mon = new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize));
             var nature = SelectedChoiceId(NatureBox);
@@ -377,7 +392,7 @@ public partial class MainWindow : Window
             var evTotal = evs.Values.Sum(x => x);
 
             using var bridge = ConnectBridge();
-            var baseAddr = ResolvePartyBase(bridge);
+            var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
             var addr = SlotAddress(baseAddr, row.Slot);
             var mon = new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize));
 
@@ -413,7 +428,7 @@ public partial class MainWindow : Window
         await RunUiTask("写入招式", () =>
         {
             using var bridge = ConnectBridge();
-            var baseAddr = ResolvePartyBase(bridge);
+            var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
             var addr = SlotAddress(baseAddr, row.Slot);
             var mon = new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize));
             mon.SetMoves(
@@ -436,7 +451,7 @@ public partial class MainWindow : Window
             var values = BuildByteStats(EvHpBox, EvAtkBox, EvDefBox, EvSpeBox, EvSpaBox, EvSpdBox);
             var evTotal = values.Values.Sum(x => x);
             using var bridge = ConnectBridge();
-            var baseAddr = ResolvePartyBase(bridge);
+            var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
             var addr = SlotAddress(baseAddr, row.Slot);
             var mon = new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize));
             mon.SetEvs(values);
@@ -462,7 +477,7 @@ public partial class MainWindow : Window
                 if (value is < 0 or > 31) throw new InvalidOperationException("个体值必须在 0..31 之间。");
             }
             using var bridge = ConnectBridge();
-            var baseAddr = ResolvePartyBase(bridge);
+            var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
             var addr = SlotAddress(baseAddr, row.Slot);
             var mon = new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize));
             mon.SetIvs(values);
@@ -490,7 +505,7 @@ public partial class MainWindow : Window
             var evTotal = evs.Values.Sum(x => x);
 
             using var bridge = ConnectBridge();
-            var baseAddr = ResolvePartyBase(bridge);
+            var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
             var addr = SlotAddress(baseAddr, row.Slot);
             var mon = new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize));
             mon.SetIvs(ivs);
@@ -815,6 +830,7 @@ public partial class MainWindow : Window
         await RunUiTask("写入背包槽", () =>
         {
             using var bridge = ConnectBridge();
+            EnsureBagSelectionFresh(bridge);
             var addr = row.Address;
             var item = ParseBagItemRequired(row.Pocket, allowEmpty: true);
             var qty = ParseBagQuantityRequired(item, allowZero: item == 0);
@@ -824,7 +840,7 @@ public partial class MainWindow : Window
             var definition = new BagPocketDefinition(row.Pocket, PocketNameZh(row.Pocket), 0, 0, quantityXor, quantityKey);
             var before = BagScanner.ReadSlot(bridge, addr, definition);
 
-            bridge.WriteRange(addr, EncodeBagOverwriteSlot(item, qty, quantityKey, quantityXor));
+            bridge.WriteRangeVerified(addr, EncodeBagOverwriteSlot(item, qty, quantityKey, quantityXor));
 
             var slot = BagScanner.ReadSlot(bridge, addr, definition);
             SetWriteNotice($"背包覆盖成功：{ItemName(before.ItemId)} x{before.Quantity} -> {ItemName(slot.ItemId)} x{slot.Quantity}。");
@@ -849,7 +865,7 @@ public partial class MainWindow : Window
             var item = ParseBagItemRequired(selectedPocket, allowEmpty: false);
             var qty = ParseBagQuantityRequired(item, allowZero: false);
             var target = BagScanner.FindAddTarget(ewram, _bagBase, selectedPocket, item, qty, PocketOfItem, MaxBagWriteQuantity);
-            bridge.WriteRange(target.Address, BagScanner.EncodeSlot(target.ItemId, target.AfterQuantity, target.QuantityKey, quantityXor: true));
+            bridge.WriteRangeVerified(target.Address, BagScanner.EncodeSlot(target.ItemId, target.AfterQuantity, target.QuantityKey, quantityXor: true));
             SetWriteNotice($"背包添加成功：{ItemName(item)} {target.BeforeQuantity} -> {target.AfterQuantity}（{target.Note}）。");
             LoadBagRows(bridge);
             BagList.SelectedItem = _bagRows.FirstOrDefault(r => r.Address == target.Address) ?? BagList.SelectedItem;
@@ -916,6 +932,7 @@ public partial class MainWindow : Window
         await RunUiTask("写入箱子", () =>
         {
             using var bridge = ConnectBridge();
+            EnsureBoxSelectionFresh(bridge);
             var mon = new BoxPokemon(bridge.Read(row.Address, BoxPokemon.Size));
             var species = ParseSpeciesRequired(BoxSpeciesBox, "箱子宝可梦");
             var item = ParseItemRequired(BoxItemBox, "箱子携带道具");
@@ -952,7 +969,7 @@ public partial class MainWindow : Window
                     ParseByteOrNull(BoxPp3Box.Text),
                     ParseByteOrNull(BoxPp4Box.Text)
                 ]);
-            bridge.WriteRange(row.Address, mon.Raw.ToArray());
+            bridge.WriteRangeVerified(row.Address, mon.Raw.ToArray());
             SetWriteNotice(
                 evTotal > 510
                     ? $"箱子槽写入成功：{SpeciesName(species)}。警告：努力值总和已超过限制，可能发生未知错误或坏档。"
@@ -1127,14 +1144,14 @@ public partial class MainWindow : Window
         return bridge;
     }
 
-    private uint ResolvePartyBase(MgbaBridgeClient bridge)
+    private uint ResolvePartyBase(MgbaBridgeClient bridge, bool forceRefresh = false)
     {
-        if (!string.IsNullOrWhiteSpace(BaseBox.Text))
+        if (!forceRefresh && !string.IsNullOrWhiteSpace(BaseBox.Text))
         {
             _partyBase = ParseUInt(BaseBox.Text.Trim());
             return _partyBase.Value;
         }
-        if (_partyBase is not null) return _partyBase.Value;
+        if (!forceRefresh && _partyBase is not null) return _partyBase.Value;
         var ewram = PartyScanner.ReadEwram(bridge);
         var run = PartyScanner.LocateParty(ewram) ?? throw new InvalidOperationException("没有定位到队伍。请先在游戏中载入存档，再点击“读取队伍”。");
         _partyBase = run.StartAddress;
@@ -1581,6 +1598,194 @@ public partial class MainWindow : Window
     private ChoiceRow[] ChoiceRows(string table)
         => _db.Table(table).OrderBy(kv => kv.Key).Select(kv => new ChoiceRow(kv.Key, kv.Value)).ToArray();
 
+    private ChoiceRow[] SpeciesChoiceRows()
+    {
+        var table = _db.Table("species");
+        var duplicateIdsByName = table
+            .GroupBy(kv => kv.Value)
+            .Where(group => group.Count() > 1)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(kv => kv.Key).OrderBy(id => id).ToArray());
+
+        return table
+            .OrderBy(kv => kv.Key)
+            .Select(kv =>
+            {
+                var display = duplicateIdsByName.TryGetValue(kv.Value, out var duplicateIds)
+                    ? DuplicateSpeciesDisplay(kv.Key, kv.Value, duplicateIds)
+                    : kv.Value;
+                return new ChoiceRow(kv.Key, kv.Value, display);
+            })
+            .ToArray();
+    }
+
+    private string SpeciesDisplayName(int species, string fallback)
+    {
+        var table = _db.Table("species");
+        if (!table.TryGetValue(species, out var name)) return fallback;
+        var duplicateIds = table
+            .Where(kv => kv.Value == name)
+            .Select(kv => kv.Key)
+            .OrderBy(id => id)
+            .ToArray();
+        return duplicateIds.Length > 1 ? DuplicateSpeciesDisplay(species, name, duplicateIds) : name;
+    }
+
+    private static string DuplicateSpeciesDisplay(int species, string name, IReadOnlyList<int> duplicateIds)
+    {
+        var form = KnownSpeciesFormLabel(species);
+        if (string.IsNullOrWhiteSpace(form))
+        {
+            var index = -1;
+            for (var i = 0; i < duplicateIds.Count; i++)
+            {
+                if (duplicateIds[i] == species)
+                {
+                    index = i;
+                    break;
+                }
+            }
+            form = index <= 0 ? "普通" : $"形态{index + 1}";
+        }
+
+        return $"{name}（{form}）";
+    }
+
+    private static string? KnownSpeciesFormLabel(int species)
+    {
+        if (species is >= 977 and <= 1032) return species switch
+        {
+            978 => "Mega X",
+            979 => "Mega Y",
+            990 => "Mega X",
+            991 => "Mega Y",
+            _ => "Mega"
+        };
+        if (species == 1033) return "Mega";
+        if (species is 1034 or 1035) return "原始回归";
+        if (species is >= 1046 and <= 1063) return "阿罗拉";
+        if (species is 1064 or >= 1065 and <= 1082) return "伽勒尔";
+        if (species is >= 1083 and <= 1096) return $"换装{species - 1082}";
+        if (species is >= 1098 and <= 1124) return $"字母形态{species - 1097}";
+        if (species is >= 1145 and <= 1161)
+        {
+            string[] types =
+            [
+                "格斗", "飞行", "毒", "地面", "岩石", "虫", "幽灵", "钢",
+                "火", "水", "草", "电", "超能力", "冰", "龙", "恶", "妖精"
+            ];
+            return types[species - 1145];
+        }
+        if (species is >= 1184 and <= 1202) return $"花纹{species - 1183}";
+        if (species is >= 1203 and <= 1215) return $"颜色{species - 1202}";
+        if (species is >= 1216 and <= 1224) return $"造型{species - 1215}";
+        if (species is >= 1246 and <= 1262) return $"属性{species - 1245}";
+        if (species is >= 1263 and <= 1275) return $"核心色{species - 1262}";
+        if (species is >= 1286 and <= 1293) return $"奶油形态{species - 1285}";
+
+        return species switch
+        {
+            913 or 914 or 915 => "P",
+            919 => "特殊形态",
+            920 => "攻击形态",
+            921 => "防御形态",
+            923 => "闪电卡带",
+            924 => "火焰卡带",
+            944 => "盾牌形态",
+            947 => "特殊形态",
+            953 => "标点形态",
+            1072 or 1073 or 1074 => "伽勒尔",
+            1097 => "刺刺耳",
+            1125 => "太阳",
+            1126 => "雨水",
+            1127 => "雪云",
+            1128 => "攻击形态",
+            1129 => "防御形态",
+            1130 => "速度形态",
+            1131 or 1133 => "沙土蓑衣",
+            1132 or 1134 => "垃圾蓑衣",
+            1135 => "晴天",
+            1136 or 1137 => "东海",
+            1138 => "加热",
+            1139 => "清洗",
+            1140 => "结冰",
+            1141 => "旋转",
+            1142 => "切割",
+            1143 => "起源形态",
+            1144 => "天空形态",
+            1162 => "蓝条纹",
+            1163 => "达摩模式",
+            1164 => "伽勒尔达摩模式",
+            1165 or 1168 => "夏天",
+            1166 or 1169 => "秋天",
+            1167 or 1170 => "冬天",
+            1171 or 1172 or 1173 => "灵兽形态",
+            1174 => "焰白",
+            1175 => "暗黑",
+            1176 => "觉悟形态",
+            1177 => "舞步形态",
+            1178 => "水流卡带",
+            1179 => "冰冻卡带",
+            1180 => "闪电卡带",
+            1181 => "火焰卡带",
+            1182 => "小智版",
+            1183 => "羁绊变身",
+            1225 => "雌性",
+            1226 => "刀剑形态",
+            1227 or 1230 => "小尺寸",
+            1228 or 1231 => "大尺寸",
+            1229 or 1232 => "特大尺寸",
+            1233 => "活跃模式",
+            1234 => "10%形态",
+            1235 => "50%形态",
+            1236 => "完全体",
+            1237 => "核心",
+            1238 => "解放形态",
+            1239 => "啪滋啪滋",
+            1240 => "呼拉呼拉",
+            1241 => "轻盈轻盈",
+            1242 => "我行我素",
+            1243 => "黑夜",
+            1244 => "黄昏",
+            1245 => "鱼群形态",
+            1276 => "现形",
+            1277 => "黄昏之鬃",
+            1278 => "拂晓之翼",
+            1279 => "究极",
+            1280 => "500年前",
+            1281 => "一口吞",
+            1282 => "大口吞",
+            1283 => "低调",
+            1284 or 1285 => "真品",
+            1294 => "解冻头",
+            1295 => "雌性",
+            1296 => "空腹花纹",
+            1297 => "剑之王",
+            1298 => "盾之王",
+            1299 => "无极巨化",
+            1300 => "连击流",
+            1301 => "披披形态",
+            1302 => "白马",
+            1303 => "黑马",
+            1304 => "P形态2",
+            1307 => "P形态2",
+            1310 or 1311 or 1312 or 1315 or 1317 or 1319 or 1320 or 1321 or 1322 or 1326 or 1327 or 1328 or 1330 or 1331 or 1332 or 1333 => "洗翠",
+            1323 => "白条纹",
+            1324 => "雄性",
+            1325 => "雌性",
+            1334 => "化身形态",
+            1335 => "灵兽形态",
+            1336 or 1337 => "起源形态",
+            1338 => "帕底亚",
+            1342 => "帕底亚斗战种",
+            1343 => "帕底亚火炽种",
+            1344 => "帕底亚水澜种",
+            1383 => "超极巨",
+            _ => null
+        };
+    }
+
     private string LongestKnownName(string table)
         => _db.Table(table).Values.OrderByDescending(name => name.Length).FirstOrDefault() ?? "";
 
@@ -1906,9 +2111,8 @@ public partial class MainWindow : Window
     private static int SumBoxes(params TextBox[] boxes)
         => boxes.Sum(box => int.TryParse(box.Text, out var value) ? value : 0);
 
-    private SpeciesStatsReader SpeciesReader()
+    private SpeciesStatsReader SpeciesReader(string path)
     {
-        var path = RomPath();
         if (_speciesReader is null || _speciesReaderPath != path)
         {
             _speciesReader = new SpeciesStatsReader(path);
@@ -1917,9 +2121,8 @@ public partial class MainWindow : Window
         return _speciesReader;
     }
 
-    private ItemDataReader ItemReader()
+    private ItemDataReader ItemReader(string path)
     {
-        var path = RomPath();
         if (_itemReader is null || _itemReaderPath != path)
         {
             _itemReader = new ItemDataReader(path);
@@ -1928,9 +2131,8 @@ public partial class MainWindow : Window
         return _itemReader;
     }
 
-    private MoveDataReader MoveReader()
+    private MoveDataReader MoveReader(string path)
     {
-        var path = RomPath();
         if (_moveReader is null || _moveReaderPath != path)
         {
             _moveReader = new MoveDataReader(path);
@@ -1941,16 +2143,23 @@ public partial class MainWindow : Window
 
     private SpeciesStats ReadSpeciesStats(int species)
     {
-        try
+        Exception? romError = null;
+        if (TryExistingRomPath(out var path))
         {
-            return SpeciesReader().Read(species);
+            try
+            {
+                return SpeciesReader(path).Read(species);
+            }
+            catch (Exception ex)
+            {
+                romError = ex;
+            }
         }
-        catch
-        {
-            if (TryReadEmbeddedSpeciesStats(species, out var stats))
-                return stats;
-            throw;
-        }
+
+        if (TryReadEmbeddedSpeciesStats(species, out var stats))
+            return stats;
+
+        throw MissingEmbeddedDataException("宝可梦种族值", species, romError);
     }
 
     private bool TryReadEmbeddedSpeciesStats(int species, out SpeciesStats stats)
@@ -1958,16 +2167,15 @@ public partial class MainWindow : Window
         stats = default!;
         if (!_db.Table("species_stats").TryGetValue(species, out var raw)) return false;
         var parts = raw.Split('\t');
-        if (parts.Length < 23) return false;
+        if (parts.Length < 22) return false;
         try
         {
-            int I(int index) => int.Parse(parts[index]);
             byte B(int index) => byte.Parse(parts[index]);
             ushort U(int index) => ushort.Parse(parts[index]);
             stats = new SpeciesStats(
-                I(0), B(1), B(2), B(3), B(4), B(5), B(6), B(7), B(8),
-                U(9), U(10), U(11), U(12), U(13), B(14), B(15), B(16), B(17),
-                B(18), B(19), U(20), U(21), U(22));
+                species, B(0), B(1), B(2), B(3), B(4), B(5), B(6), B(7),
+                U(8), U(9), U(10), U(11), U(12), B(13), B(14), B(15), B(16),
+                B(17), B(18), U(19), U(20), U(21));
             return true;
         }
         catch
@@ -1978,16 +2186,23 @@ public partial class MainWindow : Window
 
     private ItemData ReadItemData(int item)
     {
-        try
+        Exception? romError = null;
+        if (TryExistingRomPath(out var path))
         {
-            return ItemReader().Read(item);
+            try
+            {
+                return ItemReader(path).Read(item);
+            }
+            catch (Exception ex)
+            {
+                romError = ex;
+            }
         }
-        catch
-        {
-            if (TryReadEmbeddedItemData(item, out var data))
-                return data;
-            throw;
-        }
+
+        if (TryReadEmbeddedItemData(item, out var data))
+            return data;
+
+        throw MissingEmbeddedDataException("道具数据", item, romError);
     }
 
     private bool TryReadEmbeddedItemData(int item, out ItemData data)
@@ -1995,14 +2210,13 @@ public partial class MainWindow : Window
         data = default!;
         if (!_db.Table("item_data").TryGetValue(item, out var raw)) return false;
         var parts = raw.Split('\t');
-        if (parts.Length < 14) return false;
+        if (parts.Length < 13) return false;
         try
         {
-            int I(int index) => int.Parse(parts[index]);
             ushort U(int index) => ushort.Parse(parts[index]);
             byte B(int index) => byte.Parse(parts[index]);
             uint UI(int index) => uint.Parse(parts[index]);
-            data = new ItemData(I(0), U(1), U(2), B(3), B(4), UI(5), B(6), B(7), B(8), B(9), UI(10), B(11), UI(12), UI(13), [], []);
+            data = new ItemData(item, U(0), U(1), B(2), B(3), UI(4), B(5), B(6), B(7), B(8), UI(9), B(10), UI(11), UI(12), [], []);
             return true;
         }
         catch
@@ -2013,16 +2227,23 @@ public partial class MainWindow : Window
 
     private MoveData ReadMoveData(int move)
     {
-        try
+        Exception? romError = null;
+        if (TryExistingRomPath(out var path))
         {
-            return MoveReader().Read(move);
+            try
+            {
+                return MoveReader(path).Read(move);
+            }
+            catch (Exception ex)
+            {
+                romError = ex;
+            }
         }
-        catch
-        {
-            if (TryReadEmbeddedMoveData(move, out var data))
-                return data;
-            throw;
-        }
+
+        if (TryReadEmbeddedMoveData(move, out var data))
+            return data;
+
+        throw MissingEmbeddedDataException("招式数据", move, romError);
     }
 
     private bool TryReadEmbeddedMoveData(int move, out MoveData data)
@@ -2030,14 +2251,13 @@ public partial class MainWindow : Window
         data = default!;
         if (!_db.Table("move_data").TryGetValue(move, out var raw)) return false;
         var parts = raw.Split('\t');
-        if (parts.Length < 11) return false;
+        if (parts.Length < 10) return false;
         try
         {
-            int I(int index) => int.Parse(parts[index]);
             ushort U(int index) => ushort.Parse(parts[index]);
             byte B(int index) => byte.Parse(parts[index]);
             sbyte S(int index) => sbyte.Parse(parts[index]);
-            data = new MoveData(I(0), U(1), B(2), B(3), B(4), B(5), U(6), S(7), U(8), B(9), U(10), []);
+            data = new MoveData(move, U(0), B(1), B(2), B(3), B(4), U(5), S(6), U(7), B(8), U(9), []);
             return true;
         }
         catch
@@ -2298,10 +2518,20 @@ public partial class MainWindow : Window
         }
     }
 
-    private string RomPath()
+    private bool TryExistingRomPath(out string path)
     {
-        if (string.IsNullOrWhiteSpace(RomPathBox.Text)) throw new InvalidOperationException("ROM 路径为空。");
-        return RomPathBox.Text.Trim();
+        path = RomPathBox.Text?.Trim() ?? string.Empty;
+        return path.Length > 0 && File.Exists(path);
+    }
+
+    private static InvalidOperationException MissingEmbeddedDataException(string label, int id, Exception? romError)
+    {
+        var message = $"内置{label}缺少 ID {id}";
+        if (romError is not null)
+            message += $"，ROM 读取也失败：{romError.Message}";
+        else
+            message += "，且当前未设置可用 ROM 路径。";
+        return new InvalidOperationException(message, romError);
     }
 
     private string ItemName(int item)
@@ -2400,6 +2630,27 @@ public partial class MainWindow : Window
         return null;
     }
 
+    private void EnsureBagSelectionFresh(MgbaBridgeClient bridge)
+    {
+        var liveBase = TryLocateBagBase(bridge);
+        if (_bagBase is not null && liveBase is not null && liveBase.Value != _bagBase.Value)
+        {
+            LoadBagRows(bridge);
+            throw new InvalidOperationException("背包位置已变化，已刷新背包列表。请重新选择槽位后再写入。");
+        }
+        _bagBase = liveBase;
+    }
+
+    private void EnsureBoxSelectionFresh(MgbaBridgeClient bridge)
+    {
+        if (_boxBase is null) return;
+        var ewram = PartyScanner.ReadEwram(bridge);
+        var run = BoxScanner.LocateBestRun(ewram) ?? throw new InvalidOperationException("没有定位到箱子宝可梦。请重新读取箱子后再写入。");
+        if (run.StartAddress == _boxBase.Value) return;
+        LoadBoxRows(bridge);
+        throw new InvalidOperationException("箱子位置已变化，已刷新箱子列表。请重新选择槽位后再写入。");
+    }
+
     private BagPocketDefinition? ResolveBagDefinition(MgbaBridgeClient bridge, uint address)
     {
         if (BagList.SelectedItem is BagSlotRow row && row.Address == address)
@@ -2428,7 +2679,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private string SpeciesName(int species) => KnownName("species", species, "未知宝可梦");
+    private string SpeciesName(int species) => SpeciesDisplayName(species, "未知宝可梦");
 
     private string MoveName(int move) => move == 0 ? "无" : KnownName("moves", move, "未知招式");
 
@@ -2440,7 +2691,7 @@ public partial class MainWindow : Window
         return name.StartsWith('#') ? fallback : name;
     }
 
-    private static void WriteMon(MgbaBridgeClient bridge, uint addr, PartyPokemon mon) => bridge.WriteRange(addr, mon.Raw);
+    private static void WriteMon(MgbaBridgeClient bridge, uint addr, PartyPokemon mon) => bridge.WriteRangeVerified(addr, mon.Raw);
 
     private static uint SlotAddress(uint baseAddr, int slot) => baseAddr + (uint)((slot - 1) * Gen3Constants.PartyMonSize);
 

@@ -136,7 +136,7 @@ static (uint BaseAddr, uint Addr, PartyPokemon Mon) ReadMon(MgbaBridgeClient bri
     return (baseAddr, addr, new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize)));
 }
 
-static void WriteMon(MgbaBridgeClient bridge, uint addr, PartyPokemon mon) => bridge.WriteRange(addr, mon.Raw);
+static void WriteMon(MgbaBridgeClient bridge, uint addr, PartyPokemon mon) => bridge.WriteRangeVerified(addr, mon.Raw);
 
 static void PrintMon(int slot, uint addr, PartyPokemon mon, ModifierDatabase db)
 {
@@ -570,7 +570,7 @@ static int BagSet(string[] args)
                   "提示：当前按普通 Gen3 {u16道具,u16数量} 写入；如果该改版对数量加密，请先用少量测试。";
     if (Confirm(args, summary))
     {
-        bridge.WriteRange(addr, BagScanner.EncodeSlot((ushort)item, (ushort)qty));
+        bridge.WriteRangeVerified(addr, BagScanner.EncodeSlot((ushort)item, (ushort)qty));
         var after = BagScanner.ReadSlot(bridge, addr);
         Console.WriteLine($"已写入: {after.ItemId}({(after.ItemId == 0 ? "无" : db.NameOf("items", after.ItemId))}) x{after.Quantity}");
     }

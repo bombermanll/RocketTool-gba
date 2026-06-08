@@ -51,6 +51,14 @@ public sealed class MgbaBridgeClient : IDisposable
     public void WriteRange(uint address, ReadOnlySpan<byte> data)
         => Command($"WRITERANGE 0x{address:X} {Convert.ToHexString(data)}");
 
+    public void WriteRangeVerified(uint address, ReadOnlySpan<byte> data)
+    {
+        WriteRange(address, data);
+        var actual = Read(address, data.Length);
+        if (!actual.AsSpan().SequenceEqual(data))
+            throw new InvalidOperationException("写入校验失败：mGBA 已响应，但内存回读不一致。请重新连接/读取后再试。");
+    }
+
     public void Write16(uint address, ushort value)
         => Command($"WRITE16 0x{address:X} 0x{value:X}");
 
