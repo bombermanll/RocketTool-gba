@@ -32,9 +32,15 @@
             <Setter Property="CornerRadius" Value="8" />
         </Style>
         <Style Selector="ListBox.compactList ListBoxItem">
-            <Setter Property="Padding" Value="0" />
-            <Setter Property="Margin" Value="0" />
+            <Setter Property="Padding" Value="1" />
+            <Setter Property="Margin" Value="0,0,0,2" />
             <Setter Property="MinHeight" Value="0" />
+        </Style>
+        <Style Selector="ListBox.compactList ListBoxItem:pointerover">
+            <Setter Property="Background" Value="#EED1A2" />
+        </Style>
+        <Style Selector="ListBox.compactList ListBoxItem:selected">
+            <Setter Property="Background" Value="#E8A34A" />
         </Style>
         <Style Selector="TabControl.pocketTabs">
             <Setter Property="Background" Value="#E3D3B8" />

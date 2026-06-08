@@ -37,6 +37,22 @@ public sealed class ModifierDatabase
     public string NameOf(string table, int id)
         => Table(table).TryGetValue(id, out var name) ? name : $"#{id}";
 
+    public IEnumerable<string> Lines(string name)
+    {
+        var path = Path.Combine(_dbDirectory, name + ".tsv");
+        if (File.Exists(path))
+            return File.ReadLines(path);
+
+        if (OpenResource(name) is not { } stream)
+            return [];
+
+        using var reader = new StreamReader(stream);
+        var lines = new List<string>();
+        while (reader.ReadLine() is { } line)
+            lines.Add(line);
+        return lines;
+    }
+
     private Stream? OpenResource(string name)
     {
         if (_resourceAssembly is null) return null;

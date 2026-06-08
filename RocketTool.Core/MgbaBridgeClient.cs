@@ -31,6 +31,7 @@ public sealed class MgbaBridgeClient : IDisposable
     {
         var bytes = Encoding.ASCII.GetBytes(line + "\n");
         _stream.Write(bytes, 0, bytes.Length);
+        _stream.Flush();
         var response = ReadLine();
         if (!response.StartsWith("OK ", StringComparison.Ordinal))
         {
@@ -61,6 +62,12 @@ public sealed class MgbaBridgeClient : IDisposable
 
     public void Write16(uint address, ushort value)
         => Command($"WRITE16 0x{address:X} 0x{value:X}");
+
+    public string Cheat(string name, bool enabled)
+        => Command($"CHEAT {name} {(enabled ? 1 : 0)}");
+
+    public string CheatCommand(string command)
+        => Command($"CHEAT {command}");
 
     private string ReadLine()
     {

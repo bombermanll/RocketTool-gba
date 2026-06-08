@@ -11,6 +11,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Platform;
 using Avalonia.Threading;
 using RocketTool.Core;
 
@@ -28,6 +29,10 @@ public sealed record BagSlotRow(
     string Detail);
 public sealed record BagCalibrationRequest(int Pocket, ushort ItemId, ushort Quantity);
 public sealed record BoxSlotRow(int Slot, uint Address, BoxPokemon Mon, BoxMonInfo Info, string Title, string Detail);
+public sealed record MapLocationChoice(string Name, int X, int Y)
+{
+    public override string ToString() => Name;
+}
 public sealed record ChoiceRow(int Id, string Name, string? Display = null)
 {
     public override string ToString() => Display ?? Name;
@@ -82,6 +87,8 @@ public partial class MainWindow : Window
     private readonly ChoiceRow[] _statusChoices;
     private readonly ChoiceRow[] _ppBonusChoices;
     private readonly ChoiceRow[] _bagPocketChoices;
+    private readonly MapDatabase _mapDatabase;
+    private readonly ChoiceRow[] _mapGroupChoices;
     private IReadOnlyList<ChoiceRow> _bagItemChoices = [];
     private readonly ModifierDatabase _db;
     private uint? _partyBase;
@@ -98,6 +105,7 @@ public partial class MainWindow : Window
     private int? _abilitySpecies;
     private int? _boxAbilitySpecies;
     private bool _suppressEditorEvents;
+    private bool _suppressCheatEvents;
     private bool _updatingSearchableCombo;
     private DispatcherTimer? _toastTimer;
     private readonly Dictionary<ComboBox, IReadOnlyList<ChoiceRow>> _searchableChoices = [];
@@ -105,8 +113,13 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        ApplyWindowIcon();
         ApplyWindowTitle();
         _db = new ModifierDatabase(Path.Combine(RootDir(), "modifier_db"), typeof(MainWindow).Assembly);
+        _mapDatabase = new MapDatabase(_db);
+        _mapGroupChoices = _mapDatabase.Groups()
+            .Select(g => new ChoiceRow(g.Key, MapGroupChoiceText(g.Key, g)))
+            .ToArray();
         _speciesChoices = SpeciesChoiceRows();
         _itemChoices = [new ChoiceRow(0, "无"), .. ChoiceRows("items")];
         _bagItemChoices = _itemChoices;
@@ -169,6 +182,9 @@ public partial class MainWindow : Window
         FitComboToContent(StatusBox, _statusChoices);
         BagPocketTabs.ItemsSource = _bagPocketChoices;
         BagPocketTabs.SelectedIndex = 0;
+        TeleportGroupBox.ItemsSource = _mapGroupChoices;
+        TeleportGroupBox.SelectedIndex = _mapGroupChoices.Length > 0 ? 0 : -1;
+        RefreshTeleportMaps();
         ConfigureNumericInputLimits();
         HookNameRefresh();
         RomPathBox.Text = DefaultRom();
@@ -185,6 +201,18 @@ public partial class MainWindow : Window
         AppTitleText.Text = AppNameBase + suffix;
     }
 
+    private void ApplyWindowIcon()
+    {
+        try
+        {
+            Icon = new WindowIcon(AssetLoader.Open(new Uri("avares://RocketTool.Avalonia/Assets/AppIcon.ico")));
+        }
+        catch
+        {
+            // The executable icon is still set by the project file; ignore resource load failures.
+        }
+    }
+
     private void ConfigureNumericInputLimits()
     {
         foreach (var box in new[]
@@ -195,7 +223,8 @@ public partial class MainWindow : Window
                      BoxFriendshipBox,
                      BoxPp1Box, BoxPp2Box, BoxPp3Box, BoxPp4Box,
                      BoxEvHpBox, BoxEvAtkBox, BoxEvDefBox, BoxEvSpeBox, BoxEvSpaBox, BoxEvSpdBox,
-                     BagQuantityBox
+                     BagQuantityBox,
+                     TeleportXBox, TeleportYBox
                  })
             box.MaxLength = 3; // byte-sized fields, and bag quantity is intentionally capped at 255.
 
@@ -1026,6 +1055,237 @@ public partial class MainWindow : Window
 
     private void OnClearLogClicked(object? sender, RoutedEventArgs e) => LogBox.Text = string.Empty;
 
+    private async void OnCheatToggleChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_suppressCheatEvents || sender is not CheckBox box) return;
+        if (CheatNameForBox(box) is not { } cheatName) return;
+        var enabled = box.IsChecked == true;
+
+        await RunUiTask(enabled ? "开启实验功能" : "关闭实验功能", () =>
+        {
+            using var bridge = ConnectBridge();
+            if (cheatName is "INFINITE_PP" or "LOCK_HP")
+            {
+                var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
+                bridge.CheatCommand($"PARTY_BASE 0x{baseAddr:X}");
+            }
+            else if (cheatName is "NO_ENCOUNTER" && TryLocateBagBase(bridge) is { } saveBase)
+            {
+                bridge.CheatCommand($"SAVE_BASE 0x{saveBase:X}");
+            }
+
+            var status = bridge.Cheat(cheatName, enabled);
+            CheatStatusText.Text = "实验功能状态：" + status;
+            Log($"实验功能 {cheatName} -> {(enabled ? "开启" : "关闭")}：{status}");
+        });
+    }
+
+    private async void OnCheatRefreshClicked(object? sender, RoutedEventArgs e)
+    {
+        await RunUiTask("刷新实验功能状态", () =>
+        {
+            using var bridge = ConnectBridge();
+            var status = bridge.CheatCommand("STATUS");
+            CheatStatusText.Text = "实验功能状态：" + status;
+            SyncCheatBoxesFromStatus(status);
+        });
+    }
+
+    private async void OnCheatClearClicked(object? sender, RoutedEventArgs e)
+    {
+        await RunUiTask("关闭实验功能", () =>
+        {
+            using var bridge = ConnectBridge();
+            var status = bridge.CheatCommand("CLEAR");
+            CheatStatusText.Text = "实验功能状态：" + status;
+            _suppressCheatEvents = true;
+            try
+            {
+                CheatInfinitePpBox.IsChecked = false;
+                CheatLockHpBox.IsChecked = false;
+                CheatNoEncounterBox.IsChecked = false;
+                CheatWalkThroughWallsBox.IsChecked = false;
+            }
+            finally
+            {
+                _suppressCheatEvents = false;
+            }
+        });
+    }
+
+    private string? CheatNameForBox(CheckBox box)
+    {
+        if (ReferenceEquals(box, CheatInfinitePpBox)) return "INFINITE_PP";
+        if (ReferenceEquals(box, CheatLockHpBox)) return "LOCK_HP";
+        if (ReferenceEquals(box, CheatNoEncounterBox)) return "NO_ENCOUNTER";
+        if (ReferenceEquals(box, CheatWalkThroughWallsBox)) return "WALK_THROUGH_WALLS";
+        return null;
+    }
+
+    private void SyncCheatBoxesFromStatus(string status)
+    {
+        _suppressCheatEvents = true;
+        try
+        {
+            CheatInfinitePpBox.IsChecked = status.Contains("INFINITE_PP=1", StringComparison.OrdinalIgnoreCase);
+            CheatLockHpBox.IsChecked = status.Contains("LOCK_HP=1", StringComparison.OrdinalIgnoreCase);
+            CheatNoEncounterBox.IsChecked = status.Contains("NO_ENCOUNTER=1", StringComparison.OrdinalIgnoreCase);
+            CheatWalkThroughWallsBox.IsChecked = status.Contains("WALK_THROUGH_WALLS=1", StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            _suppressCheatEvents = false;
+        }
+    }
+
+    private void OnTeleportGroupChanged(object? sender, SelectionChangedEventArgs e)
+        => RefreshTeleportMaps();
+
+    private void OnTeleportMapChanged(object? sender, SelectionChangedEventArgs e)
+        => RefreshTeleportLocations();
+
+    private void OnTeleportLocationChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (TeleportLocationBox.SelectedItem is not MapLocationChoice location) return;
+        TeleportXBox.Text = location.X.ToString();
+        TeleportYBox.Text = location.Y.ToString();
+    }
+
+    private async void OnTeleportReadLocationClicked(object? sender, RoutedEventArgs e)
+    {
+        await RunUiTask("读取当前位置", () =>
+        {
+            using var bridge = ConnectBridge();
+            var status = bridge.CheatCommand("LOCATION");
+            var values = ParseKeyValues(status);
+            var group = ParseStatusInt(values, "GROUP");
+            var map = ParseStatusInt(values, "MAP");
+            var x = ParseStatusInt(values, "X");
+            var y = ParseStatusInt(values, "Y");
+            SelectTeleportMap(group, map);
+            TeleportXBox.Text = x.ToString();
+            TeleportYBox.Text = y.ToString();
+            var info = _mapDatabase.Maps.FirstOrDefault(m => m.Group == group && m.Map == map);
+            TeleportStatusText.Text = $"当前位置：{MapStatusName(group, map, info)}  X={x} Y={y}";
+        });
+    }
+
+    private async void OnTeleportClicked(object? sender, RoutedEventArgs e)
+    {
+        await RunUiTask("传送", () =>
+        {
+            if (SelectedChoiceId(TeleportGroupBox) is not { } group)
+                throw new InvalidOperationException("请选择地图组。");
+            if (SelectedChoiceId(TeleportMapBox) is not { } map)
+                throw new InvalidOperationException("请选择地图。");
+            var x = ParseIntRequired(TeleportXBox.Text, "X坐标");
+            var y = ParseIntRequired(TeleportYBox.Text, "Y坐标");
+            var info = _mapDatabase.Maps.FirstOrDefault(m => m.Group == group && m.Map == map);
+            if (info is null)
+                throw new InvalidOperationException("地图数据不存在。");
+            if (x < 0 || y < 0 || x >= info.Width || y >= info.Height)
+                throw new InvalidOperationException($"坐标超出地图范围：该地图为 {info.Width}x{info.Height}。");
+
+            using var bridge = ConnectBridge();
+            var result = bridge.CheatCommand($"TELEPORT {group} {map} {x} {y}");
+            TeleportStatusText.Text = $"已请求传送：{MapStatusName(group, map, info)}  X={x} Y={y}";
+            SetWriteNotice($"传送请求已发送：{info.Name} X={x} Y={y}", success: true);
+            ShowToast("传送请求已发送。", success: true);
+            Log("传送：" + result);
+        });
+    }
+
+    private void RefreshTeleportMaps()
+    {
+        if (TeleportGroupBox is null || TeleportMapBox is null) return;
+        var selectedGroup = SelectedChoiceId(TeleportGroupBox);
+        if (selectedGroup is null && _mapGroupChoices.Length == 0) return;
+        var group = selectedGroup ?? _mapGroupChoices[0].Id;
+        var maps = _mapDatabase.MapsInGroup(group)
+            .Select(m => new ChoiceRow(m.Map, MapChoiceText(m)))
+            .ToArray();
+        TeleportMapBox.ItemsSource = maps;
+        TeleportMapBox.SelectedIndex = maps.Length > 0 ? 0 : -1;
+        RefreshTeleportLocations();
+    }
+
+    private static string MapGroupChoiceText(int group, IEnumerable<MapInfo> maps)
+    {
+        var mapList = maps.ToArray();
+        var sampleName = mapList
+            .Select(m => m.Name)
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Distinct()
+            .FirstOrDefault();
+        var sample = string.IsNullOrWhiteSpace(sampleName) ? string.Empty : $"：{sampleName}等";
+        return $"组{group:00}{sample}（{mapList.Length}张）";
+    }
+
+    private static string MapChoiceText(MapInfo map)
+        => $"{map.Name}（地图{map.Map:00}, {map.Width}x{map.Height}, 出入口{map.WarpCount}）";
+
+    private static string MapStatusName(int group, int map, MapInfo? info)
+        => info is null ? $"组{group:00} 地图{map:00}" : $"{info.Name}（组{group:00} 地图{map:00}）";
+
+    private void RefreshTeleportLocations()
+    {
+        if (TeleportLocationBox is null) return;
+        if (SelectedChoiceId(TeleportGroupBox) is not { } group ||
+            SelectedChoiceId(TeleportMapBox) is not { } map)
+        {
+            TeleportLocationBox.ItemsSource = Array.Empty<MapLocationChoice>();
+            return;
+        }
+
+        var info = _mapDatabase.Maps.FirstOrDefault(m => m.Group == group && m.Map == map);
+        var choices = new List<MapLocationChoice>();
+        if (info is not null)
+            choices.Add(new MapLocationChoice($"地图中心 ({info.Width / 2},{info.Height / 2})", info.Width / 2, info.Height / 2));
+        choices.AddRange(_mapDatabase.WarpsFor(group, map)
+            .Select(w => new MapLocationChoice(w.Label, w.X, w.Y)));
+        TeleportLocationBox.ItemsSource = choices;
+        TeleportLocationBox.SelectedIndex = choices.Count > 0 ? 0 : -1;
+    }
+
+    private void SelectTeleportMap(int group, int map)
+    {
+        var groupIndex = _mapGroupChoices.ToList().FindIndex(g => g.Id == group);
+        if (groupIndex >= 0)
+        {
+            TeleportGroupBox.SelectedIndex = groupIndex;
+            RefreshTeleportMaps();
+        }
+
+        if (TeleportMapBox.ItemsSource is IEnumerable<ChoiceRow> maps)
+        {
+            var mapRows = maps.ToArray();
+            var mapIndex = Array.FindIndex(mapRows, m => m.Id == map);
+            if (mapIndex >= 0)
+            {
+                TeleportMapBox.SelectedIndex = mapIndex;
+                RefreshTeleportLocations();
+            }
+        }
+    }
+
+    private static Dictionary<string, string> ParseKeyValues(string text)
+    {
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var part in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var pieces = part.Split('=', 2);
+            if (pieces.Length == 2) values[pieces[0]] = pieces[1];
+        }
+        return values;
+    }
+
+    private static int ParseStatusInt(IReadOnlyDictionary<string, string> values, string key)
+    {
+        if (!values.TryGetValue(key, out var text))
+            throw new InvalidOperationException($"状态中缺少 {key}。");
+        return ParseInt(text);
+    }
+
     private bool TryReadCurrentEvTotal(string label, out int evTotal)
     {
         try
@@ -1127,7 +1387,8 @@ public partial class MainWindow : Window
             ShowToast($"{label}失败：{ex.Message}", success: false);
             if (label.Contains("写入", StringComparison.Ordinal) ||
                 label.Contains("添加", StringComparison.Ordinal) ||
-                label.Contains("恢复", StringComparison.Ordinal))
+                label.Contains("恢复", StringComparison.Ordinal) ||
+                label.Contains("传送", StringComparison.Ordinal))
             {
                 SetWriteNotice($"{label}失败：{ex.Message}", success: false);
             }
@@ -2490,26 +2751,36 @@ public partial class MainWindow : Window
 
     private byte NormalizePpBonusesForDisplay(byte packed, IReadOnlyList<ushort> moves, IReadOnlyList<byte> currentPp)
     {
-        if (packed != 0xFF) return packed;
-
-        // This ROM often stores 0xFF in the PP bonus byte for untouched mons.
-        // Treat it as "no PP Up" when current PP never exceeds the move's base PP.
+        var normalized = 0;
         for (var i = 0; i < Math.Min(4, Math.Min(moves.Count, currentPp.Count)); i++)
         {
             var move = moves[i];
             if (move == 0) continue;
+
             try
             {
-                if (currentPp[i] > ReadMoveData(move).Pp)
-                    return packed;
+                var basePp = ReadMoveData(move).Pp;
+                var shownBonus = PpBonusNeededForCurrentPp(basePp, currentPp[i]);
+                normalized |= shownBonus << (i * 2);
             }
             catch
             {
-                return packed;
+                normalized |= ((packed >> (i * 2)) & 0x03) << (i * 2);
             }
         }
 
-        return 0;
+        return (byte)normalized;
+    }
+
+    private static int PpBonusNeededForCurrentPp(int basePp, int currentPp)
+    {
+        if (basePp <= 0 || currentPp <= basePp) return 0;
+        for (var bonus = 1; bonus <= 3; bonus++)
+        {
+            if (currentPp <= CalculateMaxPp(basePp, bonus))
+                return bonus;
+        }
+        return 3;
     }
 
     private bool WritesEnabled() => true;
