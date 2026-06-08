@@ -901,7 +901,7 @@ public partial class MainWindow : Window
         BoxPp2Box.Text = info.Pp[1].ToString();
         BoxPp3Box.Text = info.Pp[2].ToString();
         BoxPp4Box.Text = info.Pp[3].ToString();
-        SetPpBonusChoices(info.PpBonuses, BoxPpUp1Box, BoxPpUp2Box, BoxPpUp3Box, BoxPpUp4Box);
+        SetPpBonusChoices(info.PpBonuses, info.Moves, info.Pp, BoxPpUp1Box, BoxPpUp2Box, BoxPpUp3Box, BoxPpUp4Box);
         BoxIvHpBox.Text = info.Ivs["hp"].ToString();
         BoxIvAtkBox.Text = info.Ivs["atk"].ToString();
         BoxIvDefBox.Text = info.Ivs["def"].ToString();
@@ -1204,7 +1204,7 @@ public partial class MainWindow : Window
             Pp2Box.Text = info.Pp[1].ToString();
             Pp3Box.Text = info.Pp[2].ToString();
             Pp4Box.Text = info.Pp[3].ToString();
-            SetPpBonusChoices(info.PpBonuses, PpUp1Box, PpUp2Box, PpUp3Box, PpUp4Box);
+            SetPpBonusChoices(info.PpBonuses, info.Moves, info.Pp, PpUp1Box, PpUp2Box, PpUp3Box, PpUp4Box);
 
             EvHpBox.Text = info.Evs[0].ToString();
             EvAtkBox.Text = info.Evs[1].ToString();
@@ -1422,6 +1422,10 @@ public partial class MainWindow : Window
         var ability = AbilityText(info.Species, info.Ivs["ability"]);
         BasicNameText.Text = $"种类：{SpeciesName(info.Species)}  携带道具：{itemName}  性格：{nature}  特性：{ability}  闪光：{(PartyPokemon.IsShinyPid(info.Pid, info.OtId) ? "是" : "否")}";
         MoveNameText.Text = string.Join("  /  ", info.Moves.Select((m, i) => $"招式{i + 1}: {(m == 0 ? "无" : MoveName(m))}"));
+        UpdateMaxPpTexts(
+            [Move1Box, Move2Box, Move3Box, Move4Box],
+            [PpUp1Box, PpUp2Box, PpUp3Box, PpUp4Box],
+            [Move1MaxPpText, Move2MaxPpText, Move3MaxPpText, Move4MaxPpText]);
     }
 
     private void UpdateNameHintsFromBoxes()
@@ -2479,6 +2483,33 @@ public partial class MainWindow : Window
     {
         for (var i = 0; i < Math.Min(4, boxes.Length); i++)
             SetChoice(boxes[i], _ppBonusChoices, (packed >> (i * 2)) & 0x03);
+    }
+
+    private void SetPpBonusChoices(byte packed, IReadOnlyList<ushort> moves, IReadOnlyList<byte> currentPp, params ComboBox[] boxes)
+        => SetPpBonusChoices(NormalizePpBonusesForDisplay(packed, moves, currentPp), boxes);
+
+    private byte NormalizePpBonusesForDisplay(byte packed, IReadOnlyList<ushort> moves, IReadOnlyList<byte> currentPp)
+    {
+        if (packed != 0xFF) return packed;
+
+        // This ROM often stores 0xFF in the PP bonus byte for untouched mons.
+        // Treat it as "no PP Up" when current PP never exceeds the move's base PP.
+        for (var i = 0; i < Math.Min(4, Math.Min(moves.Count, currentPp.Count)); i++)
+        {
+            var move = moves[i];
+            if (move == 0) continue;
+            try
+            {
+                if (currentPp[i] > ReadMoveData(move).Pp)
+                    return packed;
+            }
+            catch
+            {
+                return packed;
+            }
+        }
+
+        return 0;
     }
 
     private bool WritesEnabled() => true;
