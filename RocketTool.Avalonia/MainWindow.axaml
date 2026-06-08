@@ -72,28 +72,29 @@
                                     <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
                                         <StackPanel Spacing="10">
                                             <TextBlock Text="基础信息" FontWeight="SemiBold" Foreground="#102E4A" />
-                                            <Grid ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+                                            <Grid ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
                                                 <TextBlock Text="宝可梦" Classes="label" />
-                                                <TextBlock Text="性格" Classes="label" Grid.Column="1" />
-                                                <TextBlock Text="特性" Classes="label" Grid.Column="2" />
-                                                <ComboBox x:Name="SpeciesBox" Grid.Row="1" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
-                                                <ComboBox x:Name="NatureBox" Grid.Row="1" Grid.Column="1" />
-                                                <ComboBox x:Name="AbilityBox" Grid.Row="1" Grid.Column="2" />
+                                                <ComboBox x:Name="SpeciesBox" Grid.Row="1" Grid.ColumnSpan="3" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
 
-                                                <TextBlock Text="携带道具" Classes="label" Grid.Row="2" />
-                                                <TextBlock Text="经验" Classes="label" Grid.Row="2" Grid.Column="1" />
-                                                <TextBlock Text="亲密度" Classes="label" Grid.Row="2" Grid.Column="2" />
-                                                <ComboBox x:Name="ItemBox" Grid.Row="3" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
-                                                <TextBox x:Name="ExpBox" Grid.Row="3" Grid.Column="1" />
-                                                <TextBox x:Name="FriendshipBox" Grid.Row="3" Grid.Column="2" />
+                                                <TextBlock Text="性格" Classes="label" Grid.Row="2" />
+                                                <TextBlock Text="特性" Classes="label" Grid.Row="2" Grid.Column="1" />
+                                                <ComboBox x:Name="NatureBox" Grid.Row="3" />
+                                                <ComboBox x:Name="AbilityBox" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" />
 
-                                                <TextBlock Text="等级" Classes="label" Grid.Row="4" />
-                                                <TextBlock Text="最大HP" Classes="label" Grid.Row="4" Grid.Column="1" />
-                                                <TextBlock Text="状态" Classes="label" Grid.Row="4" Grid.Column="2" />
-                                                <TextBox x:Name="LevelBox" Grid.Row="5" />
-                                                <TextBox x:Name="MaxHpBox" Grid.Row="5" Grid.Column="1" />
-                                                <ComboBox x:Name="StatusBox" Grid.Row="5" Grid.Column="2" />
-                                                <CheckBox x:Name="ShinyBox" Grid.Row="6" Grid.ColumnSpan="3" Content="闪光宝可梦" />
+                                                <TextBlock Text="携带道具" Classes="label" Grid.Row="4" />
+                                                <TextBlock Text="经验" Classes="label" Grid.Row="4" Grid.Column="1" />
+                                                <TextBlock Text="亲密度" Classes="label" Grid.Row="4" Grid.Column="2" />
+                                                <ComboBox x:Name="ItemBox" Grid.Row="5" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <TextBox x:Name="ExpBox" Grid.Row="5" Grid.Column="1" />
+                                                <TextBox x:Name="FriendshipBox" Grid.Row="5" Grid.Column="2" />
+
+                                                <TextBlock Text="等级" Classes="label" Grid.Row="6" />
+                                                <TextBlock Text="最大HP" Classes="label" Grid.Row="6" Grid.Column="1" />
+                                                <TextBlock Text="状态" Classes="label" Grid.Row="6" Grid.Column="2" />
+                                                <TextBox x:Name="LevelBox" Grid.Row="7" />
+                                                <TextBox x:Name="MaxHpBox" Grid.Row="7" Grid.Column="1" />
+                                                <ComboBox x:Name="StatusBox" Grid.Row="7" Grid.Column="2" />
+                                                <CheckBox x:Name="ShinyBox" Grid.Row="8" Grid.ColumnSpan="3" Content="闪光宝可梦" />
                                             </Grid>
                                             <TextBlock x:Name="BasicNameText" Text="" IsVisible="False" />
                                         </StackPanel>
@@ -323,24 +324,26 @@
                                     <TextBlock Text="先只定位并编辑非空箱子宝可梦。写入会重算校验并重新加密，建议先保存 mGBA 即时存档。" Foreground="#6C6255" TextWrapping="Wrap" />
                                     <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
                                         <StackPanel Spacing="10">
-                                            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+                                            <TextBlock Text="基础信息" FontWeight="SemiBold" Foreground="#102E4A" />
+                                            <Grid ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
                                                 <TextBlock Text="宝可梦" Classes="label" />
-                                                <TextBlock Text="携带道具" Classes="label" Grid.Column="1" />
-                                                <ComboBox x:Name="BoxSpeciesBox" Grid.Row="1" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
-                                                <ComboBox x:Name="BoxItemBox" Grid.Row="1" Grid.Column="1" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <ComboBox x:Name="BoxSpeciesBox" Grid.Row="1" Grid.ColumnSpan="3" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+
                                                 <TextBlock Text="性格" Classes="label" Grid.Row="2" />
                                                 <TextBlock Text="特性" Classes="label" Grid.Row="2" Grid.Column="1" />
                                                 <ComboBox x:Name="BoxNatureBox" Grid.Row="3" />
-                                                <ComboBox x:Name="BoxAbilityBox" Grid.Row="3" Grid.Column="1" />
-                                                <TextBlock Text="箱子槽地址（只读）" Classes="label" Grid.Row="4" IsVisible="False" />
-                                                <CheckBox x:Name="BoxShinyBox" Grid.Row="4" Grid.Column="1" Content="闪光宝可梦" />
-                                                <TextBlock x:Name="BoxAddressText" Grid.Row="5" Grid.ColumnSpan="2" Text="未选择" Foreground="#6C6255" IsVisible="False" />
-                                            </Grid>
-                                            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="8">
-                                                <TextBlock Text="经验" Classes="label" />
-                                                <TextBlock Text="亲密度" Classes="label" Grid.Column="1" />
-                                                <TextBox x:Name="BoxExpBox" Grid.Row="1" />
-                                                <TextBox x:Name="BoxFriendshipBox" Grid.Row="1" Grid.Column="1" />
+                                                <ComboBox x:Name="BoxAbilityBox" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" />
+
+                                                <TextBlock Text="携带道具" Classes="label" Grid.Row="4" />
+                                                <TextBlock Text="经验" Classes="label" Grid.Row="4" Grid.Column="1" />
+                                                <TextBlock Text="亲密度" Classes="label" Grid.Row="4" Grid.Column="2" />
+                                                <ComboBox x:Name="BoxItemBox" Grid.Row="5" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <TextBox x:Name="BoxExpBox" Grid.Row="5" Grid.Column="1" />
+                                                <TextBox x:Name="BoxFriendshipBox" Grid.Row="5" Grid.Column="2" />
+
+                                                <CheckBox x:Name="BoxShinyBox" Grid.Row="6" Grid.ColumnSpan="3" Content="闪光宝可梦" />
+                                                <TextBlock Text="箱子槽地址（只读）" Classes="label" Grid.Row="7" IsVisible="False" />
+                                                <TextBlock x:Name="BoxAddressText" Grid.Row="7" Grid.ColumnSpan="3" Text="未选择" Foreground="#6C6255" IsVisible="False" />
                                             </Grid>
                                             <TextBlock Text="箱子数据不保存当前HP、状态和直接等级；等级由经验决定。" Foreground="#6C6255" TextWrapping="Wrap" />
                                             <TextBlock x:Name="BoxNameText" Text="选择箱子槽后显示。" Foreground="#102E4A" TextWrapping="Wrap" />
