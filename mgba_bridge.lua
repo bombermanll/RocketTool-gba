@@ -11,6 +11,7 @@ local clients = {}
 local listener = nil
 
 local PARTY_BASE = 0x02025170
+local PARTY_COUNT_OFFSET = -7
 local PARTY_MON_SIZE = 100
 local PARTY_SLOTS = 6
 local EWRAM_START = 0x02000000
@@ -375,7 +376,11 @@ local function collect_party_pids()
     local pids = {}
     local count = 0
     local base = cheats.party_base or PARTY_BASE
-    for slot = 0, PARTY_SLOTS - 1 do
+    local party_slots = emu:read8(base + PARTY_COUNT_OFFSET)
+    if party_slots < 1 or party_slots > PARTY_SLOTS then
+        party_slots = PARTY_SLOTS
+    end
+    for slot = 0, party_slots - 1 do
         local addr = base + slot * PARTY_MON_SIZE
         if party_mon_looks_valid(addr) then
             local pid = read_u32(addr)

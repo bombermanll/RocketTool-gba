@@ -4,7 +4,7 @@ namespace RocketTool.Core;
 
 public sealed record PartyCandidate(uint Address, int Score, bool ChecksumOk, ushort Species, byte Level, ushort Hp, ushort MaxHp, uint Pid);
 
-public sealed record PartyRun(uint StartAddress, int Length, int ScoreSum, IReadOnlyList<PartyCandidate> Candidates);
+public sealed record PartyRun(uint StartAddress, int Length, int ScoreSum, IReadOnlyList<PartyCandidate> Candidates, int? PartyCount = null);
 
 public static class PartyScanner
 {
@@ -62,15 +62,67 @@ public static class PartyScanner
 
     public static PartyRun? LocateParty(byte[] ewram, int minScore = 13)
     {
+        var knownBase = TryLocatePartyAtKnownBase(ewram, minScore);
+        if (knownBase is not null) return knownBase;
+
         var candidates = FindCandidates(ewram, minScore);
         var strict = GroupRuns(candidates, checksumRequired: true)
-            .Where(r => r.Length >= 2)
-            .OrderByDescending(r => Math.Min(r.Length, Gen3Constants.PartySlots))
+            .Where(r => r.Length >= 2 || TryReadPartyCount(ewram, r.StartAddress) is 1)
+            .OrderByDescending(r => PartyCountFitScore(ewram, r))
+            .ThenByDescending(r => Math.Min(r.Length, Gen3Constants.PartySlots))
             .ThenByDescending(r => r.ScoreSum)
             .ThenBy(r => r.StartAddress)
             .FirstOrDefault();
         if (strict is not null) return strict;
-        return GroupRuns(candidates).FirstOrDefault(r => r.Length >= 2);
+        return GroupRuns(candidates)
+            .Where(r => r.Length >= 2 || TryReadPartyCount(ewram, r.StartAddress) is 1)
+            .OrderByDescending(r => PartyCountFitScore(ewram, r))
+            .ThenByDescending(r => Math.Min(r.Length, Gen3Constants.PartySlots))
+            .ThenByDescending(r => r.ScoreSum)
+            .ThenBy(r => r.StartAddress)
+            .FirstOrDefault();
+    }
+
+    public static int? TryReadPartyCount(ReadOnlySpan<byte> ewram, uint partyBase)
+    {
+        var countAddress = (long)partyBase + Gen3Constants.PartyCountOffsetFromPartyBase;
+        var offset = countAddress - EwramBase;
+        if (offset < 0 || offset >= ewram.Length) return null;
+
+        var count = ewram[(int)offset];
+        return count is >= 1 and <= Gen3Constants.PartySlots ? count : null;
+    }
+
+    public static PartyRun? TryLocatePartyAtKnownBase(byte[] ewram, int minScore = 13)
+        => TryBuildPartyRunAtBase(ewram, Gen3Constants.DefaultPartyBase, minScore);
+
+    public static PartyRun? TryBuildPartyRunAtBase(byte[] ewram, uint partyBase, int minScore = 13)
+    {
+        var count = TryReadPartyCount(ewram, partyBase);
+        if (count is null) return null;
+
+        if (partyBase < EwramBase) return null;
+        var startOffset = checked((int)(partyBase - EwramBase));
+        if (startOffset < 0 || startOffset + count.Value * Gen3Constants.PartyMonSize > ewram.Length) return null;
+
+        var candidates = new List<PartyCandidate>();
+        for (var slot = 0; slot < count.Value; slot++)
+        {
+            var offset = startOffset + slot * Gen3Constants.PartyMonSize;
+            var candidate = ScoreMon(partyBase + (uint)(slot * Gen3Constants.PartyMonSize), ewram.AsSpan(offset, Gen3Constants.PartyMonSize));
+            if (!candidate.ChecksumOk || candidate.Score < minScore) return null;
+            candidates.Add(candidate);
+        }
+
+        return new PartyRun(partyBase, count.Value, candidates.Sum(c => c.Score), candidates, count);
+    }
+
+    private static int PartyCountFitScore(byte[] ewram, PartyRun run)
+    {
+        var count = TryReadPartyCount(ewram, run.StartAddress);
+        return count is null
+            ? 0
+            : (run.Length >= count.Value ? 100 : 50) + count.Value;
     }
 
     private static PartyCandidate ScoreMon(uint address, ReadOnlySpan<byte> mon)
@@ -89,7 +141,7 @@ public static class PartyScanner
         var calcChecksum = PartyPokemon.ChecksumDecrypted(decrypted);
         var growth = Subblock(pid, decrypted, 0);
         var species = U16(growth, 0);
-        var exp = U32(growth, 4);
+        var exp = U32(growth, 4) & 0x007FFFFF;
 
         var score = 0;
         var checksumOk = storedChecksum == calcChecksum;

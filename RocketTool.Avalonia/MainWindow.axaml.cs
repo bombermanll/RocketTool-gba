@@ -109,6 +109,8 @@ public partial class MainWindow : Window
     private bool _updatingSearchableCombo;
     private DispatcherTimer? _toastTimer;
     private readonly Dictionary<ComboBox, IReadOnlyList<ChoiceRow>> _searchableChoices = [];
+    private readonly Dictionary<ComboBox, DispatcherTimer> _searchableFilterTimers = [];
+
 
     public MainWindow()
     {
@@ -259,23 +261,63 @@ public partial class MainWindow : Window
             if (args.Property != ComboBox.TextProperty || _suppressEditorEvents || _updatingSearchableCombo) return;
             if (box.SelectedItem is ChoiceRow selected && string.Equals(box.Text, selected.ToString(), StringComparison.Ordinal))
             {
+                StopSearchableComboFilter(box);
                 changed();
                 return;
             }
             if (_searchableChoices.TryGetValue(box, out var choices) && FindExactChoice(choices, box.Text) is not null)
             {
+                StopSearchableComboFilter(box);
                 changed();
                 return;
             }
-            FilterSearchableCombo(box, box.Text);
-            changed();
+
+            ScheduleSearchableComboFilter(box, changed);
         };
     }
 
     private void OnSearchableComboDropDownOpened(object? sender, EventArgs e)
     {
-        if (sender is ComboBox box && _searchableChoices.TryGetValue(box, out var choices))
+        if (sender is not ComboBox box || !_searchableChoices.TryGetValue(box, out var choices)) return;
+
+        var term = box.Text?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(term) ||
+            (box.SelectedItem is ChoiceRow selected && string.Equals(term, selected.ToString(), StringComparison.Ordinal)))
+        {
             ResetSearchableComboItems(box, choices, preserveSelection: true);
+            return;
+        }
+
+        FilterSearchableCombo(box, term);
+    }
+
+    private void ScheduleSearchableComboFilter(ComboBox box, Action changed)
+    {
+        if (_searchableFilterTimers.TryGetValue(box, out var previousTimer))
+            previousTimer.Stop();
+
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(650) };
+        _searchableFilterTimers[box] = timer;
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            if (_searchableFilterTimers.TryGetValue(box, out var currentTimer) && ReferenceEquals(currentTimer, timer))
+                _searchableFilterTimers.Remove(box);
+            if (_suppressEditorEvents || _updatingSearchableCombo) return;
+
+            // Do not open or refresh the dropdown while closed; changing ItemsSource during IME composition
+            // can cancel Chinese input. The list is filtered when the user explicitly opens it.
+            if (box.IsDropDownOpen)
+                FilterSearchableCombo(box, box.Text);
+            changed();
+        };
+        timer.Start();
+    }
+
+    private void StopSearchableComboFilter(ComboBox box)
+    {
+        if (!_searchableFilterTimers.Remove(box, out var timer)) return;
+        timer.Stop();
     }
 
     private void FilterSearchableCombo(ComboBox box, string? text)
@@ -286,7 +328,6 @@ public partial class MainWindow : Window
             ? choices
             : choices.Where(choice => MatchesChoice(choice, term)).ToArray();
         ResetSearchableComboItems(box, filtered, preserveSelection: true);
-        if (!box.IsDropDownOpen) box.IsDropDownOpen = true;
     }
 
     private void ResetSearchableComboItems(ComboBox box, IEnumerable<ChoiceRow> choices, bool preserveSelection = false)
@@ -341,14 +382,15 @@ public partial class MainWindow : Window
             var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
             LoadPartyRows(bridge, baseAddr, selectSlot);
             ConnectionStatusText.Text = $"上次连接成功。游戏={bridge.GameCode()} 队伍=0x{baseAddr:X8}";
-            Log($"已从 0x{baseAddr:X8} 刷新队伍。");
+            Log($"已从 0x{baseAddr:X8} 刷新队伍，当前队伍数量={_partyRows.Count}。");
         });
     }
 
     private void LoadPartyRows(MgbaBridgeClient bridge, uint baseAddr, int selectSlot)
     {
         var rows = new List<PartySlotRow>();
-        for (var slot = 1; slot <= Gen3Constants.PartySlots; slot++)
+        var partyCount = ReadLivePartyCount(bridge, baseAddr) ?? Gen3Constants.PartySlots;
+        for (var slot = 1; slot <= partyCount; slot++)
         {
             var addr = SlotAddress(baseAddr, slot);
             var mon = new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize));
@@ -356,7 +398,15 @@ public partial class MainWindow : Window
         }
         _partyRows.Clear();
         foreach (var row in rows) _partyRows.Add(row);
-        PartyList.SelectedIndex = Math.Clamp(selectSlot - 1, 0, _partyRows.Count - 1);
+        PartyList.SelectedIndex = _partyRows.Count == 0 ? -1 : Math.Clamp(selectSlot - 1, 0, _partyRows.Count - 1);
+    }
+
+    private static int? ReadLivePartyCount(MgbaBridgeClient bridge, uint baseAddr)
+    {
+        var countAddress = (long)baseAddr + Gen3Constants.PartyCountOffsetFromPartyBase;
+        if (countAddress < PartyScanner.EwramBase) return null;
+        var count = bridge.Read((uint)countAddress, 1)[0];
+        return count is >= 1 and <= Gen3Constants.PartySlots ? count : null;
     }
 
     private void OnPartySelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -372,8 +422,7 @@ public partial class MainWindow : Window
         {
             using var bridge = ConnectBridge();
             var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
-            var addr = SlotAddress(baseAddr, row.Slot);
-            var mon = new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize));
+            var (addr, mon) = ReadSelectedLiveMon(bridge, baseAddr, row);
             var info = mon.GetInfo();
             mon.SetUnencrypted(info.MaxHp, null, 0, null);
             WriteMon(bridge, addr, mon);
@@ -389,8 +438,7 @@ public partial class MainWindow : Window
         {
             using var bridge = ConnectBridge();
             var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
-            var addr = SlotAddress(baseAddr, row.Slot);
-            var mon = new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize));
+            var (addr, mon) = ReadSelectedLiveMon(bridge, baseAddr, row);
             var nature = SelectedChoiceId(NatureBox);
             if (nature is not null) mon.SetNature(nature.Value);
             mon.SetShiny(ShinyBox.IsChecked == true);
@@ -422,8 +470,7 @@ public partial class MainWindow : Window
 
             using var bridge = ConnectBridge();
             var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
-            var addr = SlotAddress(baseAddr, row.Slot);
-            var mon = new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize));
+            var (addr, mon) = ReadSelectedLiveMon(bridge, baseAddr, row);
 
             if (SelectedChoiceId(NatureBox) is { } nature) mon.SetNature(nature);
             mon.SetShiny(ShinyBox.IsChecked == true);
@@ -458,8 +505,7 @@ public partial class MainWindow : Window
         {
             using var bridge = ConnectBridge();
             var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
-            var addr = SlotAddress(baseAddr, row.Slot);
-            var mon = new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize));
+            var (addr, mon) = ReadSelectedLiveMon(bridge, baseAddr, row);
             mon.SetMoves(
                 [ParseMoveOrNull(Move1Box), ParseMoveOrNull(Move2Box), ParseMoveOrNull(Move3Box), ParseMoveOrNull(Move4Box)],
                 [ParseByteOrNull(Pp1Box.Text), ParseByteOrNull(Pp2Box.Text), ParseByteOrNull(Pp3Box.Text), ParseByteOrNull(Pp4Box.Text)]);
@@ -481,8 +527,7 @@ public partial class MainWindow : Window
             var evTotal = values.Values.Sum(x => x);
             using var bridge = ConnectBridge();
             var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
-            var addr = SlotAddress(baseAddr, row.Slot);
-            var mon = new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize));
+            var (addr, mon) = ReadSelectedLiveMon(bridge, baseAddr, row);
             mon.SetEvs(values);
             RecalculateLiveStats(mon);
             WriteMon(bridge, addr, mon);
@@ -507,8 +552,7 @@ public partial class MainWindow : Window
             }
             using var bridge = ConnectBridge();
             var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
-            var addr = SlotAddress(baseAddr, row.Slot);
-            var mon = new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize));
+            var (addr, mon) = ReadSelectedLiveMon(bridge, baseAddr, row);
             mon.SetIvs(values);
             RecalculateLiveStats(mon);
             WriteMon(bridge, addr, mon);
@@ -535,8 +579,7 @@ public partial class MainWindow : Window
 
             using var bridge = ConnectBridge();
             var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
-            var addr = SlotAddress(baseAddr, row.Slot);
-            var mon = new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize));
+            var (addr, mon) = ReadSelectedLiveMon(bridge, baseAddr, row);
             mon.SetIvs(ivs);
             mon.SetEvs(evs);
             RecalculateLiveStats(mon);
@@ -917,7 +960,7 @@ public partial class MainWindow : Window
         BoxAddressText.Text = $"0x{row.Address:X8}";
         SetChoice(BoxSpeciesBox, _speciesChoices, info.Species);
         SetChoice(BoxItemBox, _itemChoices, info.Item);
-        SetChoice(BoxNatureBox, _natureChoices, (int)(info.Pid % 25));
+        SetChoice(BoxNatureBox, _natureChoices, info.Nature);
         BoxShinyBox.IsChecked = row.Mon.IsShiny;
         BoxExpBox.Text = info.Exp.ToString();
         BoxFriendshipBox.Text = info.Friendship.ToString();
@@ -1428,7 +1471,7 @@ public partial class MainWindow : Window
         var title = $"{slot} {(mon.IsShiny ? "★" : "")}{SpeciesName(info.Species)} Lv{info.Level}";
         var item = info.Item == 0 ? "无" : ItemName(info.Item);
         var shiny = mon.IsShiny ? "闪光" : "非闪";
-        var detail = $"HP {info.Hp}/{info.MaxHp}  {shiny}  性格 {NatureDisplays[info.Pid % 25]}  特性 {AbilityText(info.Species, info.Ivs["ability"])}  携带 {item}  校验 {ok}";
+        var detail = $"HP {info.Hp}/{info.MaxHp}  {shiny}  性格 {NatureDisplays[info.Nature]}  特性 {AbilityText(info.Species, info.Ivs["ability"])}  携带 {item}  校验 {ok}";
         return new PartySlotRow(slot, addr, mon, info, title, detail);
     }
 
@@ -1448,7 +1491,7 @@ public partial class MainWindow : Window
         {
             SetChoice(SpeciesBox, _speciesChoices, info.Species);
             SetChoice(ItemBox, _itemChoices, info.Item);
-            NatureBox.SelectedItem = _natureChoices[(int)(info.Pid % 25)];
+            NatureBox.SelectedItem = _natureChoices[info.Nature];
             RefreshAbilityChoices(info.Species, info.Ivs["ability"]);
             ExpBox.Text = info.Exp.ToString();
             FriendshipBox.Text = info.Friendship.ToString();
@@ -1679,7 +1722,7 @@ public partial class MainWindow : Window
     private void UpdateNameHints(PartyMonInfo info)
     {
         var itemName = info.Item == 0 ? "无" : ItemName(info.Item);
-        var nature = NatureDisplays[info.Pid % 25];
+        var nature = NatureDisplays[info.Nature];
         var ability = AbilityText(info.Species, info.Ivs["ability"]);
         BasicNameText.Text = $"种类：{SpeciesName(info.Species)}  携带道具：{itemName}  性格：{nature}  特性：{ability}  闪光：{(PartyPokemon.IsShinyPid(info.Pid, info.OtId) ? "是" : "否")}";
         MoveNameText.Text = string.Join("  /  ", info.Moves.Select((m, i) => $"招式{i + 1}: {(m == 0 ? "无" : MoveName(m))}"));
@@ -2747,41 +2790,7 @@ public partial class MainWindow : Window
     }
 
     private void SetPpBonusChoices(byte packed, IReadOnlyList<ushort> moves, IReadOnlyList<byte> currentPp, params ComboBox[] boxes)
-        => SetPpBonusChoices(NormalizePpBonusesForDisplay(packed, moves, currentPp), boxes);
-
-    private byte NormalizePpBonusesForDisplay(byte packed, IReadOnlyList<ushort> moves, IReadOnlyList<byte> currentPp)
-    {
-        var normalized = 0;
-        for (var i = 0; i < Math.Min(4, Math.Min(moves.Count, currentPp.Count)); i++)
-        {
-            var move = moves[i];
-            if (move == 0) continue;
-
-            try
-            {
-                var basePp = ReadMoveData(move).Pp;
-                var shownBonus = PpBonusNeededForCurrentPp(basePp, currentPp[i]);
-                normalized |= shownBonus << (i * 2);
-            }
-            catch
-            {
-                normalized |= ((packed >> (i * 2)) & 0x03) << (i * 2);
-            }
-        }
-
-        return (byte)normalized;
-    }
-
-    private static int PpBonusNeededForCurrentPp(int basePp, int currentPp)
-    {
-        if (basePp <= 0 || currentPp <= basePp) return 0;
-        for (var bonus = 1; bonus <= 3; bonus++)
-        {
-            if (currentPp <= CalculateMaxPp(basePp, bonus))
-                return bonus;
-        }
-        return 3;
-    }
+        => SetPpBonusChoices(packed, boxes);
 
     private bool WritesEnabled() => true;
 
@@ -2994,6 +3003,26 @@ public partial class MainWindow : Window
     }
 
     private static void WriteMon(MgbaBridgeClient bridge, uint addr, PartyPokemon mon) => bridge.WriteRangeVerified(addr, mon.Raw);
+
+
+
+    private static (uint Address, PartyPokemon Mon) ReadSelectedLiveMon(MgbaBridgeClient bridge, uint baseAddr, PartySlotRow row)
+    {
+        var addr = LiveSlotAddress(bridge, baseAddr, row.Slot);
+        var mon = new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize));
+        if (row.Mon.IsEmpty || row.Mon.Pid == mon.Pid && row.Mon.OtId == mon.OtId)
+            return (addr, mon);
+
+        throw new InvalidOperationException($"队伍槽位 {row.Slot} 的宝可梦已经变化。请先重新读取队伍，再写入。");
+    }
+
+    private static uint LiveSlotAddress(MgbaBridgeClient bridge, uint baseAddr, int slot)
+    {
+        var count = ReadLivePartyCount(bridge, baseAddr);
+        if (count is not null && slot > count.Value)
+            throw new InvalidOperationException($"当前队伍只有 {count.Value} 只，槽位 {slot} 已不在队伍中。请重新读取队伍。");
+        return SlotAddress(baseAddr, slot);
+    }
 
     private static uint SlotAddress(uint baseAddr, int slot) => baseAddr + (uint)((slot - 1) * Gen3Constants.PartyMonSize);
 

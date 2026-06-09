@@ -3,6 +3,7 @@ namespace RocketTool.Core;
 public sealed record BoxMonInfo(
     uint Pid,
     uint OtId,
+    int Nature,
     ushort Species,
     ushort Item,
     uint Exp,
@@ -19,6 +20,10 @@ public sealed record BoxMonInfo(
 public sealed class BoxPokemon
 {
     public const int Size = 80;
+    private const int GrowthPpBonusesOffset = 7;
+    private const int GrowthFriendshipOffset = 8;
+    private const int GrowthNatureOffset = 9;
+    private const uint GrowthExpMask = 0x007FFFFF;
     private const int MiscAbilitySlotOffset = 11;
     private const byte MiscAbilitySlotMask = 0x03;
     private readonly byte[] _raw;
@@ -50,11 +55,12 @@ public sealed class BoxPokemon
         return new BoxMonInfo(
             Pid,
             OtId,
+            NatureFromGrowth(growth, Pid),
             ReadU16(growth, 0),
             ReadU16(growth, 2),
-            ReadU32(growth, 4),
-            growth[8],
-            growth[9],
+            ReadExp(growth),
+            growth[GrowthPpBonusesOffset],
+            growth[GrowthFriendshipOffset],
             [ReadU16(attacks, 0), ReadU16(attacks, 2), ReadU16(attacks, 4), ReadU16(attacks, 6)],
             [attacks[8], attacks[9], attacks[10], attacks[11]],
             evs[..6].ToArray(),
@@ -70,9 +76,9 @@ public sealed class BoxPokemon
         var block = Subblock(dec, 0);
         if (species is not null) WriteU16(block, 0, species.Value);
         if (item is not null) WriteU16(block, 2, item.Value);
-        if (exp is not null) WriteU32(block, 4, exp.Value);
-        if (ppBonuses is not null) block[8] = ppBonuses.Value;
-        if (friendship is not null) block[9] = friendship.Value;
+        if (exp is not null) WriteExp(block, exp.Value);
+        if (ppBonuses is not null) block[GrowthPpBonusesOffset] = ppBonuses.Value;
+        if (friendship is not null) block[GrowthFriendshipOffset] = friendship.Value;
         ReplaceSubblock(dec, 0, block);
         SetDecrypted(dec);
     }
@@ -124,18 +130,11 @@ public sealed class BoxPokemon
     public void SetNature(int nature)
     {
         if (nature is < 0 or > 24) throw new ArgumentOutOfRangeException(nameof(nature), "nature must be 0..24");
-        var oldPid = Pid;
-        if ((int)(oldPid % 25) == nature) return;
-        var decrypted = Decrypted();
-        uint residue = 0;
-        for (; residue < 600; residue++)
-            if (residue % 24 == oldPid % 24 && residue % 25 == nature) break;
-        if (residue >= 600) throw new InvalidOperationException("could not derive a compatible PID for the requested nature");
-        var k = oldPid >= residue ? (oldPid - residue + 300) / 600 : 0;
-        var computed = (ulong)residue + (ulong)k * 600;
-        if (computed > uint.MaxValue) computed -= 600;
-        WriteU32(_raw, 0, (uint)computed);
-        SetDecrypted(decrypted);
+        var dec = Decrypted();
+        var block = Subblock(dec, 0);
+        SetNatureInGrowth(block, nature);
+        ReplaceSubblock(dec, 0, block);
+        SetDecrypted(dec);
     }
 
     public void SetShiny(bool shiny)
@@ -145,6 +144,25 @@ public sealed class BoxPokemon
         WriteU32(_raw, 0, FindPidWithShinyState(Pid, OtId, shiny));
         SetDecrypted(decrypted);
     }
+
+
+    private static uint ReadExp(ReadOnlySpan<byte> growth)
+        => ReadU32(growth, 4) & GrowthExpMask;
+
+    private static void WriteExp(Span<byte> growth, uint exp)
+    {
+        var preserved = ReadU32(growth, 4) & ~GrowthExpMask;
+        WriteU32(growth, 4, preserved | (exp & GrowthExpMask));
+    }
+
+    private static int NatureFromGrowth(ReadOnlySpan<byte> growth, uint pid)
+    {
+        var nature = growth[GrowthNatureOffset] & 0x1F;
+        return nature <= 24 ? nature : (int)(pid % 25);
+    }
+
+    private static void SetNatureInGrowth(Span<byte> growth, int nature)
+        => growth[GrowthNatureOffset] = (byte)((growth[GrowthNatureOffset] & 0xE0) | (nature & 0x1F));
 
     private byte[] Decrypted()
     {

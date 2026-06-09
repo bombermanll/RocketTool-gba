@@ -5,6 +5,8 @@ public static class Gen3Constants
     public const int PartyMonSize = 100;
     public const int PartySlots = 6;
     public const uint DefaultPartyBase = 0x02025170;
+    public const int PartyCountOffsetFromPartyBase = -7;
+    public const uint DefaultPartyCountAddress = 0x02025169;
     public static readonly string[] StatNames = ["hp", "atk", "def", "spe", "spa", "spd"];
 
     public static readonly int[][] SubstructureOrders =
@@ -21,6 +23,7 @@ public static class Gen3Constants
 public sealed record PartyMonInfo(
     uint Pid,
     uint OtId,
+    int Nature,
     ushort Species,
     ushort Item,
     uint Exp,
@@ -46,6 +49,10 @@ public sealed record PartyMonInfo(
 public sealed class PartyPokemon
 {
     public const int Size = Gen3Constants.PartyMonSize;
+    private const int GrowthPpBonusesOffset = 7;
+    private const int GrowthFriendshipOffset = 8;
+    private const int GrowthNatureOffset = 9;
+    private const uint GrowthExpMask = 0x007FFFFF;
     private const int MiscAbilitySlotOffset = 11;
     private const byte MiscAbilitySlotMask = 0x03;
     private readonly byte[] _raw;
@@ -77,11 +84,12 @@ public sealed class PartyPokemon
         return new PartyMonInfo(
             Pid,
             OtId,
+            NatureFromGrowth(growth, Pid),
             ReadU16(growth, 0),
             ReadU16(growth, 2),
-            ReadU32(growth, 4),
-            growth[8],
-            growth[9],
+            ReadExp(growth),
+            growth[GrowthPpBonusesOffset],
+            growth[GrowthFriendshipOffset],
             [ReadU16(attacks, 0), ReadU16(attacks, 2), ReadU16(attacks, 4), ReadU16(attacks, 6)],
             [attacks[8], attacks[9], attacks[10], attacks[11]],
             evs[..6].ToArray(),
@@ -106,9 +114,9 @@ public sealed class PartyPokemon
         var block = Subblock(dec, 0);
         if (species is not null) WriteU16(block, 0, species.Value);
         if (item is not null) WriteU16(block, 2, item.Value);
-        if (exp is not null) WriteU32(block, 4, exp.Value);
-        if (ppBonuses is not null) block[8] = ppBonuses.Value;
-        if (friendship is not null) block[9] = friendship.Value;
+        if (exp is not null) WriteExp(block, exp.Value);
+        if (ppBonuses is not null) block[GrowthPpBonusesOffset] = ppBonuses.Value;
+        if (friendship is not null) block[GrowthFriendshipOffset] = friendship.Value;
         ReplaceSubblock(dec, 0, block);
         SetDecrypted(dec);
     }
@@ -157,23 +165,11 @@ public sealed class PartyPokemon
     public void SetNature(int nature)
     {
         if (nature is < 0 or > 24) throw new ArgumentOutOfRangeException(nameof(nature), "nature must be 0..24");
-        var oldPid = Pid;
-        if ((int)(oldPid % 25) == nature) return;
-
-        // Keep PID % 24 unchanged so the encrypted substructure order does not move.
-        var decrypted = Decrypted();
-        uint residue = 0;
-        for (; residue < 600; residue++)
-        {
-            if (residue % 24 == oldPid % 24 && residue % 25 == nature) break;
-        }
-        if (residue >= 600) throw new InvalidOperationException("could not derive a compatible PID for the requested nature");
-
-        var k = oldPid >= residue ? (oldPid - residue + 300) / 600 : 0;
-        var computed = (ulong)residue + (ulong)k * 600;
-        if (computed > uint.MaxValue) computed -= 600;
-        Put32(0x00, (uint)computed);
-        SetDecrypted(decrypted);
+        var dec = Decrypted();
+        var block = Subblock(dec, 0);
+        SetNatureInGrowth(block, nature);
+        ReplaceSubblock(dec, 0, block);
+        SetDecrypted(dec);
     }
 
     public void SetShiny(bool shiny)
@@ -222,12 +218,31 @@ public sealed class PartyPokemon
             maxHp: newMaxHp,
             level: null,
             status: null);
-        Put16(0x5A, CalculateOtherStat(stats.Attack, info.Ivs["atk"], info.Evs[1], info.Level, info.Pid, 0));
-        Put16(0x5C, CalculateOtherStat(stats.Defense, info.Ivs["def"], info.Evs[2], info.Level, info.Pid, 1));
-        Put16(0x5E, CalculateOtherStat(stats.Speed, info.Ivs["spe"], info.Evs[3], info.Level, info.Pid, 2));
-        Put16(0x60, CalculateOtherStat(stats.SpAttack, info.Ivs["spa"], info.Evs[4], info.Level, info.Pid, 3));
-        Put16(0x62, CalculateOtherStat(stats.SpDefense, info.Ivs["spd"], info.Evs[5], info.Level, info.Pid, 4));
+        Put16(0x5A, CalculateOtherStat(stats.Attack, info.Ivs["atk"], info.Evs[1], info.Level, info.Nature, 0));
+        Put16(0x5C, CalculateOtherStat(stats.Defense, info.Ivs["def"], info.Evs[2], info.Level, info.Nature, 1));
+        Put16(0x5E, CalculateOtherStat(stats.Speed, info.Ivs["spe"], info.Evs[3], info.Level, info.Nature, 2));
+        Put16(0x60, CalculateOtherStat(stats.SpAttack, info.Ivs["spa"], info.Evs[4], info.Level, info.Nature, 3));
+        Put16(0x62, CalculateOtherStat(stats.SpDefense, info.Ivs["spd"], info.Evs[5], info.Level, info.Nature, 4));
     }
+
+
+    private static uint ReadExp(ReadOnlySpan<byte> growth)
+        => ReadU32(growth, 4) & GrowthExpMask;
+
+    private static void WriteExp(Span<byte> growth, uint exp)
+    {
+        var preserved = ReadU32(growth, 4) & ~GrowthExpMask;
+        WriteU32(growth, 4, preserved | (exp & GrowthExpMask));
+    }
+
+    private static int NatureFromGrowth(ReadOnlySpan<byte> growth, uint pid)
+    {
+        var nature = growth[GrowthNatureOffset] & 0x1F;
+        return nature <= 24 ? nature : (int)(pid % 25);
+    }
+
+    private static void SetNatureInGrowth(Span<byte> growth, int nature)
+        => growth[GrowthNatureOffset] = (byte)((growth[GrowthNatureOffset] & 0xE0) | (nature & 0x1F));
 
     private byte[] Decrypted()
     {
@@ -340,10 +355,9 @@ public sealed class PartyPokemon
         throw new InvalidOperationException("没有找到可用的闪光 PID。");
     }
 
-    private static ushort CalculateOtherStat(int baseStat, int iv, int ev, int level, uint pid, int statIndex)
+    private static ushort CalculateOtherStat(int baseStat, int iv, int ev, int level, int nature, int statIndex)
     {
         var value = ((((2 * baseStat + iv + ev / 4) * level) / 100) + 5);
-        var nature = (int)(pid % 25);
         var increased = nature / 5;
         var decreased = nature % 5;
         if (increased == statIndex && decreased != statIndex) value = value * 110 / 100;
