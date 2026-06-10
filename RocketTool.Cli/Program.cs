@@ -154,6 +154,7 @@ static void PrintMon(int slot, uint addr, PartyPokemon mon, ModifierDatabase db)
     var ok = info.Checksum == info.CalculatedChecksum ? "OK" : "BAD";
     Console.WriteLine($"slot {slot} @ 0x{addr:X8}: {info.Species}({speciesName}) Lv{info.Level} HP {info.Hp}/{info.MaxHp} checksum {ok} 0x{info.Checksum:X4}/0x{info.CalculatedChecksum:X4}");
     Console.WriteLine($"  item {info.Item}({itemName}) exp {info.Exp} friendship {info.Friendship} pp_bonuses=0x{info.PpBonuses:X2} status 0x{info.Status:X8}");
+    Console.WriteLine($"  nature_pid={info.Nature} game_nature_code={info.GameNatureCode}");
     Console.WriteLine($"  moves: {moves} pp=[{string.Join(", ", info.Pp)}]");
     Console.WriteLine($"  evs=[{evs}] ev_sum={info.Evs.Sum(x => x)} ivs=[{ivs}] abilitySlot={info.Ivs["ability"]} egg={info.Ivs["egg"]}");
 }

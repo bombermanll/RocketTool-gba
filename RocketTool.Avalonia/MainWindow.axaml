@@ -100,7 +100,7 @@
                                                 <ComboBox x:Name="StatusBox" Grid.Row="7" Grid.Column="2" />
                                                 <CheckBox x:Name="ShinyBox" Grid.Row="8" Grid.ColumnSpan="3" Content="闪光宝可梦" />
                                             </Grid>
-                                            <TextBlock x:Name="BasicNameText" Text="" IsVisible="False" />
+                                            <TextBlock x:Name="BasicNameText" Text="" Foreground="#102E4A" TextWrapping="Wrap" IsVisible="False" />
                                         </StackPanel>
                                     </Border>
 
@@ -351,7 +351,7 @@
                                                 <TextBlock x:Name="BoxAddressText" Grid.Row="7" Grid.ColumnSpan="3" Text="未选择" Foreground="#6C6255" IsVisible="False" />
                                             </Grid>
                                             <TextBlock Text="箱子数据不保存当前HP、状态和直接等级；等级由经验决定。" Foreground="#6C6255" TextWrapping="Wrap" />
-                                            <TextBlock x:Name="BoxNameText" Text="选择箱子槽后显示。" Foreground="#102E4A" TextWrapping="Wrap" IsVisible="False" />
+                                            <TextBlock x:Name="BoxNameText" Text="选择箱子槽后显示。" Foreground="#102E4A" TextWrapping="Wrap" />
                                         </StackPanel>
                                     </Border>
                                     <Border Background="#FFF9EE" CornerRadius="14" Padding="14">

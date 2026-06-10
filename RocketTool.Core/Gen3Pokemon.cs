@@ -24,6 +24,7 @@ public sealed record PartyMonInfo(
     uint Pid,
     uint OtId,
     int Nature,
+    byte GameNatureCode,
     ushort Species,
     ushort Item,
     uint Exp,
@@ -53,6 +54,10 @@ public sealed class PartyPokemon
     private const int NicknameLength = 10;
     private const int GrowthPpBonusesOffset = 7;
     private const int GrowthFriendshipOffset = 8;
+    private const int GrowthNatureOverrideWordOffset = 8;
+    private const int GrowthNatureOverrideShift = 13;
+    private const uint GrowthNatureOverrideMask = 0x1Fu << GrowthNatureOverrideShift;
+    private const byte NatureOverrideUsePid = 0x1A;
     private const uint GrowthExpMask = 0x007FFFFF;
     private const int MiscAbilitySlotOffset = 11;
     private const byte MiscAbilitySlotMask = 0x03;
@@ -86,6 +91,7 @@ public sealed class PartyPokemon
             Pid,
             OtId,
             NatureFromPid(Pid),
+            ReadGameNatureCode(growth),
             ReadU16(growth, 0),
             ReadU16(growth, 2),
             ReadExp(growth),
@@ -118,6 +124,16 @@ public sealed class PartyPokemon
         if (exp is not null) WriteExp(block, exp.Value);
         if (ppBonuses is not null) block[GrowthPpBonusesOffset] = ppBonuses.Value;
         if (friendship is not null) block[GrowthFriendshipOffset] = friendship.Value;
+        ReplaceSubblock(dec, 0, block);
+        SetDecrypted(dec);
+    }
+
+    public void SetGameNatureCode(int code)
+    {
+        if (code is < 0 or > 0x1F) throw new ArgumentOutOfRangeException(nameof(code), "game nature code must be 0..31");
+        var dec = Decrypted();
+        var block = Subblock(dec, 0);
+        SetGameNatureCode(block, code);
         ReplaceSubblock(dec, 0, block);
         SetDecrypted(dec);
     }
@@ -173,6 +189,9 @@ public sealed class PartyPokemon
     {
         if (nature is < 0 or > 24) throw new ArgumentOutOfRangeException(nameof(nature), "nature must be 0..24");
         var dec = Decrypted();
+        var growth = Subblock(dec, 0);
+        SetGameNatureCode(growth, NatureOverrideUsePid);
+        ReplaceSubblock(dec, 0, growth);
         Put32(0x00, FindPidWithNatureAndShinyState(Pid, OtId, nature, IsShiny));
         SetDecrypted(dec);
     }
@@ -223,11 +242,12 @@ public sealed class PartyPokemon
             maxHp: newMaxHp,
             level: null,
             status: null);
-        Put16(0x5A, CalculateOtherStat(stats.Attack, info.Ivs["atk"], info.Evs[1], info.Level, info.Nature, 0));
-        Put16(0x5C, CalculateOtherStat(stats.Defense, info.Ivs["def"], info.Evs[2], info.Level, info.Nature, 1));
-        Put16(0x5E, CalculateOtherStat(stats.Speed, info.Ivs["spe"], info.Evs[3], info.Level, info.Nature, 2));
-        Put16(0x60, CalculateOtherStat(stats.SpAttack, info.Ivs["spa"], info.Evs[4], info.Level, info.Nature, 3));
-        Put16(0x62, CalculateOtherStat(stats.SpDefense, info.Ivs["spd"], info.Evs[5], info.Level, info.Nature, 4));
+        var statNature = EffectiveStatNature(info.Nature, info.GameNatureCode);
+        Put16(0x5A, CalculateOtherStat(stats.Attack, info.Ivs["atk"], info.Evs[1], info.Level, statNature, 0));
+        Put16(0x5C, CalculateOtherStat(stats.Defense, info.Ivs["def"], info.Evs[2], info.Level, statNature, 1));
+        Put16(0x5E, CalculateOtherStat(stats.Speed, info.Ivs["spe"], info.Evs[3], info.Level, statNature, 2));
+        Put16(0x60, CalculateOtherStat(stats.SpAttack, info.Ivs["spa"], info.Evs[4], info.Level, statNature, 3));
+        Put16(0x62, CalculateOtherStat(stats.SpDefense, info.Ivs["spd"], info.Evs[5], info.Level, statNature, 4));
     }
 
 
@@ -241,6 +261,19 @@ public sealed class PartyPokemon
     }
 
     private static int NatureFromPid(uint pid) => (int)(pid % 25);
+
+    public static int EffectiveStatNature(int pidNature, byte gameNatureCode)
+        => gameNatureCode == NatureOverrideUsePid ? pidNature : gameNatureCode;
+
+    private static byte ReadGameNatureCode(ReadOnlySpan<byte> growth)
+        => (byte)((ReadU32(growth, GrowthNatureOverrideWordOffset) & GrowthNatureOverrideMask) >> GrowthNatureOverrideShift);
+
+    private static void SetGameNatureCode(Span<byte> growth, int code)
+    {
+        var word = ReadU32(growth, GrowthNatureOverrideWordOffset);
+        word = (word & ~GrowthNatureOverrideMask) | (((uint)code & 0x1F) << GrowthNatureOverrideShift);
+        WriteU32(growth, GrowthNatureOverrideWordOffset, word);
+    }
 
     private byte[] Decrypted()
     {
@@ -359,6 +392,7 @@ public sealed class PartyPokemon
     private static ushort CalculateOtherStat(int baseStat, int iv, int ev, int level, int nature, int statIndex)
     {
         var value = ((((2 * baseStat + iv + ev / 4) * level) / 100) + 5);
+        if (nature is < 0 or > 24) return (ushort)value;
         var increased = nature / 5;
         var decreased = nature % 5;
         if (increased == statIndex && decreased != statIndex) value = value * 110 / 100;

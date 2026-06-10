@@ -4,6 +4,7 @@ public sealed record BoxMonInfo(
     uint Pid,
     uint OtId,
     int Nature,
+    byte GameNatureCode,
     ushort Species,
     ushort Item,
     uint Exp,
@@ -24,6 +25,10 @@ public sealed class BoxPokemon
     private const int NicknameLength = 10;
     private const int GrowthPpBonusesOffset = 7;
     private const int GrowthFriendshipOffset = 8;
+    private const int GrowthNatureOverrideWordOffset = 8;
+    private const int GrowthNatureOverrideShift = 13;
+    private const uint GrowthNatureOverrideMask = 0x1Fu << GrowthNatureOverrideShift;
+    private const byte NatureOverrideUsePid = 0x1A;
     private const uint GrowthExpMask = 0x007FFFFF;
     private const int MiscAbilitySlotOffset = 11;
     private const byte MiscAbilitySlotMask = 0x03;
@@ -57,6 +62,7 @@ public sealed class BoxPokemon
             Pid,
             OtId,
             NatureFromPid(Pid),
+            ReadGameNatureCode(growth),
             ReadU16(growth, 0),
             ReadU16(growth, 2),
             ReadExp(growth),
@@ -80,6 +86,16 @@ public sealed class BoxPokemon
         if (exp is not null) WriteExp(block, exp.Value);
         if (ppBonuses is not null) block[GrowthPpBonusesOffset] = ppBonuses.Value;
         if (friendship is not null) block[GrowthFriendshipOffset] = friendship.Value;
+        ReplaceSubblock(dec, 0, block);
+        SetDecrypted(dec);
+    }
+
+    public void SetGameNatureCode(int code)
+    {
+        if (code is < 0 or > 0x1F) throw new ArgumentOutOfRangeException(nameof(code), "game nature code must be 0..31");
+        var dec = Decrypted();
+        var block = Subblock(dec, 0);
+        SetGameNatureCode(block, code);
         ReplaceSubblock(dec, 0, block);
         SetDecrypted(dec);
     }
@@ -129,6 +145,9 @@ public sealed class BoxPokemon
     {
         if (nature is < 0 or > 24) throw new ArgumentOutOfRangeException(nameof(nature), "nature must be 0..24");
         var dec = Decrypted();
+        var growth = Subblock(dec, 0);
+        SetGameNatureCode(growth, NatureOverrideUsePid);
+        ReplaceSubblock(dec, 0, growth);
         WriteU32(_raw, 0, FindPidWithNatureAndShinyState(Pid, OtId, nature, IsShiny));
         SetDecrypted(dec);
     }
@@ -151,6 +170,16 @@ public sealed class BoxPokemon
     }
 
     private static int NatureFromPid(uint pid) => (int)(pid % 25);
+
+    private static byte ReadGameNatureCode(ReadOnlySpan<byte> growth)
+        => (byte)((ReadU32(growth, GrowthNatureOverrideWordOffset) & GrowthNatureOverrideMask) >> GrowthNatureOverrideShift);
+
+    private static void SetGameNatureCode(Span<byte> growth, int code)
+    {
+        var word = ReadU32(growth, GrowthNatureOverrideWordOffset);
+        word = (word & ~GrowthNatureOverrideMask) | (((uint)code & 0x1F) << GrowthNatureOverrideShift);
+        WriteU32(growth, GrowthNatureOverrideWordOffset, word);
+    }
 
     private static uint SetIvWord(uint word, Dictionary<string, int> values)
     {

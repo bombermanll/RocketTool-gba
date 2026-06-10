@@ -61,6 +61,8 @@ public partial class MainWindow : Window
         "内敛(+特攻，-攻击)", "慢吞吞(+特攻，-防御)", "冷静(+特攻，-速度)", "害羞(无修正)", "马虎(+特攻，-特防)",
         "温和(+特防，-攻击)", "温顺(+特防，-防御)", "自大(+特防，-速度)", "慎重(+特防，-特攻)", "浮躁(无修正)"
     ];
+    private const int NatureCodeUsePid = 26;
+    private const int SummaryAllStatsIncreaseNatureCode = 31;
 
     private static readonly int[] Gen3TmMoveIds =
     [
@@ -384,6 +386,23 @@ public partial class MainWindow : Window
         FillEditor(row);
     }
 
+    private static bool HasSummaryAllStatsIncreaseNatureCode(byte gameNatureCode)
+        => gameNatureCode == SummaryAllStatsIncreaseNatureCode;
+
+    private static string NatureText(int pidNature, byte gameNatureCode)
+    {
+        var pidText = NatureDisplays[pidNature];
+        if (gameNatureCode == NatureCodeUsePid)
+            return pidText;
+        if (gameNatureCode <= 24)
+            return gameNatureCode == pidNature
+                ? NatureDisplays[gameNatureCode]
+                : $"游戏性格：{NatureDisplays[gameNatureCode]}；PID性格：{NatureNames[pidNature]}";
+        return HasSummaryAllStatsIncreaseNatureCode(gameNatureCode)
+            ? $"性格代码异常；PID性格：{NatureNames[pidNature]}"
+            : $"性格代码异常({gameNatureCode})；PID性格：{NatureNames[pidNature]}";
+    }
+
     private async void OnHealClicked(object? sender, RoutedEventArgs e)
     {
         if (!WritesEnabled() || SelectedRow() is not { } row) return;
@@ -408,6 +427,7 @@ public partial class MainWindow : Window
             using var bridge = ConnectBridge();
             var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
             var (addr, mon) = ReadSelectedLiveMon(bridge, baseAddr, row);
+            var before = mon.GetInfo();
             var species = ParseSpeciesOrNull(SpeciesBox);
             SyncNicknameForSpeciesChange(mon, species);
             var nature = SelectedChoiceId(NatureBox);
@@ -416,7 +436,16 @@ public partial class MainWindow : Window
             var abilitySlot = SelectedAbilitySlot();
             if (abilitySlot is not null) mon.SetAbilitySlot(abilitySlot.Value);
             mon.SetGrowth(species, ParseItemOrNull(ItemBox), ParseUIntOrNull(ExpBox.Text), ParseByteOrNull(FriendshipBox.Text), null);
-            mon.SetUnencrypted(null, ParseUShortOrNull(MaxHpBox.Text), SelectedStatus(), ParseByteOrNull(LevelBox.Text));
+            var level = ParseByteOrNull(LevelBox.Text);
+            var maxHp = ParseUShortOrNull(MaxHpBox.Text);
+            mon.SetUnencrypted(null, null, SelectedStatus(), level);
+            var shouldRecalculateStats =
+                species is not null && species.Value != before.Species ||
+                nature is not null && (nature.Value != before.Nature || before.GameNatureCode != NatureCodeUsePid) ||
+                level is not null && level.Value != before.Level;
+            if (shouldRecalculateStats) RecalculateLiveStats(mon);
+            if (!shouldRecalculateStats || maxHp is not null && maxHp.Value != before.MaxHp)
+                mon.SetUnencrypted(maxHp: maxHp);
             WriteMon(bridge, addr, mon);
             SetWriteNotice($"队伍槽位 {row.Slot} 基础信息写入成功：种类/道具/经验/亲密度/等级/性格/特性/闪光/状态已更新。");
         });
@@ -1607,9 +1636,10 @@ public partial class MainWindow : Window
         var info = mon.GetInfo();
         var ok = info.Checksum == info.CalculatedChecksum ? "正常" : "异常";
         var title = $"{slot} {(mon.IsShiny ? "★" : "")}{SpeciesName(info.Species)} Lv{info.Level}";
+        if (HasSummaryAllStatsIncreaseNatureCode(info.GameNatureCode)) title += " / 性格代码异常";
         var item = info.Item == 0 ? "无" : ItemName(info.Item);
         var shiny = mon.IsShiny ? "闪光" : "非闪";
-        var detail = $"HP {info.Hp}/{info.MaxHp}  {shiny}  性格 {NatureDisplays[info.Nature]}  特性 {AbilityText(info.Species, info.Ivs["ability"])}  携带 {item}  校验 {ok}";
+        var detail = $"HP {info.Hp}/{info.MaxHp}  {shiny}  性格 {NatureText(info.Nature, info.GameNatureCode)}  特性 {AbilityText(info.Species, info.Ivs["ability"])}  携带 {item}  校验 {ok}";
         return new PartySlotRow(slot, addr, mon, info, title, detail);
     }
 
@@ -1619,6 +1649,7 @@ public partial class MainWindow : Window
             ? $"{SpeciesName(headerInfo.Species)} Lv{headerInfo.Level}"
             : row.Title;
         SelectedDetailText.Text = string.Empty;
+        SelectedDetailText.IsVisible = false;
         if (row.Info is not { } info)
         {
             ClearEditor();
@@ -1704,6 +1735,8 @@ public partial class MainWindow : Window
         }
         BasicNameText.Text = "中文名、性格、特性会显示在这里。";
         MoveNameText.Text = "招式中文名会显示在这里。";
+        SelectedDetailText.Text = string.Empty;
+        SelectedDetailText.IsVisible = false;
     }
 
     private IEnumerable<TextBox> EditorBoxes()
@@ -1797,6 +1830,7 @@ public partial class MainWindow : Window
             var boxNo = (i / BoxScanner.BoxSlots) + 1;
             var title = $"箱{boxNo:00}-{slotInBox:00} {(mon.IsShiny ? "★" : "")}{SpeciesName(info.Species)}";
             if (info.Item != 0) title += $" / {ItemName(info.Item)}";
+            if (HasSummaryAllStatsIncreaseNatureCode(info.GameNatureCode)) title += " / 性格代码异常";
             _boxRows.Add(new BoxSlotRow(i + 1, address, mon, info, title, $"地址 0x{address:X8}"));
         }
 
@@ -1861,7 +1895,7 @@ public partial class MainWindow : Window
     private void UpdateNameHints(PartyMonInfo info)
     {
         var itemName = info.Item == 0 ? "无" : ItemName(info.Item);
-        var nature = NatureDisplays[info.Nature];
+        var nature = NatureText(info.Nature, info.GameNatureCode);
         var ability = AbilityText(info.Species, info.Ivs["ability"]);
         BasicNameText.Text = $"种类：{SpeciesName(info.Species)}  携带道具：{itemName}  性格：{nature}  特性：{ability}  闪光：{(PartyPokemon.IsShinyPid(info.Pid, info.OtId) ? "是" : "否")}";
         MoveNameText.Text = string.Join("  /  ", info.Moves.Select((m, i) => $"招式{i + 1}: {(m == 0 ? "无" : MoveName(m))}"));
@@ -1880,9 +1914,9 @@ public partial class MainWindow : Window
             var item = ParseChoiceUShortOrNull(ItemBox, _itemChoices) ?? 0;
             RefreshAbilityChoices(species, SelectedAbilitySlot());
             UpdateBaseStatTexts(species);
-            var nature = SelectedChoiceId(NatureBox) is { } n ? NatureDisplays[n] : "未选择";
+            var nature = SelectedChoiceId(NatureBox) is { } n ? $"PID性格：{NatureDisplays[n]}" : "PID性格：未选择";
             var ability = AbilityBox.SelectedItem?.ToString() ?? "未选择";
-            BasicNameText.Text = $"种类：{(species == 0 ? "无" : SpeciesName(species))}  携带道具：{ItemName(item)}  性格：{nature}  特性：{ability}  闪光：{(ShinyBox.IsChecked == true ? "是" : "否")}";
+            BasicNameText.Text = $"种类：{(species == 0 ? "无" : SpeciesName(species))}  携带道具：{ItemName(item)}  {nature}  特性：{ability}  闪光：{(ShinyBox.IsChecked == true ? "是" : "否")}";
 
             var ppUps = new[] { PpUp1Box, PpUp2Box, PpUp3Box, PpUp4Box };
             UpdateMaxPpTexts(
@@ -1945,7 +1979,7 @@ public partial class MainWindow : Window
                     return $"招式{i + 1}: {(move == 0 ? "无" : MoveName(move))} / PP提升{SelectedPpBonus(ppUps[i])}次";
                 });
             BoxNameText.Text = $"宝可梦：{(species == 0 ? "无" : SpeciesName(species))}  携带：{ItemName(item)}  " +
-                               $"性格：{(SelectedChoiceId(BoxNatureBox) is { } n ? NatureDisplays[n] : "未选择")}  " +
+                               $"PID性格：{(SelectedChoiceId(BoxNatureBox) is { } n ? NatureDisplays[n] : "未选择")}  " +
                                $"特性：{BoxAbilityBox.SelectedItem?.ToString() ?? "未选择"}  " +
                                $"闪光：{(BoxShinyBox.IsChecked == true ? "是" : "否")}  " +
                                $"经验：{(exp is null ? "未填" : exp.Value)}  亲密度：{(friendship is null ? "未填" : friendship.Value)}\n" +
@@ -2422,7 +2456,7 @@ public partial class MainWindow : Window
         try
         {
             UpdateBoxBaseStatTexts(info.Species);
-            UpdateBoxCurrentStats(info.Species, info.Exp, info.Pid);
+            UpdateBoxCurrentStats(info.Species, info.Exp, PartyPokemon.EffectiveStatNature(info.Nature, info.GameNatureCode));
         }
         catch
         {
@@ -2441,7 +2475,7 @@ public partial class MainWindow : Window
             var exp = ParseUIntOrNull(BoxExpBox.Text) ?? 0;
             var nature = SelectedChoiceId(BoxNatureBox) ?? 0;
             UpdateBoxBaseStatTexts(species);
-            UpdateBoxCurrentStats(species, exp, (uint)nature);
+            UpdateBoxCurrentStats(species, exp, nature);
         }
         catch
         {
@@ -2467,7 +2501,7 @@ public partial class MainWindow : Window
         BoxBaseTotalText.Text = stats.Bst.ToString();
     }
 
-    private void UpdateBoxCurrentStats(int species, uint exp, uint pidOrNature)
+    private void UpdateBoxCurrentStats(int species, uint exp, int nature)
     {
         if (species <= 0)
         {
@@ -2477,15 +2511,14 @@ public partial class MainWindow : Window
 
         var stats = ReadSpeciesStats(species);
         var level = LevelFromExp(exp, stats.GrowthRate);
-        var naturePid = pidOrNature;
         var ivs = BuildIntStats(BoxIvHpBox, BoxIvAtkBox, BoxIvDefBox, BoxIvSpeBox, BoxIvSpaBox, BoxIvSpdBox);
         var evs = BuildByteStats(BoxEvHpBox, BoxEvAtkBox, BoxEvDefBox, BoxEvSpeBox, BoxEvSpaBox, BoxEvSpdBox);
         BoxCurrentHpStatText.Text = CalculateHpDisplay(stats.Hp, ivs.GetValueOrDefault("hp"), evs.GetValueOrDefault("hp"), level).ToString();
-        BoxCurrentAtkStatText.Text = CalculateOtherDisplay(stats.Attack, ivs.GetValueOrDefault("atk"), evs.GetValueOrDefault("atk"), level, naturePid, 0).ToString();
-        BoxCurrentDefStatText.Text = CalculateOtherDisplay(stats.Defense, ivs.GetValueOrDefault("def"), evs.GetValueOrDefault("def"), level, naturePid, 1).ToString();
-        BoxCurrentSpeStatText.Text = CalculateOtherDisplay(stats.Speed, ivs.GetValueOrDefault("spe"), evs.GetValueOrDefault("spe"), level, naturePid, 2).ToString();
-        BoxCurrentSpaStatText.Text = CalculateOtherDisplay(stats.SpAttack, ivs.GetValueOrDefault("spa"), evs.GetValueOrDefault("spa"), level, naturePid, 3).ToString();
-        BoxCurrentSpdStatText.Text = CalculateOtherDisplay(stats.SpDefense, ivs.GetValueOrDefault("spd"), evs.GetValueOrDefault("spd"), level, naturePid, 4).ToString();
+        BoxCurrentAtkStatText.Text = CalculateOtherDisplay(stats.Attack, ivs.GetValueOrDefault("atk"), evs.GetValueOrDefault("atk"), level, nature, 0).ToString();
+        BoxCurrentDefStatText.Text = CalculateOtherDisplay(stats.Defense, ivs.GetValueOrDefault("def"), evs.GetValueOrDefault("def"), level, nature, 1).ToString();
+        BoxCurrentSpeStatText.Text = CalculateOtherDisplay(stats.Speed, ivs.GetValueOrDefault("spe"), evs.GetValueOrDefault("spe"), level, nature, 2).ToString();
+        BoxCurrentSpaStatText.Text = CalculateOtherDisplay(stats.SpAttack, ivs.GetValueOrDefault("spa"), evs.GetValueOrDefault("spa"), level, nature, 3).ToString();
+        BoxCurrentSpdStatText.Text = CalculateOtherDisplay(stats.SpDefense, ivs.GetValueOrDefault("spd"), evs.GetValueOrDefault("spd"), level, nature, 4).ToString();
     }
 
     private static int LevelFromExp(uint exp, byte growthRate)
@@ -2521,10 +2554,10 @@ public partial class MainWindow : Window
     private static int CalculateHpDisplay(int baseStat, int iv, int ev, int level)
         => (((2 * baseStat + iv + ev / 4) * level) / 100) + level + 10;
 
-    private static int CalculateOtherDisplay(int baseStat, int iv, int ev, int level, uint pid, int statIndex)
+    private static int CalculateOtherDisplay(int baseStat, int iv, int ev, int level, int nature, int statIndex)
     {
         var value = ((((2 * baseStat + iv + ev / 4) * level) / 100) + 5);
-        var nature = (int)(pid % 25);
+        if (nature is < 0 or > 24) return value;
         var increased = nature / 5;
         var decreased = nature % 5;
         if (increased == statIndex && decreased != statIndex) value = value * 110 / 100;
