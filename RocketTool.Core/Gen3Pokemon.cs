@@ -5,8 +5,8 @@ public static class Gen3Constants
     public const int PartyMonSize = 100;
     public const int PartySlots = 6;
     public const uint DefaultPartyBase = 0x02025170;
-    public const int PartyCountOffsetFromPartyBase = -7;
-    public const uint DefaultPartyCountAddress = 0x02025169;
+    public const int PartyCountOffsetFromPartyBase = -3;
+    public const uint DefaultPartyCountAddress = 0x0202516D;
     public static readonly string[] StatNames = ["hp", "atk", "def", "spe", "spa", "spd"];
 
     public static readonly int[][] SubstructureOrders =
@@ -49,9 +49,10 @@ public sealed record PartyMonInfo(
 public sealed class PartyPokemon
 {
     public const int Size = Gen3Constants.PartyMonSize;
+    private const int NicknameOffset = 0x08;
+    private const int NicknameLength = 10;
     private const int GrowthPpBonusesOffset = 7;
     private const int GrowthFriendshipOffset = 8;
-    private const int GrowthNatureOffset = 9;
     private const uint GrowthExpMask = 0x007FFFFF;
     private const int MiscAbilitySlotOffset = 11;
     private const byte MiscAbilitySlotMask = 0x03;
@@ -84,7 +85,7 @@ public sealed class PartyPokemon
         return new PartyMonInfo(
             Pid,
             OtId,
-            NatureFromGrowth(growth, Pid),
+            NatureFromPid(Pid),
             ReadU16(growth, 0),
             ReadU16(growth, 2),
             ReadExp(growth),
@@ -121,6 +122,13 @@ public sealed class PartyPokemon
         SetDecrypted(dec);
     }
 
+    public void SetNicknameFromSpeciesNameEntry(ReadOnlySpan<byte> speciesNameEntry)
+    {
+        if (speciesNameEntry.Length < NicknameLength)
+            throw new ArgumentException($"Species name entry must contain at least {NicknameLength} bytes.", nameof(speciesNameEntry));
+        speciesNameEntry[..NicknameLength].CopyTo(_raw.AsSpan(NicknameOffset, NicknameLength));
+    }
+
     public void SetMoves(IReadOnlyList<ushort?>? moves, IReadOnlyList<byte?>? pp)
     {
         var dec = Decrypted();
@@ -153,8 +161,7 @@ public sealed class PartyPokemon
     {
         var dec = Decrypted();
         var block = Subblock(dec, 3);
-        var word = ReadU32(block, 4);
-        word = SetIvWord(word, values);
+        var word = SetIvWord(ReadU32(block, 4), values);
         WriteU32(block, 4, word);
         if (values.TryGetValue("ability", out var abilitySlot))
             SetAbilitySlotInMisc(block, abilitySlot);
@@ -166,9 +173,7 @@ public sealed class PartyPokemon
     {
         if (nature is < 0 or > 24) throw new ArgumentOutOfRangeException(nameof(nature), "nature must be 0..24");
         var dec = Decrypted();
-        var block = Subblock(dec, 0);
-        SetNatureInGrowth(block, nature);
-        ReplaceSubblock(dec, 0, block);
+        Put32(0x00, FindPidWithNatureAndShinyState(Pid, OtId, nature, IsShiny));
         SetDecrypted(dec);
     }
 
@@ -235,14 +240,7 @@ public sealed class PartyPokemon
         WriteU32(growth, 4, preserved | (exp & GrowthExpMask));
     }
 
-    private static int NatureFromGrowth(ReadOnlySpan<byte> growth, uint pid)
-    {
-        var nature = growth[GrowthNatureOffset] & 0x1F;
-        return nature <= 24 ? nature : (int)(pid % 25);
-    }
-
-    private static void SetNatureInGrowth(Span<byte> growth, int nature)
-        => growth[GrowthNatureOffset] = (byte)((growth[GrowthNatureOffset] & 0xE0) | (nature & 0x1F));
+    private static int NatureFromPid(uint pid) => (int)(pid % 25);
 
     private byte[] Decrypted()
     {
@@ -328,8 +326,11 @@ public sealed class PartyPokemon
         => (((pid & 0xFFFF) ^ (pid >> 16) ^ (otId & 0xFFFF) ^ (otId >> 16)) < 8);
 
     private static uint FindPidWithShinyState(uint oldPid, uint otId, bool shiny)
+        => FindPidWithNatureAndShinyState(oldPid, otId, (int)(oldPid % 25), shiny);
+
+    private static uint FindPidWithNatureAndShinyState(uint oldPid, uint otId, int nature, bool shiny)
     {
-        var targetNature = oldPid % 25;
+        var targetNature = (uint)nature;
         var targetOrder = oldPid % 24;
         uint residue = 0;
         for (; residue < 600; residue++)

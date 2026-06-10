@@ -20,9 +20,10 @@ public sealed record BoxMonInfo(
 public sealed class BoxPokemon
 {
     public const int Size = 80;
+    private const int NicknameOffset = 0x08;
+    private const int NicknameLength = 10;
     private const int GrowthPpBonusesOffset = 7;
     private const int GrowthFriendshipOffset = 8;
-    private const int GrowthNatureOffset = 9;
     private const uint GrowthExpMask = 0x007FFFFF;
     private const int MiscAbilitySlotOffset = 11;
     private const byte MiscAbilitySlotMask = 0x03;
@@ -55,7 +56,7 @@ public sealed class BoxPokemon
         return new BoxMonInfo(
             Pid,
             OtId,
-            NatureFromGrowth(growth, Pid),
+            NatureFromPid(Pid),
             ReadU16(growth, 0),
             ReadU16(growth, 2),
             ReadExp(growth),
@@ -81,6 +82,13 @@ public sealed class BoxPokemon
         if (friendship is not null) block[GrowthFriendshipOffset] = friendship.Value;
         ReplaceSubblock(dec, 0, block);
         SetDecrypted(dec);
+    }
+
+    public void SetNicknameFromSpeciesNameEntry(ReadOnlySpan<byte> speciesNameEntry)
+    {
+        if (speciesNameEntry.Length < NicknameLength)
+            throw new ArgumentException($"Species name entry must contain at least {NicknameLength} bytes.", nameof(speciesNameEntry));
+        speciesNameEntry[..NicknameLength].CopyTo(_raw.AsSpan(NicknameOffset, NicknameLength));
     }
 
     public void SetMoves(IReadOnlyList<ushort?> moves, IReadOnlyList<byte?> pp)
@@ -109,17 +117,7 @@ public sealed class BoxPokemon
     {
         var dec = Decrypted();
         var block = Subblock(dec, 3);
-        var ivs = PartyPokemon.IvWordToDictionary(ReadU32(block, 4));
-        foreach (var (key, value) in values)
-            if (ivs.ContainsKey(key)) ivs[key] = value;
-        var word = (uint)(ivs["hp"] & 0x1F)
-                   | (uint)(ivs["atk"] & 0x1F) << 5
-                   | (uint)(ivs["def"] & 0x1F) << 10
-                   | (uint)(ivs["spe"] & 0x1F) << 15
-                   | (uint)(ivs["spa"] & 0x1F) << 20
-                   | (uint)(ivs["spd"] & 0x1F) << 25
-                   | (uint)(ivs["egg"] & 1) << 30
-                   | (ReadU32(block, 4) & 0x80000000u);
+        var word = SetIvWord(ReadU32(block, 4), values);
         WriteU32(block, 4, word);
         if (values.TryGetValue("ability", out var abilitySlot))
             block[MiscAbilitySlotOffset] = (byte)((block[MiscAbilitySlotOffset] & ~MiscAbilitySlotMask) | (abilitySlot & MiscAbilitySlotMask));
@@ -131,9 +129,7 @@ public sealed class BoxPokemon
     {
         if (nature is < 0 or > 24) throw new ArgumentOutOfRangeException(nameof(nature), "nature must be 0..24");
         var dec = Decrypted();
-        var block = Subblock(dec, 0);
-        SetNatureInGrowth(block, nature);
-        ReplaceSubblock(dec, 0, block);
+        WriteU32(_raw, 0, FindPidWithNatureAndShinyState(Pid, OtId, nature, IsShiny));
         SetDecrypted(dec);
     }
 
@@ -145,7 +141,6 @@ public sealed class BoxPokemon
         SetDecrypted(decrypted);
     }
 
-
     private static uint ReadExp(ReadOnlySpan<byte> growth)
         => ReadU32(growth, 4) & GrowthExpMask;
 
@@ -155,14 +150,25 @@ public sealed class BoxPokemon
         WriteU32(growth, 4, preserved | (exp & GrowthExpMask));
     }
 
-    private static int NatureFromGrowth(ReadOnlySpan<byte> growth, uint pid)
-    {
-        var nature = growth[GrowthNatureOffset] & 0x1F;
-        return nature <= 24 ? nature : (int)(pid % 25);
-    }
+    private static int NatureFromPid(uint pid) => (int)(pid % 25);
 
-    private static void SetNatureInGrowth(Span<byte> growth, int nature)
-        => growth[GrowthNatureOffset] = (byte)((growth[GrowthNatureOffset] & 0xE0) | (nature & 0x1F));
+    private static uint SetIvWord(uint word, Dictionary<string, int> values)
+    {
+        var ivs = PartyPokemon.IvWordToDictionary(word);
+        foreach (var (key, value) in values)
+        {
+            if (ivs.ContainsKey(key)) ivs[key] = value;
+        }
+        var result = word & 0x80000000u;
+        result |= (uint)(ivs["hp"] & 0x1F);
+        result |= (uint)(ivs["atk"] & 0x1F) << 5;
+        result |= (uint)(ivs["def"] & 0x1F) << 10;
+        result |= (uint)(ivs["spe"] & 0x1F) << 15;
+        result |= (uint)(ivs["spa"] & 0x1F) << 20;
+        result |= (uint)(ivs["spd"] & 0x1F) << 25;
+        result |= (uint)(ivs["egg"] & 1) << 30;
+        return result;
+    }
 
     private byte[] Decrypted()
     {
@@ -180,8 +186,11 @@ public sealed class BoxPokemon
     }
 
     private static uint FindPidWithShinyState(uint oldPid, uint otId, bool shiny)
+        => FindPidWithNatureAndShinyState(oldPid, otId, (int)(oldPid % 25), shiny);
+
+    private static uint FindPidWithNatureAndShinyState(uint oldPid, uint otId, int nature, bool shiny)
     {
-        var targetNature = oldPid % 25;
+        var targetNature = (uint)nature;
         var targetOrder = oldPid % 24;
         uint residue = 0;
         for (; residue < 600; residue++)

@@ -3,7 +3,7 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <!-- 发布新版本时手动修改这里，窗口标题会自动显示该版本号。 -->
-    <Version>0.2.0</Version>
+    <Version>0.2.2</Version>
     <FileVersion>0.1.0.0</FileVersion>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
     <Nullable>enable</Nullable>

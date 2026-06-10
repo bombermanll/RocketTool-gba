@@ -5,39 +5,38 @@ namespace RocketTool.Core;
 
 public sealed class MgbaBridgeClient : IDisposable
 {
-    private readonly TcpClient _client;
-    private readonly NetworkStream _stream;
+    private readonly string _host;
+    private readonly int _port;
+    private TcpClient? _client;
+    private NetworkStream? _stream;
+    private bool _disposed;
 
-    private MgbaBridgeClient(TcpClient client)
+    private MgbaBridgeClient(string host, int port)
     {
-        _client = client;
-        _stream = client.GetStream();
+        _host = host;
+        _port = port;
     }
 
     public string Welcome { get; private set; } = string.Empty;
 
     public static MgbaBridgeClient Connect(string host = "127.0.0.1", int port = 8765)
     {
-        var client = new TcpClient();
-        client.Connect(host, port);
-        client.ReceiveTimeout = 5000;
-        client.SendTimeout = 5000;
-        var bridge = new MgbaBridgeClient(client);
-        bridge.Welcome = bridge.ReadLine();
+        var bridge = new MgbaBridgeClient(host, port);
+        bridge.OpenWithRetry();
         return bridge;
     }
 
     public string Command(string line)
     {
-        var bytes = Encoding.ASCII.GetBytes(line + "\n");
-        _stream.Write(bytes, 0, bytes.Length);
-        _stream.Flush();
-        var response = ReadLine();
-        if (!response.StartsWith("OK ", StringComparison.Ordinal))
+        try
         {
-            throw new InvalidOperationException($"Bridge command failed: {line}: {response}");
+            return CommandOnce(line);
         }
-        return response[3..];
+        catch (Exception ex) when (IsReconnectable(ex))
+        {
+            Reopen();
+            return CommandOnce(line);
+        }
     }
 
     public string GameCode()
@@ -69,13 +68,68 @@ public sealed class MgbaBridgeClient : IDisposable
     public string CheatCommand(string command)
         => Command($"CHEAT {command}");
 
+    private void OpenWithRetry()
+    {
+        Exception? lastError = null;
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                OpenOnce();
+                return;
+            }
+            catch (Exception ex) when (IsReconnectable(ex) || ex is SocketException)
+            {
+                lastError = ex;
+                CloseCurrent();
+                Thread.Sleep(120);
+            }
+        }
+
+        throw new IOException("无法连接 mGBA bridge，请确认脚本仍在运行。", lastError);
+    }
+
+    private void Reopen()
+    {
+        CloseCurrent();
+        OpenWithRetry();
+    }
+
+    private void OpenOnce()
+    {
+        ThrowIfDisposed();
+        var client = new TcpClient();
+        client.Connect(_host, _port);
+        client.ReceiveTimeout = 5000;
+        client.SendTimeout = 5000;
+        _client = client;
+        _stream = client.GetStream();
+        Welcome = ReadLine();
+    }
+
+    private string CommandOnce(string line)
+    {
+        ThrowIfDisposed();
+        var stream = _stream ?? throw new IOException("mGBA bridge is not connected");
+        var bytes = Encoding.ASCII.GetBytes(line + "\n");
+        stream.Write(bytes, 0, bytes.Length);
+        stream.Flush();
+        var response = ReadLine();
+        if (!response.StartsWith("OK ", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Bridge command failed: {line}: {response}");
+        }
+        return response[3..];
+    }
+
     private string ReadLine()
     {
+        var stream = _stream ?? throw new IOException("mGBA bridge is not connected");
         var buffer = new List<byte>(256);
         Span<byte> one = stackalloc byte[1];
         while (true)
         {
-            var read = _stream.Read(one);
+            var read = stream.Read(one);
             if (read <= 0) throw new IOException("mGBA bridge closed the connection");
             if (one[0] == (byte)'\n') break;
             buffer.Add(one[0]);
@@ -83,9 +137,31 @@ public sealed class MgbaBridgeClient : IDisposable
         return Encoding.UTF8.GetString(buffer.ToArray()).TrimEnd('\r');
     }
 
+    private static bool IsReconnectable(Exception ex)
+    {
+        if (ex is SocketException or EndOfStreamException) return true;
+        return ex is IOException io &&
+               (io.Message.Contains("closed", StringComparison.OrdinalIgnoreCase) ||
+                io.Message.Contains("not connected", StringComparison.OrdinalIgnoreCase) ||
+                io.InnerException is SocketException);
+    }
+
+    private void ThrowIfDisposed()
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(MgbaBridgeClient));
+    }
+
+    private void CloseCurrent()
+    {
+        try { _stream?.Dispose(); } catch { }
+        try { _client?.Dispose(); } catch { }
+        _stream = null;
+        _client = null;
+    }
+
     public void Dispose()
     {
-        _stream.Dispose();
-        _client.Dispose();
+        _disposed = true;
+        CloseCurrent();
     }
 }

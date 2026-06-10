@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:RocketTool.Avalonia"
         mc:Ignorable="d"
         d:DesignWidth="1180"
         d:DesignHeight="760"
@@ -67,24 +68,27 @@
                                 <StackPanel Spacing="16">
                                     <TextBlock x:Name="SelectedTitleText" Text="请选择或刷新槽位" FontSize="24" FontWeight="Bold" Foreground="#102E4A" />
                                     <TextBlock x:Name="SelectedDetailText" Text="" IsVisible="False" />
-                                    <Button Content="写入当前精灵" HorizontalAlignment="Right" Click="OnApplyPokemonClicked" Classes="primary" />
+                                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                                        <Button Grid.Column="1" Content="删除当前队伍精灵" HorizontalAlignment="Right" Click="OnPartyDeleteClicked" />
+                                        <Button Grid.Column="2" Content="写入当前精灵" HorizontalAlignment="Right" Click="OnApplyPokemonClicked" Classes="primary" />
+                                    </Grid>
 
                                     <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
                                         <StackPanel Spacing="10">
                                             <TextBlock Text="基础信息" FontWeight="SemiBold" Foreground="#102E4A" />
                                             <Grid ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
                                                 <TextBlock Text="宝可梦" Classes="label" />
-                                                <ComboBox x:Name="SpeciesBox" Grid.Row="1" Grid.ColumnSpan="3" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <local:SearchableChoiceBox x:Name="SpeciesBox" Grid.Row="1" Grid.ColumnSpan="3" PlaceholderText="输入中文名搜索" />
 
                                                 <TextBlock Text="性格" Classes="label" Grid.Row="2" />
                                                 <TextBlock Text="特性" Classes="label" Grid.Row="2" Grid.Column="1" />
-                                                <ComboBox x:Name="NatureBox" Grid.Row="3" />
+                                                <local:SearchableChoiceBox x:Name="NatureBox" Grid.Row="3" PlaceholderText="选择或搜索性格" />
                                                 <ComboBox x:Name="AbilityBox" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" />
 
                                                 <TextBlock Text="携带道具" Classes="label" Grid.Row="4" />
                                                 <TextBlock Text="经验" Classes="label" Grid.Row="4" Grid.Column="1" />
                                                 <TextBlock Text="亲密度" Classes="label" Grid.Row="4" Grid.Column="2" />
-                                                <ComboBox x:Name="ItemBox" Grid.Row="5" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <local:SearchableChoiceBox x:Name="ItemBox" Grid.Row="5" PlaceholderText="输入中文名搜索" />
                                                 <TextBox x:Name="ExpBox" Grid.Row="5" Grid.Column="1" />
                                                 <TextBox x:Name="FriendshipBox" Grid.Row="5" Grid.Column="2" />
 
@@ -108,19 +112,19 @@
                                                 <TextBlock Text="当前PP" Classes="label" Grid.Column="1" />
                                                 <TextBlock Text="PP提升" Classes="label" Grid.Column="2" />
                                                 <TextBlock Text="最大PP" Classes="label" Grid.Column="3" />
-                                                <ComboBox x:Name="Move1Box" Grid.Row="1" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <local:SearchableChoiceBox x:Name="Move1Box" Grid.Row="1" PlaceholderText="输入中文名搜索" />
                                                 <TextBox x:Name="Pp1Box" Grid.Row="1" Grid.Column="1" />
                                                 <ComboBox x:Name="PpUp1Box" Grid.Row="1" Grid.Column="2" />
                                                 <TextBlock x:Name="Move1MaxPpText" Grid.Row="1" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#102E4A" />
-                                                <ComboBox x:Name="Move2Box" Grid.Row="2" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <local:SearchableChoiceBox x:Name="Move2Box" Grid.Row="2" PlaceholderText="输入中文名搜索" />
                                                 <TextBox x:Name="Pp2Box" Grid.Row="2" Grid.Column="1" />
                                                 <ComboBox x:Name="PpUp2Box" Grid.Row="2" Grid.Column="2" />
                                                 <TextBlock x:Name="Move2MaxPpText" Grid.Row="2" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#102E4A" />
-                                                <ComboBox x:Name="Move3Box" Grid.Row="3" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <local:SearchableChoiceBox x:Name="Move3Box" Grid.Row="3" PlaceholderText="输入中文名搜索" />
                                                 <TextBox x:Name="Pp3Box" Grid.Row="3" Grid.Column="1" />
                                                 <ComboBox x:Name="PpUp3Box" Grid.Row="3" Grid.Column="2" />
                                                 <TextBlock x:Name="Move3MaxPpText" Grid.Row="3" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#102E4A" />
-                                                <ComboBox x:Name="Move4Box" Grid.Row="4" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <local:SearchableChoiceBox x:Name="Move4Box" Grid.Row="4" PlaceholderText="输入中文名搜索" />
                                                 <TextBox x:Name="Pp4Box" Grid.Row="4" Grid.Column="1" />
                                                 <ComboBox x:Name="PpUp4Box" Grid.Row="4" Grid.Column="2" />
                                                 <TextBlock x:Name="Move4MaxPpText" Grid.Row="4" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#102E4A" />
@@ -230,7 +234,7 @@
                                             <Grid ColumnDefinitions="340,70" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="8">
                                                 <TextBlock Text="道具名字" Classes="label" />
                                                 <TextBlock Text="数量" Classes="label" Grid.Column="1" />
-                                                <ComboBox x:Name="BagItemBox" Grid.Row="1" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <local:SearchableChoiceBox x:Name="BagItemBox" Grid.Row="1" PlaceholderText="输入中文名搜索" />
                                                 <TextBox x:Name="BagQuantityBox" Grid.Row="1" Grid.Column="1" />
                                                 <TextBlock Text="道具信息" Classes="label" Grid.Row="2" />
                                                 <TextBlock x:Name="BagItemNameText" Grid.Row="3" Grid.ColumnSpan="2" Text="选择候选槽后显示。" Foreground="#102E4A" TextWrapping="Wrap" />
@@ -317,9 +321,10 @@
 
                             <ScrollViewer Grid.Column="1" Padding="20">
                                 <StackPanel Spacing="14">
-                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
                                         <TextBlock Text="箱子槽编辑" FontSize="24" FontWeight="Bold" Foreground="#102E4A" VerticalAlignment="Center" />
-                                        <Button Grid.Column="1" Content="写入当前箱子精灵" HorizontalAlignment="Right" Click="OnBoxApplyClicked" Classes="primary" />
+                                        <Button Grid.Column="1" Content="删除当前箱子精灵" HorizontalAlignment="Right" Click="OnBoxDeleteClicked" />
+                                        <Button Grid.Column="2" Content="写入当前箱子精灵" HorizontalAlignment="Right" Click="OnBoxApplyClicked" Classes="primary" />
                                     </Grid>
                                     <TextBlock Text="先只定位并编辑非空箱子宝可梦。写入会重算校验并重新加密，建议先保存 mGBA 即时存档。" Foreground="#6C6255" TextWrapping="Wrap" />
                                     <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
@@ -327,17 +332,17 @@
                                             <TextBlock Text="基础信息" FontWeight="SemiBold" Foreground="#102E4A" />
                                             <Grid ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
                                                 <TextBlock Text="宝可梦" Classes="label" />
-                                                <ComboBox x:Name="BoxSpeciesBox" Grid.Row="1" Grid.ColumnSpan="3" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <local:SearchableChoiceBox x:Name="BoxSpeciesBox" Grid.Row="1" Grid.ColumnSpan="3" PlaceholderText="输入中文名搜索" />
 
                                                 <TextBlock Text="性格" Classes="label" Grid.Row="2" />
                                                 <TextBlock Text="特性" Classes="label" Grid.Row="2" Grid.Column="1" />
-                                                <ComboBox x:Name="BoxNatureBox" Grid.Row="3" />
+                                                <local:SearchableChoiceBox x:Name="BoxNatureBox" Grid.Row="3" PlaceholderText="选择或搜索性格" />
                                                 <ComboBox x:Name="BoxAbilityBox" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" />
 
                                                 <TextBlock Text="携带道具" Classes="label" Grid.Row="4" />
                                                 <TextBlock Text="经验" Classes="label" Grid.Row="4" Grid.Column="1" />
                                                 <TextBlock Text="亲密度" Classes="label" Grid.Row="4" Grid.Column="2" />
-                                                <ComboBox x:Name="BoxItemBox" Grid.Row="5" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <local:SearchableChoiceBox x:Name="BoxItemBox" Grid.Row="5" PlaceholderText="输入中文名搜索" />
                                                 <TextBox x:Name="BoxExpBox" Grid.Row="5" Grid.Column="1" />
                                                 <TextBox x:Name="BoxFriendshipBox" Grid.Row="5" Grid.Column="2" />
 
@@ -357,19 +362,19 @@
                                                 <TextBlock Text="当前PP" Classes="label" Grid.Column="1" />
                                                 <TextBlock Text="PP提升" Classes="label" Grid.Column="2" />
                                                 <TextBlock Text="最大PP" Classes="label" Grid.Column="3" />
-                                                <ComboBox x:Name="BoxMove1Box" Grid.Row="1" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <local:SearchableChoiceBox x:Name="BoxMove1Box" Grid.Row="1" PlaceholderText="输入中文名搜索" />
                                                 <TextBox x:Name="BoxPp1Box" Grid.Row="1" Grid.Column="1" />
                                                 <ComboBox x:Name="BoxPpUp1Box" Grid.Row="1" Grid.Column="2" />
                                                 <TextBlock x:Name="BoxMove1MaxPpText" Grid.Row="1" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#102E4A" />
-                                                <ComboBox x:Name="BoxMove2Box" Grid.Row="2" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <local:SearchableChoiceBox x:Name="BoxMove2Box" Grid.Row="2" PlaceholderText="输入中文名搜索" />
                                                 <TextBox x:Name="BoxPp2Box" Grid.Row="2" Grid.Column="1" />
                                                 <ComboBox x:Name="BoxPpUp2Box" Grid.Row="2" Grid.Column="2" />
                                                 <TextBlock x:Name="BoxMove2MaxPpText" Grid.Row="2" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#102E4A" />
-                                                <ComboBox x:Name="BoxMove3Box" Grid.Row="3" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <local:SearchableChoiceBox x:Name="BoxMove3Box" Grid.Row="3" PlaceholderText="输入中文名搜索" />
                                                 <TextBox x:Name="BoxPp3Box" Grid.Row="3" Grid.Column="1" />
                                                 <ComboBox x:Name="BoxPpUp3Box" Grid.Row="3" Grid.Column="2" />
                                                 <TextBlock x:Name="BoxMove3MaxPpText" Grid.Row="3" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#102E4A" />
-                                                <ComboBox x:Name="BoxMove4Box" Grid.Row="4" IsEditable="True" IsTextSearchEnabled="False" PlaceholderText="输入中文名搜索" DropDownOpened="OnSearchableComboDropDownOpened" />
+                                                <local:SearchableChoiceBox x:Name="BoxMove4Box" Grid.Row="4" PlaceholderText="输入中文名搜索" />
                                                 <TextBox x:Name="BoxPp4Box" Grid.Row="4" Grid.Column="1" />
                                                 <ComboBox x:Name="BoxPpUp4Box" Grid.Row="4" Grid.Column="2" />
                                                 <TextBlock x:Name="BoxMove4MaxPpText" Grid.Row="4" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#102E4A" />
@@ -503,6 +508,32 @@
                        FontWeight="SemiBold"
                        TextWrapping="Wrap"
                        MaxWidth="760" />
+        </Border>
+        <Border x:Name="BusyBorder"
+                IsVisible="False"
+                IsHitTestVisible="False"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Top"
+                Margin="0,78,0,0"
+                Padding="18,12"
+                CornerRadius="18"
+                BoxShadow="0 10 28 #44000000"
+                Background="#F7F2E8">
+            <StackPanel Spacing="8" MinWidth="320">
+                <TextBlock x:Name="BusyText"
+                           Text="处理中..."
+                           Foreground="#102E4A"
+                           FontWeight="SemiBold"
+                           HorizontalAlignment="Center" />
+                <ProgressBar Height="6"
+                             Minimum="0"
+                             Maximum="100"
+                             IsIndeterminate="True" />
+                <TextBlock Text="正在和 mGBA 读写数据，请稍候，不要重复点击。"
+                           Foreground="#6C6255"
+                           FontSize="12"
+                           HorizontalAlignment="Center" />
+            </StackPanel>
         </Border>
     </Panel>
 </Window>

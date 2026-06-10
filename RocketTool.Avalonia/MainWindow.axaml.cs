@@ -13,6 +13,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using RocketTool.Core;
 
 namespace RocketTool.Avalonia;
@@ -106,10 +107,8 @@ public partial class MainWindow : Window
     private int? _boxAbilitySpecies;
     private bool _suppressEditorEvents;
     private bool _suppressCheatEvents;
-    private bool _updatingSearchableCombo;
     private DispatcherTimer? _toastTimer;
-    private readonly Dictionary<ComboBox, IReadOnlyList<ChoiceRow>> _searchableChoices = [];
-    private readonly Dictionary<ComboBox, DispatcherTimer> _searchableFilterTimers = [];
+    private readonly Dictionary<SearchableChoiceBox, IReadOnlyList<ChoiceRow>> _searchableChoices = [];
 
 
     public MainWindow()
@@ -166,6 +165,7 @@ public partial class MainWindow : Window
         ConfigureSearchableCombo(Move2Box, _moveChoices, UpdateNameHintsFromBoxes);
         ConfigureSearchableCombo(Move3Box, _moveChoices, UpdateNameHintsFromBoxes);
         ConfigureSearchableCombo(Move4Box, _moveChoices, UpdateNameHintsFromBoxes);
+        ConfigureSearchableCombo(NatureBox, _natureChoices, UpdateNameHintsFromBoxes);
         ConfigureSearchableCombo(BagItemBox, _bagItemChoices, UpdateBagNameText);
         ConfigureSearchableCombo(BoxSpeciesBox, _speciesChoices, UpdateBoxNameText);
         ConfigureSearchableCombo(BoxItemBox, _itemChoices, UpdateBoxNameText);
@@ -173,9 +173,8 @@ public partial class MainWindow : Window
         ConfigureSearchableCombo(BoxMove2Box, _moveChoices, UpdateBoxNameText);
         ConfigureSearchableCombo(BoxMove3Box, _moveChoices, UpdateBoxNameText);
         ConfigureSearchableCombo(BoxMove4Box, _moveChoices, UpdateBoxNameText);
-        NatureBox.ItemsSource = _natureChoices;
+        ConfigureSearchableCombo(BoxNatureBox, _natureChoices, UpdateBoxNameText);
         StatusBox.ItemsSource = _statusChoices;
-        BoxNatureBox.ItemsSource = _natureChoices;
         foreach (var box in PpBonusBoxes())
         {
             box.ItemsSource = _ppBonusChoices;
@@ -251,100 +250,57 @@ public partial class MainWindow : Window
 
     private async void OnReloadPartyClicked(object? sender, RoutedEventArgs e) => await ReloadPartyAsync();
 
-    private void ConfigureSearchableCombo(ComboBox box, IReadOnlyList<ChoiceRow> choices, Action changed)
+    private async Task RefreshPartyAndBoxAfterWriteAsync(int selectSlot)
+    {
+        await ReloadPartyAsync(selectSlot);
+        if (_boxBase is not null)
+            await ReloadBoxIfLoadedAsync();
+    }
+
+    private async Task ReloadBoxIfLoadedAsync()
+    {
+        if (_boxBase is null) return;
+        await RunUiTask("刷新箱子", () =>
+        {
+            using var bridge = ConnectBridge();
+            LoadBoxRows(bridge);
+        });
+    }
+
+    private void ConfigureSearchableCombo(SearchableChoiceBox box, IReadOnlyList<ChoiceRow> choices, Action changed)
     {
         _searchableChoices[box] = choices;
         box.ItemsSource = choices;
         FitComboToContent(box, choices);
-        box.PropertyChanged += (_, args) =>
+        box.TextChanged += (_, _) =>
         {
-            if (args.Property != ComboBox.TextProperty || _suppressEditorEvents || _updatingSearchableCombo) return;
-            if (box.SelectedItem is ChoiceRow selected && string.Equals(box.Text, selected.ToString(), StringComparison.Ordinal))
-            {
-                StopSearchableComboFilter(box);
-                changed();
-                return;
-            }
-            if (_searchableChoices.TryGetValue(box, out var choices) && FindExactChoice(choices, box.Text) is not null)
-            {
-                StopSearchableComboFilter(box);
-                changed();
-                return;
-            }
-
-            ScheduleSearchableComboFilter(box, changed);
+            if (!_suppressEditorEvents) changed();
+        };
+        box.SelectionChanged += (_, _) =>
+        {
+            if (!_suppressEditorEvents) changed();
         };
     }
 
-    private void OnSearchableComboDropDownOpened(object? sender, EventArgs e)
+    private void ResetSearchableComboItems(SearchableChoiceBox box, IEnumerable<ChoiceRow> choices, bool preserveSelection = false, bool preserveText = false)
     {
-        if (sender is not ComboBox box || !_searchableChoices.TryGetValue(box, out var choices)) return;
-
-        var term = box.Text?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(term) ||
-            (box.SelectedItem is ChoiceRow selected && string.Equals(term, selected.ToString(), StringComparison.Ordinal)))
-        {
-            ResetSearchableComboItems(box, choices, preserveSelection: true);
-            return;
-        }
-
-        FilterSearchableCombo(box, term);
+        var selectedId = preserveSelection && box.SelectedItem is ChoiceRow selected ? selected.Id : (int?)null;
+        var text = preserveText ? box.Text : null;
+        var rows = choices as IReadOnlyList<ChoiceRow> ?? choices.ToArray();
+        box.ItemsSource = rows;
+        if (selectedId is not null)
+            box.SelectedItem = rows.FirstOrDefault(c => c.Id == selectedId.Value);
+        else if (!preserveSelection)
+            box.SelectedItem = null;
+        if (preserveText)
+            box.Text = text;
     }
 
-    private void ScheduleSearchableComboFilter(ComboBox box, Action changed)
+    private static void FitComboToContent(SearchableChoiceBox box, IEnumerable<ChoiceRow> choices)
     {
-        if (_searchableFilterTimers.TryGetValue(box, out var previousTimer))
-            previousTimer.Stop();
-
-        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(650) };
-        _searchableFilterTimers[box] = timer;
-        timer.Tick += (_, _) =>
-        {
-            timer.Stop();
-            if (_searchableFilterTimers.TryGetValue(box, out var currentTimer) && ReferenceEquals(currentTimer, timer))
-                _searchableFilterTimers.Remove(box);
-            if (_suppressEditorEvents || _updatingSearchableCombo) return;
-
-            // Do not open or refresh the dropdown while closed; changing ItemsSource during IME composition
-            // can cancel Chinese input. The list is filtered when the user explicitly opens it.
-            if (box.IsDropDownOpen)
-                FilterSearchableCombo(box, box.Text);
-            changed();
-        };
-        timer.Start();
-    }
-
-    private void StopSearchableComboFilter(ComboBox box)
-    {
-        if (!_searchableFilterTimers.Remove(box, out var timer)) return;
-        timer.Stop();
-    }
-
-    private void FilterSearchableCombo(ComboBox box, string? text)
-    {
-        if (!_searchableChoices.TryGetValue(box, out var choices)) return;
-        var term = text?.Trim() ?? string.Empty;
-        var filtered = string.IsNullOrWhiteSpace(term)
-            ? choices
-            : choices.Where(choice => MatchesChoice(choice, term)).ToArray();
-        ResetSearchableComboItems(box, filtered, preserveSelection: true);
-    }
-
-    private void ResetSearchableComboItems(ComboBox box, IEnumerable<ChoiceRow> choices, bool preserveSelection = false)
-    {
-        _updatingSearchableCombo = true;
-        try
-        {
-            var selectedId = preserveSelection && box.SelectedItem is ChoiceRow selected ? selected.Id : (int?)null;
-            var rows = choices as IReadOnlyList<ChoiceRow> ?? choices.ToArray();
-            box.ItemsSource = rows;
-            if (selectedId is not null)
-                box.SelectedItem = rows.FirstOrDefault(c => c.Id == selectedId.Value);
-        }
-        finally
-        {
-            _updatingSearchableCombo = false;
-        }
+        // Search boxes should follow the grid column width; long names stay visible in the popup.
+        box.MinWidth = 0;
+        box.MaxDropDownHeight = 360;
     }
 
     private static void FitComboToContent(ComboBox box, IEnumerable<ChoiceRow> choices)
@@ -406,7 +362,20 @@ public partial class MainWindow : Window
         var countAddress = (long)baseAddr + Gen3Constants.PartyCountOffsetFromPartyBase;
         if (countAddress < PartyScanner.EwramBase) return null;
         var count = bridge.Read((uint)countAddress, 1)[0];
-        return count is >= 1 and <= Gen3Constants.PartySlots ? count : null;
+        return count is >= 0 and <= Gen3Constants.PartySlots ? count : null;
+    }
+
+    private static void WritePartyCount(MgbaBridgeClient bridge, uint baseAddr, int count)
+    {
+        if (count is < 0 or > Gen3Constants.PartySlots)
+            throw new InvalidOperationException($"队伍数量必须在 0..{Gen3Constants.PartySlots}。");
+        var countAddress = (long)baseAddr + Gen3Constants.PartyCountOffsetFromPartyBase;
+        if (countAddress < PartyScanner.EwramBase)
+            throw new InvalidOperationException("队伍数量地址无效。");
+        bridge.Command($"WRITE8 0x{countAddress:X} 0x{count:X}");
+        var actual = bridge.Read((uint)countAddress, 1)[0];
+        if (actual != count)
+            throw new InvalidOperationException("队伍数量写入校验失败。");
     }
 
     private void OnPartySelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -428,7 +397,7 @@ public partial class MainWindow : Window
             WriteMon(bridge, addr, mon);
             SetWriteNotice($"队伍槽位 {row.Slot} 恢复成功：HP {info.Hp}->{info.MaxHp}，状态已清除。");
         });
-        await ReloadPartyAsync(row.Slot);
+        await RefreshPartyAndBoxAfterWriteAsync(row.Slot);
     }
 
     private async void OnApplyBasicClicked(object? sender, RoutedEventArgs e)
@@ -439,17 +408,19 @@ public partial class MainWindow : Window
             using var bridge = ConnectBridge();
             var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
             var (addr, mon) = ReadSelectedLiveMon(bridge, baseAddr, row);
+            var species = ParseSpeciesOrNull(SpeciesBox);
+            SyncNicknameForSpeciesChange(mon, species);
             var nature = SelectedChoiceId(NatureBox);
             if (nature is not null) mon.SetNature(nature.Value);
             mon.SetShiny(ShinyBox.IsChecked == true);
             var abilitySlot = SelectedAbilitySlot();
             if (abilitySlot is not null) mon.SetAbilitySlot(abilitySlot.Value);
-            mon.SetGrowth(ParseSpeciesOrNull(SpeciesBox), ParseItemOrNull(ItemBox), ParseUIntOrNull(ExpBox.Text), ParseByteOrNull(FriendshipBox.Text), null);
+            mon.SetGrowth(species, ParseItemOrNull(ItemBox), ParseUIntOrNull(ExpBox.Text), ParseByteOrNull(FriendshipBox.Text), null);
             mon.SetUnencrypted(null, ParseUShortOrNull(MaxHpBox.Text), SelectedStatus(), ParseByteOrNull(LevelBox.Text));
             WriteMon(bridge, addr, mon);
             SetWriteNotice($"队伍槽位 {row.Slot} 基础信息写入成功：种类/道具/经验/亲密度/等级/性格/特性/闪光/状态已更新。");
         });
-        await ReloadPartyAsync(row.Slot);
+        await RefreshPartyAndBoxAfterWriteAsync(row.Slot);
     }
 
     private async void OnApplyPokemonClicked(object? sender, RoutedEventArgs e)
@@ -471,12 +442,14 @@ public partial class MainWindow : Window
             using var bridge = ConnectBridge();
             var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
             var (addr, mon) = ReadSelectedLiveMon(bridge, baseAddr, row);
+            var species = ParseSpeciesOrNull(SpeciesBox);
+            SyncNicknameForSpeciesChange(mon, species);
 
             if (SelectedChoiceId(NatureBox) is { } nature) mon.SetNature(nature);
             mon.SetShiny(ShinyBox.IsChecked == true);
             if (SelectedAbilitySlot() is { } abilitySlot) mon.SetAbilitySlot(abilitySlot);
             mon.SetGrowth(
-                ParseSpeciesOrNull(SpeciesBox),
+                species,
                 ParseItemOrNull(ItemBox),
                 ParseUIntOrNull(ExpBox.Text),
                 ParseByteOrNull(FriendshipBox.Text),
@@ -495,7 +468,39 @@ public partial class MainWindow : Window
                     : $"队伍槽位 {row.Slot} 当前精灵写入成功：基础信息/招式/个体/努力已更新。",
                 success: evTotal <= 510);
         });
-        await ReloadPartyAsync(row.Slot);
+        await RefreshPartyAndBoxAfterWriteAsync(row.Slot);
+    }
+
+    private async void OnPartyDeleteClicked(object? sender, RoutedEventArgs e)
+    {
+        if (!WritesEnabled() || SelectedRow() is not { } row) return;
+        if (!await ConfirmPartyDeleteAsync(row)) return;
+
+        await RunUiTask("删除队伍精灵", () =>
+        {
+            using var bridge = ConnectBridge();
+            var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
+            var count = ReadLivePartyCount(bridge, baseAddr)
+                        ?? throw new InvalidOperationException("没有读到当前队伍数量，请重新读取队伍。");
+            if (row.Slot > count)
+                throw new InvalidOperationException($"当前队伍只有 {count} 只，槽位 {row.Slot} 已不在队伍中。请重新读取队伍。");
+
+            var (addr, _) = ReadSelectedLiveMon(bridge, baseAddr, row);
+            var blocksToWrite = count - row.Slot + 1;
+            var compacted = new byte[blocksToWrite * Gen3Constants.PartyMonSize];
+            for (var slot = row.Slot + 1; slot <= count; slot++)
+            {
+                var source = bridge.Read(SlotAddress(baseAddr, slot), Gen3Constants.PartyMonSize);
+                source.CopyTo(compacted, (slot - row.Slot - 1) * Gen3Constants.PartyMonSize);
+            }
+
+            bridge.WriteRangeVerified(addr, compacted);
+            var newCount = count - 1;
+            WritePartyCount(bridge, baseAddr, newCount);
+            SetWriteNotice($"队伍槽位 {row.Slot} 已删除：{row.Title}。请回游戏确认后手动保存。");
+            ShowToast("队伍精灵删除成功。", success: true);
+            LoadPartyRows(bridge, baseAddr, Math.Clamp(row.Slot, 1, Math.Max(newCount, 1)));
+        });
     }
 
     private async void OnApplyMovesClicked(object? sender, RoutedEventArgs e)
@@ -513,7 +518,7 @@ public partial class MainWindow : Window
             WriteMon(bridge, addr, mon);
             SetWriteNotice($"队伍槽位 {row.Slot} 招式写入成功：4 个招式、PP 和 PP提升已更新。");
         });
-        await ReloadPartyAsync(row.Slot);
+        await RefreshPartyAndBoxAfterWriteAsync(row.Slot);
     }
 
     private async void OnApplyEvsClicked(object? sender, RoutedEventArgs e)
@@ -537,7 +542,7 @@ public partial class MainWindow : Window
                     : $"队伍槽位 {row.Slot} 努力值写入成功：当前能力已重新计算。",
                 success: evTotal <= 510);
         });
-        await ReloadPartyAsync(row.Slot);
+        await RefreshPartyAndBoxAfterWriteAsync(row.Slot);
     }
 
     private async void OnApplyIvsClicked(object? sender, RoutedEventArgs e)
@@ -558,7 +563,7 @@ public partial class MainWindow : Window
             WriteMon(bridge, addr, mon);
             SetWriteNotice($"队伍槽位 {row.Slot} 个体值写入成功：当前能力已重新计算。");
         });
-        await ReloadPartyAsync(row.Slot);
+        await RefreshPartyAndBoxAfterWriteAsync(row.Slot);
     }
 
     private async void OnApplyIvsEvsClicked(object? sender, RoutedEventArgs e)
@@ -590,7 +595,7 @@ public partial class MainWindow : Window
                     : $"队伍槽位 {row.Slot} 个体值/努力值写入成功：当前能力已重新计算。",
                 success: evTotal <= 510);
         });
-        await ReloadPartyAsync(row.Slot);
+        await RefreshPartyAndBoxAfterWriteAsync(row.Slot);
     }
 
     private void OnIvAll31Clicked(object? sender, RoutedEventArgs e) => SetAllIvs(31);
@@ -668,7 +673,7 @@ public partial class MainWindow : Window
             WindowStartupLocation = WindowStartupLocation.CenterOwner
         };
 
-        var rows = new List<(int Pocket, ComboBox ItemBox, TextBox QuantityBox, ChoiceRow[] Choices)>();
+        var rows = new List<(int Pocket, SearchableChoiceBox ItemBox, TextBox QuantityBox, ChoiceRow[] Choices)>();
         var root = new StackPanel { Spacing = 12, Margin = new Thickness(18) };
         root.Children.Add(new TextBlock
         {
@@ -696,10 +701,8 @@ public partial class MainWindow : Window
         {
             var pocket = i + 1;
             var choices = BagItemChoicesForPocket(pocket).Where(c => c.Id != 0).ToArray();
-            var itemBox = new ComboBox
+            var itemBox = new SearchableChoiceBox
             {
-                IsEditable = true,
-                IsTextSearchEnabled = false,
                 ItemsSource = choices,
                 PlaceholderText = "选择第一个道具",
                 MaxDropDownHeight = 360
@@ -1004,9 +1007,9 @@ public partial class MainWindow : Window
         await RunUiTask("写入箱子", () =>
         {
             using var bridge = ConnectBridge();
-            EnsureBoxSelectionFresh(bridge);
-            var mon = new BoxPokemon(bridge.Read(row.Address, BoxPokemon.Size));
+            var mon = ReadSelectedBoxMon(bridge, row);
             var species = ParseSpeciesRequired(BoxSpeciesBox, "箱子宝可梦");
+            SyncNicknameForSpeciesChange(mon, species);
             var item = ParseItemRequired(BoxItemBox, "箱子携带道具");
             mon.SetGrowth(
                 species: species,
@@ -1048,7 +1051,41 @@ public partial class MainWindow : Window
                     : $"箱子槽写入成功：{SpeciesName(species)}。",
                 success: evTotal <= 510);
             LoadBoxRows(bridge);
+            RefreshPartyRowsIfPossible(bridge);
             BoxList.SelectedItem = _boxRows.FirstOrDefault(r => r.Address == row.Address) ?? BoxList.SelectedItem;
+        });
+    }
+
+    private async void OnBoxDeleteClicked(object? sender, RoutedEventArgs e)
+    {
+        if (!WritesEnabled()) return;
+        if (BoxList.SelectedItem is not BoxSlotRow row)
+        {
+            ShowToast("请先选择一个箱子槽。", success: false);
+            return;
+        }
+
+        if (!await ConfirmBoxDeleteAsync(row)) return;
+
+        await RunUiTask("删除箱子精灵", () =>
+        {
+            using var bridge = ConnectBridge();
+            var live = new BoxPokemon(bridge.Read(row.Address, BoxPokemon.Size));
+            if (live.IsEmpty)
+                throw new InvalidOperationException("该箱子槽已经是空的。");
+            if (!SamePokemonIdentity(row.Mon, live))
+            {
+                RefreshBoxAndSelectMovedMon(bridge, row);
+                throw new InvalidOperationException($"箱子槽里的宝可梦已经变化。{MovedBoxHint(row)}");
+            }
+
+            bridge.WriteRangeVerified(row.Address, new byte[BoxPokemon.Size]);
+            SetWriteNotice($"箱子槽已删除：{row.Title}。请回游戏确认后手动保存。");
+            ShowToast("箱子精灵删除成功。", success: true);
+
+            var oldIndex = BoxList.SelectedIndex;
+            _boxRows.Remove(row);
+            BoxList.SelectedIndex = _boxRows.Count == 0 ? -1 : Math.Clamp(oldIndex, 0, _boxRows.Count - 1);
         });
     }
 
@@ -1415,12 +1452,113 @@ public partial class MainWindow : Window
         return confirmed;
     }
 
+    private async Task<bool> ConfirmBoxDeleteAsync(BoxSlotRow row)
+    {
+        var dialog = new Window
+        {
+            Title = "删除箱子精灵",
+            Width = 560,
+            Height = 250,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner
+        };
+        var root = new StackPanel { Margin = new Thickness(18), Spacing = 14 };
+        root.Children.Add(new TextBlock
+        {
+            Text = $"即将清空选中的箱子槽：\n{row.Title}",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = new SolidColorBrush(Color.FromRgb(150, 43, 43)),
+            FontWeight = FontWeight.SemiBold
+        });
+        root.Children.Add(new TextBlock
+        {
+            Text = "删除前强烈建议先保存 mGBA 即时存档；删除后需要在游戏中手动存档才会保留。",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = new SolidColorBrush(Color.FromRgb(108, 98, 85))
+        });
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 10
+        };
+        var cancel = new Button { Content = "取消" };
+        var ok = new Button { Content = "确认删除", Classes = { "primary" } };
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(ok);
+        root.Children.Add(buttons);
+        dialog.Content = root;
+
+        var confirmed = false;
+        cancel.Click += (_, _) => dialog.Close();
+        ok.Click += (_, _) =>
+        {
+            confirmed = true;
+            dialog.Close();
+        };
+        await dialog.ShowDialog(this);
+        if (!confirmed)
+            ShowToast("已取消删除。", success: false);
+        return confirmed;
+    }
+
+    private async Task<bool> ConfirmPartyDeleteAsync(PartySlotRow row)
+    {
+        var dialog = new Window
+        {
+            Title = "删除队伍精灵",
+            Width = 560,
+            Height = 250,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner
+        };
+        var root = new StackPanel { Margin = new Thickness(18), Spacing = 14 };
+        root.Children.Add(new TextBlock
+        {
+            Text = $"即将删除选中的队伍槽位：\n{row.Title}",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = new SolidColorBrush(Color.FromRgb(150, 43, 43)),
+            FontWeight = FontWeight.SemiBold
+        });
+        root.Children.Add(new TextBlock
+        {
+            Text = "删除前强烈建议先保存 mGBA 即时存档；删除后需要在游戏中手动存档才会保留。",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = new SolidColorBrush(Color.FromRgb(108, 98, 85))
+        });
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 10
+        };
+        var cancel = new Button { Content = "取消" };
+        var ok = new Button { Content = "确认删除", Classes = { "primary" } };
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(ok);
+        root.Children.Add(buttons);
+        dialog.Content = root;
+
+        var confirmed = false;
+        cancel.Click += (_, _) => dialog.Close();
+        ok.Click += (_, _) =>
+        {
+            confirmed = true;
+            dialog.Close();
+        };
+        await dialog.ShowDialog(this);
+        if (!confirmed)
+            ShowToast("已取消删除。", success: false);
+        return confirmed;
+    }
+
     private async Task RunUiTask(string label, Action action)
     {
         try
         {
             SetBusy(label + "...");
-            await Task.Yield();
+            await Dispatcher.UIThread.InvokeAsync(() => BusyBorder.UpdateLayout(), DispatcherPriority.Render);
+            await Task.Delay(80);
             action();
             SetReady(label + "完成。");
         }
@@ -1491,7 +1629,7 @@ public partial class MainWindow : Window
         {
             SetChoice(SpeciesBox, _speciesChoices, info.Species);
             SetChoice(ItemBox, _itemChoices, info.Item);
-            NatureBox.SelectedItem = _natureChoices[info.Nature];
+            SetChoice(NatureBox, _natureChoices, info.Nature);
             RefreshAbilityChoices(info.Species, info.Ivs["ability"]);
             ExpBox.Text = info.Exp.ToString();
             FriendshipBox.Text = info.Friendship.ToString();
@@ -1552,6 +1690,7 @@ public partial class MainWindow : Window
             foreach (var box in new[] { PpUp1Box, PpUp2Box, PpUp3Box, PpUp4Box })
                 SetChoice(box, _ppBonusChoices, 0);
             ClearMaxPpTexts(Move1MaxPpText, Move2MaxPpText, Move3MaxPpText, Move4MaxPpText);
+            NatureBox.Text = string.Empty;
             NatureBox.SelectedItem = null;
             StatusBox.SelectedItem = null;
             ShinyBox.IsChecked = false;
@@ -2100,17 +2239,23 @@ public partial class MainWindow : Window
     private static string ChoiceText(IReadOnlyList<ChoiceRow> choices, int id)
         => choices.FirstOrDefault(c => c.Id == id)?.ToString() ?? string.Empty;
 
-    private void SetChoice(ComboBox box, IReadOnlyList<ChoiceRow> choices, int id)
+    private void SetChoice(SearchableChoiceBox box, IReadOnlyList<ChoiceRow> choices, int id)
     {
-        if (_searchableChoices.ContainsKey(box))
-            ResetSearchableComboItems(box, choices);
+        ResetSearchableComboItems(box, choices);
         var choice = choices.FirstOrDefault(c => c.Id == id);
         box.SelectedItem = choice;
-        if (box.IsEditable)
-            box.Text = choice?.ToString() ?? string.Empty;
+        box.Text = choice?.ToString() ?? string.Empty;
     }
 
-    private static ushort? ParseChoiceUShortOrNull(ComboBox box, IReadOnlyList<ChoiceRow> choices)
+    private static void SetChoice(ComboBox box, IReadOnlyList<ChoiceRow> choices, int id)
+    {
+        var choice = choices.FirstOrDefault(c => c.Id == id);
+        box.SelectedItem = choice;
+        if (choice is not null)
+            box.Text = choice.ToString();
+    }
+
+    private static ushort? ParseChoiceUShortOrNull(SearchableChoiceBox box, IReadOnlyList<ChoiceRow> choices)
     {
         var text = box.Text?.Trim();
         if (!string.IsNullOrWhiteSpace(text))
@@ -2127,10 +2272,10 @@ public partial class MainWindow : Window
         return null;
     }
 
-    private static ushort ParseChoiceUShortRequired(ComboBox box, IReadOnlyList<ChoiceRow> choices, string label)
+    private static ushort ParseChoiceUShortRequired(SearchableChoiceBox box, IReadOnlyList<ChoiceRow> choices, string label)
         => ParseChoiceUShortOrNull(box, choices) ?? throw new InvalidOperationException($"缺少 {label}。");
 
-    private ushort? ParseBoundedChoiceOrNull(ComboBox box, IReadOnlyList<ChoiceRow> choices, int maxValue, string label)
+    private ushort? ParseBoundedChoiceOrNull(SearchableChoiceBox box, IReadOnlyList<ChoiceRow> choices, int maxValue, string label)
     {
         var value = ParseChoiceUShortOrNull(box, choices);
         if (value is not null && value.Value > maxValue)
@@ -2138,22 +2283,22 @@ public partial class MainWindow : Window
         return value;
     }
 
-    private ushort ParseBoundedChoiceRequired(ComboBox box, IReadOnlyList<ChoiceRow> choices, int maxValue, string label)
+    private ushort ParseBoundedChoiceRequired(SearchableChoiceBox box, IReadOnlyList<ChoiceRow> choices, int maxValue, string label)
         => ParseBoundedChoiceOrNull(box, choices, maxValue, label) ?? throw new InvalidOperationException($"缺少 {label}。");
 
-    private ushort? ParseSpeciesOrNull(ComboBox box)
+    private ushort? ParseSpeciesOrNull(SearchableChoiceBox box)
         => ParseBoundedChoiceOrNull(box, _speciesChoices, MaxSpeciesId(), "宝可梦");
 
-    private ushort ParseSpeciesRequired(ComboBox box, string label)
+    private ushort ParseSpeciesRequired(SearchableChoiceBox box, string label)
         => ParseBoundedChoiceRequired(box, _speciesChoices, MaxSpeciesId(), label);
 
-    private ushort? ParseItemOrNull(ComboBox box)
+    private ushort? ParseItemOrNull(SearchableChoiceBox box)
         => ParseBoundedChoiceOrNull(box, _itemChoices, MaxItemId(), "道具");
 
-    private ushort ParseItemRequired(ComboBox box, string label)
+    private ushort ParseItemRequired(SearchableChoiceBox box, string label)
         => ParseBoundedChoiceRequired(box, _itemChoices, MaxItemId(), label);
 
-    private ushort? ParseMoveOrNull(ComboBox box)
+    private ushort? ParseMoveOrNull(SearchableChoiceBox box)
         => ParseBoundedChoiceOrNull(box, _moveChoices, MaxMoveId(), "招式");
 
     private uint? SelectedStatus()
@@ -2574,7 +2719,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void UpdateMaxPpTexts(IReadOnlyList<ComboBox> moveBoxes, IReadOnlyList<ComboBox> ppBonusBoxes, IReadOnlyList<TextBlock> targets)
+    private void UpdateMaxPpTexts(IReadOnlyList<SearchableChoiceBox> moveBoxes, IReadOnlyList<ComboBox> ppBonusBoxes, IReadOnlyList<TextBlock> targets)
     {
         for (var i = 0; i < Math.Min(Math.Min(moveBoxes.Count, ppBonusBoxes.Count), targets.Count); i++)
         {
@@ -2604,6 +2749,38 @@ public partial class MainWindow : Window
         var info = mon.GetInfo();
         var stats = ReadSpeciesStats(info.Species);
         mon.RecalculateStats(stats);
+    }
+
+    private void SyncNicknameForSpeciesChange(PartyPokemon mon, ushort? newSpecies)
+    {
+        if (newSpecies is null or 0) return;
+        if (mon.GetInfo().Species == newSpecies.Value) return;
+        mon.SetNicknameFromSpeciesNameEntry(SpeciesNameEntryBytes(newSpecies.Value));
+    }
+
+    private void SyncNicknameForSpeciesChange(BoxPokemon mon, ushort newSpecies)
+    {
+        if (newSpecies == 0) return;
+        if (mon.GetInfo().Species == newSpecies) return;
+        mon.SetNicknameFromSpeciesNameEntry(SpeciesNameEntryBytes(newSpecies));
+    }
+
+    private byte[] SpeciesNameEntryBytes(int species)
+    {
+        if (!_db.Table("species_name_bytes").TryGetValue(species, out var hex))
+            throw new InvalidOperationException($"缺少宝可梦 {SpeciesName(species)} 的内部名字字节，无法自动同步昵称。");
+
+        try
+        {
+            var bytes = Convert.FromHexString(hex.Trim());
+            if (bytes.Length < 10)
+                throw new FormatException("entry too short");
+            return bytes;
+        }
+        catch (FormatException ex)
+        {
+            throw new InvalidOperationException($"宝可梦 {SpeciesName(species)} 的内部名字字节格式无效，无法自动同步昵称。", ex);
+        }
     }
 
     private void RefreshAbilityChoices(int species, int? selectedBit)
@@ -2749,6 +2926,12 @@ public partial class MainWindow : Window
     }
 
     private static int? SelectedChoiceId(ComboBox control)
+    {
+        if (control.SelectedItem is ChoiceRow row) return row.Id;
+        return null;
+    }
+
+    private static int? SelectedChoiceId(SearchableChoiceBox control)
     {
         if (control.SelectedItem is ChoiceRow row) return row.Id;
         return null;
@@ -2952,15 +3135,60 @@ public partial class MainWindow : Window
         _bagBase = liveBase;
     }
 
-    private void EnsureBoxSelectionFresh(MgbaBridgeClient bridge)
+    private BoxPokemon ReadSelectedBoxMon(MgbaBridgeClient bridge, BoxSlotRow row)
     {
-        if (_boxBase is null) return;
+        if (_boxBase is not null)
+            EnsureBoxStorageBaseFresh(bridge);
+
+        var mon = new BoxPokemon(bridge.Read(row.Address, BoxPokemon.Size));
+        if (mon.IsEmpty)
+        {
+            RefreshBoxAndSelectMovedMon(bridge, row);
+            throw new InvalidOperationException("该箱子槽已经变空，宝可梦可能已被取出或移动。已刷新箱子列表，请重新选择后再写入。");
+        }
+
+        if (SamePokemonIdentity(row.Mon, mon))
+            return mon;
+
+        RefreshBoxAndSelectMovedMon(bridge, row);
+        throw new InvalidOperationException($"箱子槽里的宝可梦已经变化。{MovedBoxHint(row)}");
+    }
+
+    private void EnsureBoxStorageBaseFresh(MgbaBridgeClient bridge)
+    {
         var ewram = PartyScanner.ReadEwram(bridge);
         var run = BoxScanner.LocateBestRun(ewram) ?? throw new InvalidOperationException("没有定位到箱子宝可梦。请重新读取箱子后再写入。");
-        if (run.StartAddress == _boxBase.Value) return;
+        if (_boxBase is { } boxBase && run.StartAddress == boxBase) return;
         LoadBoxRows(bridge);
         throw new InvalidOperationException("箱子位置已变化，已刷新箱子列表。请重新选择槽位后再写入。");
     }
+
+    private void RefreshBoxAndSelectMovedMon(MgbaBridgeClient bridge, BoxSlotRow oldRow)
+    {
+        try
+        {
+            LoadBoxRows(bridge);
+            if (FindBoxRowByIdentity(oldRow) is { } moved)
+                BoxList.SelectedItem = moved;
+        }
+        catch
+        {
+            // Keep the original write failure visible; refresh errors are secondary.
+        }
+    }
+
+    private BoxSlotRow? FindBoxRowByIdentity(BoxSlotRow oldRow)
+        => _boxRows.FirstOrDefault(row => SamePokemonIdentity(oldRow.Mon, row.Mon));
+
+    private string MovedBoxHint(BoxSlotRow oldRow)
+    {
+        if (FindBoxRowByIdentity(oldRow) is { } moved)
+            return $"已在箱子列表中定位到新位置：{moved.Title}。请确认后重新写入。";
+        return "未在当前箱子候选中找到同一只宝可梦，它可能已经进入队伍、被移动到未读取箱子，或当前箱子定位已变化。请重新读取队伍/箱子。";
+    }
+
+    private static bool SamePokemonIdentity(BoxPokemon left, BoxPokemon right)
+        => !left.IsEmpty && !right.IsEmpty && left.Pid == right.Pid && left.OtId == right.OtId;
 
     private BagPocketDefinition? ResolveBagDefinition(MgbaBridgeClient bridge, uint address)
     {
@@ -3003,6 +3231,20 @@ public partial class MainWindow : Window
     }
 
     private static void WriteMon(MgbaBridgeClient bridge, uint addr, PartyPokemon mon) => bridge.WriteRangeVerified(addr, mon.Raw);
+
+    private void RefreshPartyRowsIfPossible(MgbaBridgeClient bridge)
+    {
+        try
+        {
+            var selectedSlot = SelectedRow()?.Slot ?? 1;
+            var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
+            LoadPartyRows(bridge, baseAddr, selectedSlot);
+        }
+        catch (Exception ex)
+        {
+            Log("刷新队伍失败：" + ex.Message);
+        }
+    }
 
 
 
@@ -3156,12 +3398,15 @@ public partial class MainWindow : Window
     private void SetBusy(string message)
     {
         ConnectionStatusText.Text = message;
+        BusyText.Text = message;
+        BusyBorder.IsVisible = true;
         Log(message);
     }
 
     private void SetReady(string message)
     {
         ConnectionStatusText.Text = message;
+        BusyBorder.IsVisible = false;
         Log(message);
     }
 

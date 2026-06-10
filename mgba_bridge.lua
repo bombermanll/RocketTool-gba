@@ -11,7 +11,7 @@ local clients = {}
 local listener = nil
 
 local PARTY_BASE = 0x02025170
-local PARTY_COUNT_OFFSET = -7
+local PARTY_COUNT_OFFSET = -3
 local PARTY_MON_SIZE = 100
 local PARTY_SLOTS = 6
 local EWRAM_START = 0x02000000
