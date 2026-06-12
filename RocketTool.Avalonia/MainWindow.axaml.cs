@@ -7,10 +7,12 @@ using System.Reflection;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -30,6 +32,19 @@ public sealed record BagSlotRow(
     string Detail);
 public sealed record BagCalibrationRequest(int Pocket, ushort ItemId, ushort Quantity);
 public sealed record BoxSlotRow(int Slot, uint Address, BoxPokemon Mon, BoxMonInfo Info, string Title, string Detail);
+public sealed record DexSpeciesRow(int Id, string Name, string DisplayName, string Title, Bitmap? Sprite)
+{
+    public override string ToString() => Title;
+}
+public sealed record DexTypeBadge(string Name, IBrush Background, IBrush Foreground);
+public sealed record DexInfoRow(string Label, string Value, string? Tooltip = null, IReadOnlyList<DexTypeBadge>? TypeBadges = null)
+{
+    public bool HasTooltip => !string.IsNullOrWhiteSpace(Tooltip);
+    public bool HasTypeBadges => TypeBadges is { Count: > 0 };
+    public bool IsTextVisible => !HasTypeBadges;
+}
+public sealed record DexStatRow(string Name, string Base, string Level50, string Level100, string MaxLevel);
+public sealed record DexLevelMoveRow(string Level, string Move, string Type, string Category, string Power, string Accuracy, string Pp);
 public sealed record MapLocationChoice(string Name, int X, int Y)
 {
     public override string ToString() => Name;
@@ -72,16 +87,23 @@ public partial class MainWindow : Window
         280, 104, 115, 351, 53, 188, 201, 126, 317, 332,
         259, 263, 290, 156, 213, 168, 211, 285, 289, 315
     ];
-    private const int MachineMoveTableOffset = 0xCF8C54;
     private const int MachineTmStartItem = 592;
     private const int MachineTmCount = 246;
     private const int MachineHmStartItem = 838;
     private const int MachineHmCount = 8;
+    private const int MaxPokemonLevel = 150;
+    private const int DexImportLevel = 5;
     private const ushort MaxBagWriteQuantity = 255;
 
     private readonly ObservableCollection<PartySlotRow> _partyRows = [];
     private readonly ObservableCollection<BagSlotRow> _bagRows = [];
     private readonly ObservableCollection<BoxSlotRow> _boxRows = [];
+    private readonly ObservableCollection<DexSpeciesRow> _dexRows = [];
+    private readonly ObservableCollection<DexInfoRow> _dexInfoRows = [];
+    private readonly ObservableCollection<DexStatRow> _dexStatRows = [];
+    private readonly ObservableCollection<DexLevelMoveRow> _dexLevelMoveRows = [];
+    private DexSpeciesRow[] _allDexRows = [];
+    private int _dexMaxLevel = MaxPokemonLevel;
     private readonly List<BagSlotRow> _allBagRows = [];
     private readonly ChoiceRow[] _speciesChoices;
     private readonly ChoiceRow[] _itemChoices;
@@ -97,20 +119,14 @@ public partial class MainWindow : Window
     private uint? _partyBase;
     private uint? _boxBase;
     private uint? _bagBase;
-    private SpeciesStatsReader? _speciesReader;
-    private string? _speciesReaderPath;
-    private ItemDataReader? _itemReader;
-    private string? _itemReaderPath;
-    private MoveDataReader? _moveReader;
-    private string? _moveReaderPath;
-    private ushort[]? _machineMoveIds;
-    private string? _machineMoveReaderPath;
     private int? _abilitySpecies;
     private int? _boxAbilitySpecies;
     private bool _suppressEditorEvents;
     private bool _suppressCheatEvents;
     private DispatcherTimer? _toastTimer;
     private readonly Dictionary<SearchableChoiceBox, IReadOnlyList<ChoiceRow>> _searchableChoices = [];
+    private readonly Dictionary<int, IReadOnlyList<SpeciesEvolution>> _evolutionCache = [];
+    private readonly Dictionary<int, IReadOnlyList<SpeciesLevelMove>> _levelMoveCache = [];
 
 
     public MainWindow()
@@ -161,6 +177,10 @@ public partial class MainWindow : Window
         PartyList.ItemsSource = _partyRows;
         BagList.ItemsSource = _bagRows;
         BoxList.ItemsSource = _boxRows;
+        DexSpeciesList.ItemsSource = _dexRows;
+        DexInfoRowsView.ItemsSource = _dexInfoRows;
+        DexStatRowsView.ItemsSource = _dexStatRows;
+        DexLevelMoveRowsView.ItemsSource = _dexLevelMoveRows;
         ConfigureSearchableCombo(SpeciesBox, _speciesChoices, UpdateNameHintsFromBoxes);
         ConfigureSearchableCombo(ItemBox, _itemChoices, UpdateNameHintsFromBoxes);
         ConfigureSearchableCombo(Move1Box, _moveChoices, UpdateNameHintsFromBoxes);
@@ -191,6 +211,7 @@ public partial class MainWindow : Window
         ConfigureNumericInputLimits();
         HookNameRefresh();
         RomPathBox.Text = DefaultRom();
+        InitializeDexRows();
         Log("界面已就绪。请先在 mGBA 加载 bridge 脚本，然后点击“连接 mGBA”。");
     }
 
@@ -405,7 +426,7 @@ public partial class MainWindow : Window
 
     private async void OnHealClicked(object? sender, RoutedEventArgs e)
     {
-        if (!WritesEnabled() || SelectedRow() is not { } row) return;
+        if (SelectedRow() is not { } row) return;
         await RunUiTask("恢复选中宝可梦", () =>
         {
             using var bridge = ConnectBridge();
@@ -421,7 +442,7 @@ public partial class MainWindow : Window
 
     private async void OnApplyBasicClicked(object? sender, RoutedEventArgs e)
     {
-        if (!WritesEnabled() || SelectedRow() is not { } row) return;
+        if (SelectedRow() is not { } row) return;
         await RunUiTask("写入基础信息", () =>
         {
             using var bridge = ConnectBridge();
@@ -454,7 +475,7 @@ public partial class MainWindow : Window
 
     private async void OnApplyPokemonClicked(object? sender, RoutedEventArgs e)
     {
-        if (!WritesEnabled() || SelectedRow() is not { } row) return;
+        if (SelectedRow() is not { } row) return;
         if (!TryReadCurrentEvTotal("写入当前精灵", out var pendingEvTotal)) return;
         if (!await ConfirmHighEvTotalAsync(pendingEvTotal)) return;
         await RunUiTask("写入当前精灵", () =>
@@ -502,7 +523,7 @@ public partial class MainWindow : Window
 
     private async void OnPartyDeleteClicked(object? sender, RoutedEventArgs e)
     {
-        if (!WritesEnabled() || SelectedRow() is not { } row) return;
+        if (SelectedRow() is not { } row) return;
         if (!await ConfirmPartyDeleteAsync(row)) return;
 
         await RunUiTask("删除队伍精灵", () =>
@@ -534,7 +555,7 @@ public partial class MainWindow : Window
 
     private async void OnApplyMovesClicked(object? sender, RoutedEventArgs e)
     {
-        if (!WritesEnabled() || SelectedRow() is not { } row) return;
+        if (SelectedRow() is not { } row) return;
         await RunUiTask("写入招式", () =>
         {
             using var bridge = ConnectBridge();
@@ -552,7 +573,7 @@ public partial class MainWindow : Window
 
     private async void OnApplyEvsClicked(object? sender, RoutedEventArgs e)
     {
-        if (!WritesEnabled() || SelectedRow() is not { } row) return;
+        if (SelectedRow() is not { } row) return;
         if (!TryReadCurrentEvTotal("写入努力值", out var pendingEvTotal)) return;
         if (!await ConfirmHighEvTotalAsync(pendingEvTotal)) return;
         await RunUiTask("写入努力值", () =>
@@ -576,7 +597,7 @@ public partial class MainWindow : Window
 
     private async void OnApplyIvsClicked(object? sender, RoutedEventArgs e)
     {
-        if (!WritesEnabled() || SelectedRow() is not { } row) return;
+        if (SelectedRow() is not { } row) return;
         await RunUiTask("写入个体值", () =>
         {
             var values = BuildIntStats(IvHpBox, IvAtkBox, IvDefBox, IvSpeBox, IvSpaBox, IvSpdBox);
@@ -597,7 +618,7 @@ public partial class MainWindow : Window
 
     private async void OnApplyIvsEvsClicked(object? sender, RoutedEventArgs e)
     {
-        if (!WritesEnabled() || SelectedRow() is not { } row) return;
+        if (SelectedRow() is not { } row) return;
         if (!TryReadCurrentEvTotal("写入个体/努力", out var pendingEvTotal)) return;
         if (!await ConfirmHighEvTotalAsync(pendingEvTotal)) return;
         await RunUiTask("写入个体/努力", () =>
@@ -924,7 +945,6 @@ public partial class MainWindow : Window
 
     private async void OnBagApplyClicked(object? sender, RoutedEventArgs e)
     {
-        if (!WritesEnabled()) return;
         if (BagList.SelectedItem is not BagSlotRow row)
         {
             ShowToast("请先选择一个背包槽。", success: false);
@@ -955,7 +975,6 @@ public partial class MainWindow : Window
 
     private async void OnBagAddClicked(object? sender, RoutedEventArgs e)
     {
-        if (!WritesEnabled()) return;
         await RunUiTask("添加背包道具", () =>
         {
             using var bridge = ConnectBridge();
@@ -1024,7 +1043,6 @@ public partial class MainWindow : Window
 
     private async void OnBoxApplyClicked(object? sender, RoutedEventArgs e)
     {
-        if (!WritesEnabled()) return;
         if (BoxList.SelectedItem is not BoxSlotRow row)
         {
             ShowToast("请先选择一个箱子槽。", success: false);
@@ -1087,7 +1105,6 @@ public partial class MainWindow : Window
 
     private async void OnBoxDeleteClicked(object? sender, RoutedEventArgs e)
     {
-        if (!WritesEnabled()) return;
         if (BoxList.SelectedItem is not BoxSlotRow row)
         {
             ShowToast("请先选择一个箱子槽。", success: false);
@@ -1116,6 +1133,544 @@ public partial class MainWindow : Window
             _boxRows.Remove(row);
             BoxList.SelectedIndex = _boxRows.Count == 0 ? -1 : Math.Clamp(oldIndex, 0, _boxRows.Count - 1);
         });
+    }
+
+    private async void OnDexImportPartyClicked(object? sender, RoutedEventArgs e)
+    {
+        if (DexSpeciesList.SelectedItem is not DexSpeciesRow row)
+        {
+            ShowToast("请先在图鉴中选择一个宝可梦。", success: false);
+            return;
+        }
+
+        await RunUiTask("导入队伍", () =>
+        {
+            using var bridge = ConnectBridge();
+            var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
+            var count = ReadLivePartyCount(bridge, baseAddr)
+                        ?? throw new InvalidOperationException("没有读到当前队伍数量，请先读取队伍。");
+            if (count >= Gen3Constants.PartySlots)
+                throw new InvalidOperationException("队伍已满，无法从图鉴导入。");
+
+            var otId = ResolveImportOtId(bridge, baseAddr, count);
+            var mon = BuildDexPartyPokemon(row.Id, otId);
+            var targetSlot = count + 1;
+            var targetAddress = SlotAddress(baseAddr, targetSlot);
+            bridge.WriteRangeVerified(targetAddress, mon.Raw);
+            WritePartyCount(bridge, baseAddr, targetSlot);
+            LoadPartyRows(bridge, baseAddr, targetSlot);
+            SetWriteNotice($"已从图鉴导入到队伍槽位 {targetSlot}：{row.DisplayName}。请回游戏确认后手动保存。");
+        });
+    }
+
+    private async void OnDexImportBoxClicked(object? sender, RoutedEventArgs e)
+    {
+        if (DexSpeciesList.SelectedItem is not DexSpeciesRow row)
+        {
+            ShowToast("请先在图鉴中选择一个宝可梦。", success: false);
+            return;
+        }
+
+        await RunUiTask("导入箱子", () =>
+        {
+            using var bridge = ConnectBridge();
+            var ewram = PartyScanner.ReadEwram(bridge);
+            var run = BoxScanner.LocateBestRun(ewram)
+                      ?? throw new InvalidOperationException("没有定位到箱子。请先确保箱子里有连续的非空槽位，再点“读取箱子”。");
+            if (run.Length >= BoxScanner.BoxSlots * BoxScanner.MaxBoxes)
+                throw new InvalidOperationException("箱子已满，无法从图鉴导入。");
+
+            var targetAddress = run.StartAddress + (uint)(run.Length * BoxPokemon.Size);
+            var targetOffset = checked((int)(targetAddress - PartyScanner.EwramBase));
+            if (targetOffset < 0 || targetOffset + BoxPokemon.Size > ewram.Length)
+                throw new InvalidOperationException("箱子追加地址超出 EWRAM 范围，无法安全写入。");
+            if (!IsAllZero(ewram.AsSpan(targetOffset, BoxPokemon.Size)))
+                throw new InvalidOperationException("箱子后方目标槽不是空槽，箱子可能已满或定位不可靠。请重新读取箱子后再试。");
+
+            var otId = ResolveImportOtId(bridge, null, null);
+            var mon = BuildDexBoxPokemon(row.Id, otId);
+            bridge.WriteRangeVerified(targetAddress, mon.Raw);
+            LoadBoxRows(bridge);
+            BoxList.SelectedItem = _boxRows.FirstOrDefault(r => r.Address == targetAddress) ?? BoxList.SelectedItem;
+            SetWriteNotice($"已从图鉴导入到箱子后方空槽：{row.DisplayName}。请回游戏确认后手动保存。");
+        });
+    }
+
+    private PartyPokemon BuildDexPartyPokemon(int species, uint otId)
+    {
+        var stats = ReadSpeciesStats(species);
+        var mon = PartyPokemon.Create(NewNonShinyPid(otId), otId);
+        ApplyDexImportDefaults(mon, species, stats);
+        mon.SetUnencrypted(status: 0, level: DexImportLevel);
+        mon.RecalculateStats(stats);
+        return mon;
+    }
+
+    private BoxPokemon BuildDexBoxPokemon(int species, uint otId)
+    {
+        var stats = ReadSpeciesStats(species);
+        var mon = BoxPokemon.Create(NewNonShinyPid(otId), otId);
+        ApplyDexImportDefaults(mon, species, stats);
+        return mon;
+    }
+
+    private void ApplyDexImportDefaults(PartyPokemon mon, int species, SpeciesStats stats)
+    {
+        var (moves, pp) = DexImportMoves(species);
+        mon.SetNicknameFromSpeciesNameEntry(SpeciesNameEntryBytes(species));
+        mon.SetGrowth((ushort)species, item: 0, ExperienceForLevel(DexImportLevel, stats.GrowthRate), stats.Friendship, ppBonuses: 0);
+        mon.SetGameNatureCode(NatureCodeUsePid);
+        mon.SetMoves(moves.Select(m => (ushort?)m).ToArray(), pp.Select(x => (byte?)x).ToArray());
+        mon.SetIvs(DefaultImportIvs());
+        mon.SetEvs(DefaultImportEvs());
+    }
+
+    private void ApplyDexImportDefaults(BoxPokemon mon, int species, SpeciesStats stats)
+    {
+        var (moves, pp) = DexImportMoves(species);
+        mon.SetNicknameFromSpeciesNameEntry(SpeciesNameEntryBytes(species));
+        mon.SetGrowth((ushort)species, item: 0, ExperienceForLevel(DexImportLevel, stats.GrowthRate), stats.Friendship, ppBonuses: 0);
+        mon.SetGameNatureCode(NatureCodeUsePid);
+        mon.SetMoves(moves.Select(m => (ushort?)m).ToArray(), pp.Select(x => (byte?)x).ToArray());
+        mon.SetIvs(DefaultImportIvs());
+        mon.SetEvs(DefaultImportEvs());
+    }
+
+    private (ushort[] Moves, byte[] Pp) DexImportMoves(int species)
+    {
+        var selected = new List<ushort>();
+        foreach (var entry in ReadSpeciesLevelMoves(species)
+                     .Where(m => m.Level <= DexImportLevel && m.Move != 0)
+                     .OrderBy(m => m.Level))
+        {
+            selected.Remove(entry.Move);
+            selected.Add(entry.Move);
+            if (selected.Count > 4) selected.RemoveAt(0);
+        }
+
+        var moves = new ushort[4];
+        var pp = new byte[4];
+        for (var i = 0; i < selected.Count; i++)
+        {
+            moves[i] = selected[i];
+            pp[i] = (byte)Math.Clamp(CalculateMaxPp(ReadMoveData(selected[i]).Pp, 0), 0, byte.MaxValue);
+        }
+        return (moves, pp);
+    }
+
+    private static Dictionary<string, int> DefaultImportIvs() => new()
+    {
+        ["hp"] = 31,
+        ["atk"] = 31,
+        ["def"] = 31,
+        ["spe"] = 31,
+        ["spa"] = 31,
+        ["spd"] = 31,
+        ["ability"] = 0
+    };
+
+    private static Dictionary<string, byte> DefaultImportEvs() => new()
+    {
+        ["hp"] = 0,
+        ["atk"] = 0,
+        ["def"] = 0,
+        ["spe"] = 0,
+        ["spa"] = 0,
+        ["spd"] = 0
+    };
+
+    private uint ResolveImportOtId(MgbaBridgeClient bridge, uint? partyBase, int? partyCount)
+    {
+        try
+        {
+            var baseAddr = partyBase ?? ResolvePartyBase(bridge, forceRefresh: true);
+            var count = partyCount ?? ReadLivePartyCount(bridge, baseAddr) ?? 0;
+            if (count > 0)
+            {
+                var first = new PartyPokemon(bridge.Read(SlotAddress(baseAddr, 1), Gen3Constants.PartyMonSize));
+                if (first.OtId != 0) return first.OtId;
+            }
+        }
+        catch
+        {
+            // Fall through to cached rows or a generated non-zero OT ID.
+        }
+
+        if (_partyRows.FirstOrDefault(r => r.Mon.OtId != 0) is { } partyRow)
+            return partyRow.Mon.OtId;
+        if (_boxRows.FirstOrDefault(r => r.Mon.OtId != 0) is { } boxRow)
+            return boxRow.Mon.OtId;
+        return NewNonZeroRandomUInt();
+    }
+
+    private static uint NewNonShinyPid(uint otId)
+    {
+        uint pid;
+        do
+        {
+            pid = NewNonZeroRandomUInt();
+        } while (PartyPokemon.IsShinyPid(pid, otId));
+        return pid;
+    }
+
+    private static uint NewNonZeroRandomUInt()
+    {
+        uint value;
+        do
+        {
+            value = (uint)Random.Shared.NextInt64(1, (long)uint.MaxValue + 1);
+        } while (value == 0);
+        return value;
+    }
+
+    private static bool IsAllZero(ReadOnlySpan<byte> data)
+    {
+        foreach (var b in data)
+            if (b != 0) return false;
+        return true;
+    }
+
+    private void OnDexSearchChanged(object? sender, TextChangedEventArgs e) => ApplyDexFilter();
+
+    private void OnDexSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (DexSpeciesList.SelectedItem is DexSpeciesRow row)
+            RefreshDexDetails(row);
+    }
+
+    private void InitializeDexRows()
+    {
+        _allDexRows = _speciesChoices
+            .Where(c => c.Id > 0)
+            .Select(c =>
+            {
+                var display = c.ToString();
+                return new DexSpeciesRow(c.Id, c.Name, display, $"No.{c.Id:0000} {display}", LoadDexSpriteBitmap(c.Id));
+            })
+            .ToArray();
+        ApplyDexFilter(selectFirst: true);
+    }
+
+    private void ApplyDexFilter(bool selectFirst = false)
+    {
+        var previousId = DexSpeciesList.SelectedItem is DexSpeciesRow selected ? selected.Id : (int?)null;
+        var filter = DexSearchBox.Text?.Trim() ?? string.Empty;
+        var rows = string.IsNullOrWhiteSpace(filter)
+            ? _allDexRows
+            : _allDexRows
+                .Where(r => r.Id.ToString().Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+                            r.Name.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+                            r.DisplayName.Contains(filter, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+
+        _dexRows.Clear();
+        foreach (var row in rows)
+            _dexRows.Add(row);
+
+        if (_dexRows.Count == 0)
+        {
+            DexSpeciesList.SelectedIndex = -1;
+            DexTitleText.Text = "没有匹配的宝可梦";
+            DexSubtitleText.Text = "换一个中文名或编号继续搜索。";
+            ClearDexDetails();
+            return;
+        }
+
+        var next = previousId is null ? null : _dexRows.FirstOrDefault(r => r.Id == previousId.Value);
+        DexSpeciesList.SelectedItem = next ?? (selectFirst ? _dexRows[0] : _dexRows[0]);
+    }
+
+    private void RefreshDexDetails(DexSpeciesRow row)
+    {
+        DexTitleText.Text = row.Title;
+        SetDexSprite(row.Sprite);
+        try
+        {
+            var stats = ReadSpeciesStats(row.Id);
+            DexSubtitleText.Text = $"{TypePairText(stats.Type1, stats.Type2)}  |  总种族值 {stats.Bst}";
+            FillDexBaseInfo(row, stats);
+            FillDexEvolutionInfo(row);
+            FillDexLevelMoves(row.Id);
+        }
+        catch (Exception ex)
+        {
+            DexSubtitleText.Text = "图鉴数据读取失败。";
+            ClearDexDetails();
+            _dexInfoRows.Add(new DexInfoRow("错误", ex.Message));
+            SetDexEvolutionPlainText("错误：" + ex.Message);
+            DexLevelMovesEmptyText.Text = "错误：" + ex.Message;
+            DexLevelMovesEmptyText.IsVisible = true;
+            Log("图鉴读取错误：" + ex.Message);
+        }
+    }
+
+    private void ClearDexDetails()
+    {
+        _dexInfoRows.Clear();
+        _dexStatRows.Clear();
+        _dexLevelMoveRows.Clear();
+        DexSpriteImage.Source = null;
+        DexSpriteImage.IsVisible = false;
+        SetDexEvolutionPlainText("");
+        DexLevelMovesEmptyText.Text = "";
+        DexLevelMovesEmptyText.IsVisible = false;
+    }
+
+    private void SetDexSprite(Bitmap? sprite)
+    {
+        DexSpriteImage.Source = sprite;
+        DexSpriteImage.IsVisible = sprite is not null;
+    }
+
+    private static Bitmap? LoadDexSpriteBitmap(int speciesId)
+    {
+        try
+        {
+            var uri = new Uri($"avares://RocketTool.Avalonia/Assets/Pokemon/front/{speciesId:0000}.png");
+            return new Bitmap(AssetLoader.Open(uri));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private void FillDexBaseInfo(DexSpeciesRow row, SpeciesStats s)
+    {
+        _dexInfoRows.Clear();
+        _dexInfoRows.Add(new DexInfoRow("宝可梦", row.DisplayName));
+        _dexInfoRows.Add(new DexInfoRow("属性", TypePairText(s.Type1, s.Type2), TypeBadges: TypeBadges(s.Type1, s.Type2)));
+        _dexInfoRows.Add(new DexInfoRow("特性1", AbilityName(s.Ability1), AbilityTooltip(s.Ability1)));
+        _dexInfoRows.Add(new DexInfoRow("特性2", AbilityName(s.Ability2), AbilityTooltip(s.Ability2)));
+        if (s.Ability3 is not null)
+            _dexInfoRows.Add(new DexInfoRow("隐藏特性", AbilityName(s.Ability3.Value), AbilityTooltip(s.Ability3.Value)));
+        _dexInfoRows.Add(new DexInfoRow("携带道具", $"{HeldItemText(s.Item1)} / {HeldItemText(s.Item2)}"));
+        _dexInfoRows.Add(new DexInfoRow("捕获率", s.CatchRate.ToString()));
+        _dexInfoRows.Add(new DexInfoRow("经验收益", s.ExpYield.ToString()));
+        _dexInfoRows.Add(new DexInfoRow("成长率", GrowthRateName(s.GrowthRate)));
+        _dexInfoRows.Add(new DexInfoRow("努力值收益", EvYieldText(s.EvYield)));
+        _dexInfoRows.Add(new DexInfoRow("性别", GenderRatioText(s.GenderRatio)));
+        _dexInfoRows.Add(new DexInfoRow("孵化周期", s.EggCycles.ToString()));
+        _dexInfoRows.Add(new DexInfoRow("初始亲密度", s.Friendship.ToString()));
+        _dexInfoRows.Add(new DexInfoRow("蛋组", $"{EggGroupName(s.EggGroup1)} / {EggGroupName(s.EggGroup2)}"));
+
+        FillDexStatRows(s);
+    }
+
+    private void FillDexStatRows(SpeciesStats s)
+    {
+        _dexMaxLevel = MaxPokemonLevel;
+        DexMaxLevelHeaderText.Text = $"{_dexMaxLevel}级时";
+        DexStatsNoteText.Text = $"按 31 个体、0 努力、无性格修正计算；最高级按 ROM 等级上限 {_dexMaxLevel} 级显示。";
+
+        var stats = new[]
+        {
+            ("HP", (int)s.Hp, true),
+            ("攻击", (int)s.Attack, false),
+            ("防御", (int)s.Defense, false),
+            ("特攻", (int)s.SpAttack, false),
+            ("特防", (int)s.SpDefense, false),
+            ("速度", (int)s.Speed, false)
+        };
+
+        _dexStatRows.Clear();
+        var sum50 = 0;
+        var sum100 = 0;
+        var sumMax = 0;
+        foreach (var (name, baseStat, isHp) in stats)
+        {
+            var level50 = CalculateDexStat(baseStat, 50, isHp);
+            var level100 = CalculateDexStat(baseStat, 100, isHp);
+            var maxLevel = CalculateDexStat(baseStat, _dexMaxLevel, isHp);
+            sum50 += level50;
+            sum100 += level100;
+            sumMax += maxLevel;
+            _dexStatRows.Add(new DexStatRow(name, baseStat.ToString(), level50.ToString(), level100.ToString(), maxLevel.ToString()));
+        }
+        _dexStatRows.Add(new DexStatRow("合计", s.Bst.ToString(), sum50.ToString(), sum100.ToString(), sumMax.ToString()));
+    }
+
+    private void FillDexEvolutionInfo(DexSpeciesRow row)
+    {
+        var family = EvolutionFamilySpecies(row.Id);
+        var outgoingBySpecies = family
+            .OrderBy(id => id)
+            .ToDictionary(
+                id => id,
+                id => ReadSpeciesEvolutions(id)
+                    .Where(e => e.TargetSpecies > 0 && family.Contains(e.TargetSpecies))
+                    .OrderBy(e => e.Slot)
+                    .ThenBy(e => e.TargetSpecies)
+                    .ToArray());
+        var hasIncoming = outgoingBySpecies.Values
+            .SelectMany(evolutions => evolutions)
+            .Select(e => (int)e.TargetSpecies)
+            .ToHashSet();
+        var roots = family
+            .Where(id => !hasIncoming.Contains(id))
+            .OrderBy(id => id)
+            .ToArray();
+        if (roots.Length == 0)
+            roots = [row.Id];
+
+        var branchCount = outgoingBySpecies.Count(kv => kv.Value.Length > 1);
+        var lines = new List<string> { "完整进化链" };
+        if (branchCount > 0)
+            lines.Add($"存在 {branchCount} 个分支节点，已按分支缩进显示。");
+        lines.Add("");
+
+        if (outgoingBySpecies.Values.All(evolutions => evolutions.Length == 0))
+        {
+            lines.Add(EvolutionSpeciesText(row.Id, row.Id));
+            lines.Add("无进化链。");
+            SetDexEvolutionLines(lines);
+            return;
+        }
+
+        foreach (var root in roots)
+            AppendEvolutionTree(lines, root, row.Id, outgoingBySpecies, [], 0);
+
+        SetDexEvolutionLines(lines);
+    }
+
+    private HashSet<int> EvolutionFamilySpecies(int species)
+    {
+        var family = new HashSet<int>();
+        var pending = new Queue<int>();
+        pending.Enqueue(species);
+
+        while (pending.Count > 0)
+        {
+            var current = pending.Dequeue();
+            if (!family.Add(current)) continue;
+
+            foreach (var evolution in ReadSpeciesEvolutions(current))
+            {
+                if (evolution.TargetSpecies > 0 && !family.Contains(evolution.TargetSpecies))
+                    pending.Enqueue(evolution.TargetSpecies);
+            }
+
+            foreach (var source in _allDexRows)
+            {
+                if (family.Contains(source.Id)) continue;
+                if (ReadSpeciesEvolutions(source.Id).Any(e => e.TargetSpecies == current))
+                    pending.Enqueue(source.Id);
+            }
+        }
+
+        return family;
+    }
+
+    private void AppendEvolutionTree(
+        List<string> lines,
+        int species,
+        int selectedSpecies,
+        IReadOnlyDictionary<int, SpeciesEvolution[]> outgoingBySpecies,
+        HashSet<int> path,
+        int depth)
+    {
+        var indent = new string(' ', depth * 2);
+        lines.Add($"{indent}{EvolutionSpeciesText(species, selectedSpecies)}");
+
+        if (!path.Add(species))
+        {
+            lines.Add($"{indent}  已检测到循环进化引用。");
+            return;
+        }
+
+        AppendEvolutionChildren(lines, species, selectedSpecies, outgoingBySpecies, path, depth + 1);
+    }
+
+    private void AppendEvolutionChildren(
+        List<string> lines,
+        int species,
+        int selectedSpecies,
+        IReadOnlyDictionary<int, SpeciesEvolution[]> outgoingBySpecies,
+        HashSet<int> path,
+        int depth)
+    {
+        if (outgoingBySpecies.TryGetValue(species, out var evolutions))
+        {
+            foreach (var evolution in evolutions)
+            {
+                var target = evolution.TargetSpecies;
+                var edgeIndent = new string(' ', depth * 2);
+                lines.Add($"{edgeIndent}{EvolutionEdgeLabel(evolution)} -> {EvolutionSpeciesText(target, selectedSpecies)}");
+                if (path.Contains(target))
+                {
+                    lines.Add($"{edgeIndent}  已检测到循环进化引用。");
+                    continue;
+                }
+                var childPath = new HashSet<int>(path) { target };
+                AppendEvolutionChildren(lines, target, selectedSpecies, outgoingBySpecies, childPath, depth + 1);
+            }
+        }
+    }
+
+    private string EvolutionSpeciesText(int species, int selectedSpecies)
+    {
+        var name = SpeciesName(species);
+        return species == selectedSpecies ? $"{name}（当前）" : name;
+    }
+
+    private void SetDexEvolutionPlainText(string text)
+    {
+        DexEvolutionText.Inlines?.Clear();
+        DexEvolutionText.Text = text;
+    }
+
+    private void SetDexEvolutionLines(IEnumerable<string> lines)
+    {
+        DexEvolutionText.Text = "";
+        DexEvolutionText.Inlines?.Clear();
+        var first = true;
+        foreach (var line in lines)
+        {
+            if (!first)
+                DexEvolutionText.Inlines?.Add(new LineBreak());
+            first = false;
+
+            var isCurrent = line.Contains("（当前）", StringComparison.Ordinal);
+            DexEvolutionText.Inlines?.Add(new Run(line)
+            {
+                Foreground = isCurrent ? Brushes.Firebrick : Brushes.DarkSlateBlue,
+                FontWeight = isCurrent ? FontWeight.Bold : FontWeight.Normal
+            });
+        }
+    }
+
+    private void FillDexLevelMoves(int species)
+    {
+        _dexLevelMoveRows.Clear();
+        var moves = ReadSpeciesLevelMoves(species);
+        if (moves.Count == 0)
+        {
+            DexLevelMovesEmptyText.Text = "无升级招式数据。";
+            DexLevelMovesEmptyText.IsVisible = true;
+            return;
+        }
+
+        DexLevelMovesEmptyText.Text = "";
+        DexLevelMovesEmptyText.IsVisible = false;
+        foreach (var entry in moves)
+        {
+            try
+            {
+                var data = ReadMoveData(entry.Move);
+                _dexLevelMoveRows.Add(new DexLevelMoveRow(
+                    $"Lv.{entry.Level:000}",
+                    MoveName(entry.Move),
+                    MoveTypeNameZh(data.Type),
+                    MoveCategoryNameZh(data.Category),
+                    MovePowerText(data.Power),
+                    MoveAccuracyText(data.Accuracy),
+                    data.Pp.ToString()));
+            }
+            catch
+            {
+                _dexLevelMoveRows.Add(new DexLevelMoveRow($"Lv.{entry.Level:000}", MoveName(entry.Move), "", "", "", "", ""));
+            }
+        }
     }
 
     private void OnLookupSpeciesClicked(object? sender, RoutedEventArgs e)
@@ -2524,14 +3079,14 @@ public partial class MainWindow : Window
     private static int LevelFromExp(uint exp, byte growthRate)
     {
         var level = 1;
-        while (level < 100 && ExperienceForLevel(level + 1, growthRate) <= exp)
+        while (level < MaxPokemonLevel && ExperienceForLevel(level + 1, growthRate) <= exp)
             level++;
         return level;
     }
 
     private static uint ExperienceForLevel(int level, byte growthRate)
     {
-        var n = Math.Clamp(level, 1, 100);
+        var n = Math.Clamp(level, 1, MaxPokemonLevel);
         var n2 = n * n;
         var n3 = n2 * n;
         var exp = growthRate switch
@@ -2597,55 +3152,12 @@ public partial class MainWindow : Window
     private static int SumBoxes(params TextBox[] boxes)
         => boxes.Sum(box => int.TryParse(box.Text, out var value) ? value : 0);
 
-    private SpeciesStatsReader SpeciesReader(string path)
-    {
-        if (_speciesReader is null || _speciesReaderPath != path)
-        {
-            _speciesReader = new SpeciesStatsReader(path);
-            _speciesReaderPath = path;
-        }
-        return _speciesReader;
-    }
-
-    private ItemDataReader ItemReader(string path)
-    {
-        if (_itemReader is null || _itemReaderPath != path)
-        {
-            _itemReader = new ItemDataReader(path);
-            _itemReaderPath = path;
-        }
-        return _itemReader;
-    }
-
-    private MoveDataReader MoveReader(string path)
-    {
-        if (_moveReader is null || _moveReaderPath != path)
-        {
-            _moveReader = new MoveDataReader(path);
-            _moveReaderPath = path;
-        }
-        return _moveReader;
-    }
-
     private SpeciesStats ReadSpeciesStats(int species)
     {
-        Exception? romError = null;
-        if (TryExistingRomPath(out var path))
-        {
-            try
-            {
-                return SpeciesReader(path).Read(species);
-            }
-            catch (Exception ex)
-            {
-                romError = ex;
-            }
-        }
-
         if (TryReadEmbeddedSpeciesStats(species, out var stats))
             return stats;
 
-        throw MissingEmbeddedDataException("宝可梦种族值", species, romError);
+        throw MissingEmbeddedDataException("宝可梦种族值", species);
     }
 
     private bool TryReadEmbeddedSpeciesStats(int species, out SpeciesStats stats)
@@ -2670,25 +3182,71 @@ public partial class MainWindow : Window
         }
     }
 
+    private IReadOnlyList<SpeciesEvolution> ReadSpeciesEvolutions(int species)
+    {
+        if (_evolutionCache.TryGetValue(species, out var cached)) return cached;
+
+        var result = TryReadEmbeddedSpeciesEvolutions(species, out var embedded) ? embedded : [];
+        _evolutionCache[species] = result;
+        return result;
+    }
+
+    private bool TryReadEmbeddedSpeciesEvolutions(int species, out IReadOnlyList<SpeciesEvolution> evolutions)
+    {
+        evolutions = [];
+        if (!_db.Table("species_evolutions").TryGetValue(species, out var raw)) return false;
+        if (string.IsNullOrWhiteSpace(raw)) return true;
+
+        var result = new List<SpeciesEvolution>();
+        var slot = 0;
+        foreach (var entry in raw.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = entry.Split(',');
+            if (parts.Length < 4) return false;
+            result.Add(new SpeciesEvolution(
+                species,
+                slot++,
+                ushort.Parse(parts[0]),
+                ushort.Parse(parts[1]),
+                ushort.Parse(parts[2]),
+                ushort.Parse(parts[3])));
+        }
+        evolutions = result;
+        return true;
+    }
+
+    private IReadOnlyList<SpeciesLevelMove> ReadSpeciesLevelMoves(int species)
+    {
+        if (_levelMoveCache.TryGetValue(species, out var cached)) return cached;
+
+        var result = TryReadEmbeddedSpeciesLevelMoves(species, out var embedded) ? embedded : [];
+        _levelMoveCache[species] = result;
+        return result;
+    }
+
+    private bool TryReadEmbeddedSpeciesLevelMoves(int species, out IReadOnlyList<SpeciesLevelMove> moves)
+    {
+        moves = [];
+        if (!_db.Table("species_level_moves").TryGetValue(species, out var raw)) return false;
+        if (string.IsNullOrWhiteSpace(raw)) return true;
+
+        var result = new List<SpeciesLevelMove>();
+        foreach (var entry in raw.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = entry.Split(':');
+            if (parts.Length < 2) return false;
+            result.Add(new SpeciesLevelMove(species, ushort.Parse(parts[0]), ushort.Parse(parts[1])));
+        }
+        moves = result;
+        return true;
+    }
+
     private ItemData ReadItemData(int item)
     {
-        Exception? romError = null;
-        if (TryExistingRomPath(out var path))
-        {
-            try
-            {
-                return ItemReader(path).Read(item);
-            }
-            catch (Exception ex)
-            {
-                romError = ex;
-            }
-        }
-
         if (TryReadEmbeddedItemData(item, out var data))
             return data;
 
-        throw MissingEmbeddedDataException("道具数据", item, romError);
+        throw MissingEmbeddedDataException("道具数据", item);
     }
 
     private bool TryReadEmbeddedItemData(int item, out ItemData data)
@@ -2713,23 +3271,10 @@ public partial class MainWindow : Window
 
     private MoveData ReadMoveData(int move)
     {
-        Exception? romError = null;
-        if (TryExistingRomPath(out var path))
-        {
-            try
-            {
-                return MoveReader(path).Read(move);
-            }
-            catch (Exception ex)
-            {
-                romError = ex;
-            }
-        }
-
         if (TryReadEmbeddedMoveData(move, out var data))
             return data;
 
-        throw MissingEmbeddedDataException("招式数据", move, romError);
+        throw MissingEmbeddedDataException("招式数据", move);
     }
 
     private bool TryReadEmbeddedMoveData(int move, out MoveData data)
@@ -3008,8 +3553,6 @@ public partial class MainWindow : Window
     private void SetPpBonusChoices(byte packed, IReadOnlyList<ushort> moves, IReadOnlyList<byte> currentPp, params ComboBox[] boxes)
         => SetPpBonusChoices(packed, boxes);
 
-    private bool WritesEnabled() => true;
-
     private Dictionary<string, byte> BuildByteStats(params TextBox[] boxes)
     {
         var values = new Dictionary<string, byte>();
@@ -3045,21 +3588,8 @@ public partial class MainWindow : Window
         }
     }
 
-    private bool TryExistingRomPath(out string path)
-    {
-        path = RomPathBox.Text?.Trim() ?? string.Empty;
-        return path.Length > 0 && File.Exists(path);
-    }
-
-    private static InvalidOperationException MissingEmbeddedDataException(string label, int id, Exception? romError)
-    {
-        var message = $"内置{label}缺少 ID {id}";
-        if (romError is not null)
-            message += $"，ROM 读取也失败：{romError.Message}";
-        else
-            message += "，且当前未设置可用 ROM 路径。";
-        return new InvalidOperationException(message, romError);
-    }
+    private static InvalidOperationException MissingEmbeddedDataException(string label, int id)
+        => new($"内置{label}缺少 ID {id}。程序使用内置派生数据，运行时不会读取 ROM。");
 
     private string ItemName(int item)
     {
@@ -3067,6 +3597,198 @@ public partial class MainWindow : Window
         if (MachineMoveName(item) is { } machineName) return machineName;
         return KnownName("items", item, "未知道具");
     }
+
+    private string HeldItemText(ushort item)
+        => item == 0 ? "无" : ItemName(item);
+
+    private string AbilityTooltip(ushort ability)
+    {
+        var name = AbilityName(ability);
+        if (ability == 0) return "无特性。";
+        return _db.Table("ability_descriptions").TryGetValue(ability, out var description)
+            ? $"{name}：{description}"
+            : $"{name}：暂无特性说明。";
+    }
+
+    private static int CalculateDexStat(int baseStat, int level, bool isHp)
+    {
+        const int iv = 31;
+        const int ev = 0;
+        if (isHp && baseStat == 1) return 1;
+        return isHp
+            ? (((2 * baseStat + iv + ev / 4) * level) / 100) + level + 10
+            : ((((2 * baseStat + iv + ev / 4) * level) / 100) + 5);
+    }
+
+    private string TypePairText(int type1, int type2)
+    {
+        var first = MoveTypeNameZh(type1);
+        var second = MoveTypeNameZh(type2);
+        return type1 == type2 ? first : $"{first} / {second}";
+    }
+
+    private static IReadOnlyList<DexTypeBadge> TypeBadges(int type1, int type2)
+    {
+        var badges = new List<DexTypeBadge> { TypeBadge(type1) };
+        if (type2 != type1) badges.Add(TypeBadge(type2));
+        return badges;
+    }
+
+    private static DexTypeBadge TypeBadge(int type)
+    {
+        var (background, foreground) = TypeBadgeColors(type);
+        return new DexTypeBadge(MoveTypeNameZh(type), Brush.Parse(background), Brush.Parse(foreground));
+    }
+
+    private static (string Background, string Foreground) TypeBadgeColors(int type) => type switch
+    {
+        0 => ("#A8A77A", "#1B1A14"), // 一般
+        1 => ("#C22E28", "#FFF7EF"), // 格斗
+        2 => ("#A98FF3", "#191233"), // 飞行
+        3 => ("#A33EA1", "#FFF3FF"), // 毒
+        4 => ("#E2BF65", "#2E230D"), // 地面
+        5 => ("#B6A136", "#241F08"), // 岩石
+        6 => ("#A6B91A", "#1F2502"), // 虫
+        7 => ("#735797", "#F7F0FF"), // 幽灵
+        8 => ("#B7B7CE", "#1B2330"), // 钢
+        9 => ("#6C6255", "#FFF9EE"), // ？？？
+        10 => ("#EE8130", "#2E1200"), // 火
+        11 => ("#6390F0", "#F2F7FF"), // 水
+        12 => ("#4DBB55", "#06240B"), // 草
+        13 => ("#F7D02C", "#302400"), // 电
+        14 => ("#F95587", "#FFF3F7"), // 超能力
+        15 => ("#96D9D6", "#073331"), // 冰
+        16 => ("#6F35FC", "#F5F0FF"), // 龙
+        17 => ("#705746", "#FFF7EF"), // 恶
+        18 => ("#D685AD", "#33111F"), // 妖精
+        _ => ("#6C6255", "#FFF9EE")
+    };
+
+    private string EvolutionEdgeLabel(SpeciesEvolution evolution)
+    {
+        var paramItem = EvolutionParameterItemText(evolution.Parameter);
+        return evolution.Method switch
+        {
+            1 => "亲密度",
+            2 => "亲密度（白天）",
+            3 => "亲密度（夜晚）",
+            4 => $"{evolution.Parameter}级",
+            5 => "通信交换",
+            6 => $"携带{paramItem}通信交换",
+            7 => paramItem,
+            8 => $"{evolution.Parameter}级，攻击>防御",
+            9 => $"{evolution.Parameter}级，攻击=防御",
+            10 => $"{evolution.Parameter}级，攻击<防御",
+            11 => $"{evolution.Parameter}级，特殊分支1",
+            12 => $"{evolution.Parameter}级，特殊分支2",
+            13 => $"{evolution.Parameter}级，分裂进化1",
+            14 => $"{evolution.Parameter}级，分裂进化2",
+            15 => $"美丽度{evolution.Parameter}",
+            0xFFFF => paramItem,
+            0xFFFE => $"特殊形态 {EvolutionParameterText(evolution.Parameter)}",
+            0xFFFD => $"特殊形态 {EvolutionParameterText(evolution.Parameter)}",
+            _ => $"特殊条件 {EvolutionParameterText(evolution.Parameter)}"
+        };
+    }
+
+    private string EvolutionConditionText(SpeciesEvolution evolution)
+    {
+        var paramItem = EvolutionParameterItemText(evolution.Parameter);
+        return evolution.Method switch
+        {
+            1 => "亲密度",
+            2 => "亲密度（白天）",
+            3 => "亲密度（夜晚）",
+            4 => $"{evolution.Parameter}级",
+            5 => "通信交换",
+            6 => $"携带{paramItem}通信交换",
+            7 => $"使用{paramItem}",
+            8 => $"{evolution.Parameter}级，攻击大于防御",
+            9 => $"{evolution.Parameter}级，攻击等于防御",
+            10 => $"{evolution.Parameter}级，攻击小于防御",
+            11 => $"{evolution.Parameter}级，特殊分支1",
+            12 => $"{evolution.Parameter}级，特殊分支2",
+            13 => $"{evolution.Parameter}级，分裂进化1",
+            14 => $"{evolution.Parameter}级，分裂进化2",
+            15 => $"美丽度达到{evolution.Parameter}",
+            0xFFFF => $"特殊形态，使用{paramItem}",
+            0xFFFE => $"特殊形态，参数{EvolutionParameterText(evolution.Parameter)}",
+            0xFFFD => $"特殊形态，参数{EvolutionParameterText(evolution.Parameter)}",
+            _ => $"特殊条件，参数{EvolutionParameterText(evolution.Parameter)}"
+        };
+    }
+
+    private string EvolutionParameterItemText(ushort parameter)
+    {
+        if (parameter == 0) return "指定道具";
+        var table = _db.Table("items");
+        return table.ContainsKey(parameter) ? ItemName(parameter) : $"参数{parameter}";
+    }
+
+    private string EvolutionParameterText(ushort parameter)
+    {
+        if (parameter == 0) return "0";
+        var table = _db.Table("items");
+        return table.ContainsKey(parameter) ? ItemName(parameter) : parameter.ToString();
+    }
+
+    private static string GenderRatioText(byte genderRatio) => genderRatio switch
+    {
+        255 => "无性别",
+        254 => "只有雌性",
+        0 => "只有雄性",
+        _ => $"雌性约 {genderRatio * 100.0 / 254.0:0.#}%"
+    };
+
+    private static string GrowthRateName(byte growthRate) => growthRate switch
+    {
+        0 => "较快",
+        1 => "中等",
+        2 => "较慢",
+        3 => "较慢",
+        4 => "较快",
+        5 => "波动",
+        _ => $"类型{growthRate}"
+    };
+
+    private static string EggGroupName(byte eggGroup) => eggGroup switch
+    {
+        0 => "无",
+        1 => "怪兽",
+        2 => "水中1",
+        3 => "虫",
+        4 => "飞行",
+        5 => "陆上",
+        6 => "妖精",
+        7 => "植物",
+        8 => "人形",
+        9 => "水中3",
+        10 => "矿物",
+        11 => "不定形",
+        12 => "水中2",
+        13 => "百变怪",
+        14 => "龙",
+        15 => "未发现",
+        _ => $"蛋组{eggGroup}"
+    };
+
+    private static string EvYieldText(ushort evYield)
+    {
+        string[] labels = ["HP", "攻击", "防御", "速度", "特攻", "特防"];
+        var parts = new List<string>();
+        for (var i = 0; i < labels.Length; i++)
+        {
+            var value = (evYield >> (i * 2)) & 0x3;
+            if (value > 0) parts.Add($"{labels[i]}+{value}");
+        }
+        return parts.Count == 0 ? "无" : string.Join("，", parts);
+    }
+
+    private static string MovePowerText(ushort power)
+        => power == 0 ? "-" : power.ToString();
+
+    private static string MoveAccuracyText(ushort accuracy)
+        => accuracy == 0 ? "-" : accuracy.ToString();
 
     private string? MachineMoveName(int item)
     {
@@ -3089,39 +3811,12 @@ public partial class MainWindow : Window
 
     private int MachineMoveId(int machineIndex)
     {
-        var romPath = RomPathBox.Text?.Trim();
-        if (!string.IsNullOrEmpty(romPath) && File.Exists(romPath))
-        {
-            if (_machineMoveIds is null || !string.Equals(_machineMoveReaderPath, romPath, StringComparison.Ordinal))
-            {
-                _machineMoveIds = ReadMachineMoveTable(romPath);
-                _machineMoveReaderPath = romPath;
-            }
-
-            if (machineIndex >= 0 && machineIndex < _machineMoveIds.Length)
-                return _machineMoveIds[machineIndex];
-        }
-
         if (_db.Table("machine_moves").TryGetValue(machineIndex, out var embedded) && int.TryParse(embedded, out var moveId))
             return moveId;
 
         return machineIndex >= 0 && machineIndex < Gen3TmMoveIds.Length
             ? Gen3TmMoveIds[machineIndex]
             : 0;
-    }
-
-    private static ushort[] ReadMachineMoveTable(string romPath)
-    {
-        var count = MachineTmCount + MachineHmCount;
-        var result = new ushort[count];
-        using var stream = File.OpenRead(romPath);
-        if (stream.Length < MachineMoveTableOffset + count * 2) return result;
-        stream.Position = MachineMoveTableOffset;
-        Span<byte> bytes = stackalloc byte[count * 2];
-        if (stream.Read(bytes) != bytes.Length) return result;
-        for (var i = 0; i < result.Length; i++)
-            result[i] = (ushort)(bytes[i * 2] | (bytes[i * 2 + 1] << 8));
-        return result;
     }
 
     private int PocketOfItem(int item)

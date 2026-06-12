@@ -48,6 +48,20 @@ public sealed class BoxPokemon
     public bool IsEmpty => Pid == 0 && OtId == 0;
     public bool IsShiny => PartyPokemon.IsShinyPid(Pid, OtId);
 
+    public static BoxPokemon Create(uint pid, uint otId)
+    {
+        if (pid == 0) throw new ArgumentOutOfRangeException(nameof(pid), "PID must be non-zero.");
+        if (otId == 0) throw new ArgumentOutOfRangeException(nameof(otId), "OT ID must be non-zero.");
+        var raw = new byte[Size];
+        WriteU32(raw, 0x00, pid);
+        WriteU32(raw, 0x04, otId);
+        raw[0x12] = 1;
+        var key = pid ^ otId;
+        for (var i = 0x20; i < 0x50; i += 4)
+            WriteU32(raw, i, key);
+        return new BoxPokemon(raw);
+    }
+
     public BoxMonInfo GetInfo()
     {
         var dec = Decrypted();
