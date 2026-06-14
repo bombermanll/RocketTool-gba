@@ -1,0 +1,12 @@
+# macOS
+.DS_Store
+**/.DS_Store
+
+# JetBrains Rider / IntelliJ
+.idea/
+*.sln.iml
+
+# Build / publish output
+bin/
+obj/
+publish/

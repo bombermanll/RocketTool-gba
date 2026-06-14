@@ -210,7 +210,6 @@ public partial class MainWindow : Window
         RefreshTeleportMaps();
         ConfigureNumericInputLimits();
         HookNameRefresh();
-        RomPathBox.Text = DefaultRom();
         InitializeDexRows();
         Log("界面已就绪。请先在 mGBA 加载 bridge 脚本，然后点击“连接 mGBA”。");
     }
@@ -4004,12 +4003,8 @@ public partial class MainWindow : Window
             var candidate = Path.GetFullPath(Path.Combine(dir, string.Concat(Enumerable.Repeat("../", i))));
             if (Directory.Exists(Path.Combine(candidate, "modifier_db"))) return candidate;
         }
-        return "/Users/bombermanll/Downloads/mgba_bridge_prototype_2026-06-06";
+        return AppContext.BaseDirectory;
     }
-
-    private static string DefaultRom()
-        => string.Empty;
-
 
     private static ushort? ParseUShortOrNull(string? text)
     {

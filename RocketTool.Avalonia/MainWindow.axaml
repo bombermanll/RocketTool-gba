@@ -259,11 +259,7 @@
                         <ScrollViewer Padding="20,20,36,56" HorizontalScrollBarVisibility="Disabled">
                             <StackPanel Spacing="16" Margin="0,0,0,96">
                                 <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
-                                    <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="8">
-                                        <TextBlock Text="ROM 路径" Classes="label" VerticalAlignment="Center" />
-                                        <TextBox x:Name="RomPathBox" Grid.Column="1" />
-                                        <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="使用从原修改器抽取的中文表：宝可梦、招式、道具、特性、道具效果。" Foreground="#6C6255" />
-                                    </Grid>
+                                    <TextBlock Text="使用 modifier_db 内置派生表：宝可梦、招式、道具、特性、道具效果。" Foreground="#6C6255" TextWrapping="Wrap" />
                                 </Border>
 
                                 <Grid ColumnDefinitions="*,*,*" ColumnSpacing="14">

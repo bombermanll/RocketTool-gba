@@ -8,7 +8,7 @@ static string RootDir()
         var candidate = Path.GetFullPath(Path.Combine(dir, string.Concat(Enumerable.Repeat("../", i))));
         if (Directory.Exists(Path.Combine(candidate, "modifier_db"))) return candidate;
     }
-    return "/Users/bombermanll/Downloads/mgba_bridge_prototype_2026-06-06";
+    throw new DirectoryNotFoundException("Cannot find csharp/modifier_db. Run from the project tree or publish modifier_db with the CLI.");
 }
 
 static int ParseInt(string value) => value.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
@@ -81,21 +81,59 @@ static uint? GetUInt32Arg(string[] args, string name)
     return idx >= 0 && idx + 1 < args.Length ? ParseUInt(args[idx + 1]) : null;
 }
 
-static string DefaultRom()
+static ModifierDatabase Db() => new(Path.Combine(RootDir(), "modifier_db"));
+
+static SpeciesStats ReadSpeciesStatsFromDb(ModifierDatabase db, int species)
 {
-    var downloads = "/Users/bombermanll/Downloads";
-    return Directory.GetFiles(downloads, "西班牙火箭队*.gba").OrderBy(x => x).FirstOrDefault() ?? string.Empty;
+    if (!db.Table("species_stats").TryGetValue(species, out var raw))
+        throw new InvalidOperationException($"modifier_db/species_stats.tsv missing species {species}");
+    var parts = raw.Split('\t');
+    if (parts.Length < 22)
+        throw new InvalidOperationException($"Invalid species_stats row for species {species}");
+
+    byte B(int i) => byte.Parse(parts[i]);
+    ushort U(int i) => ushort.Parse(parts[i]);
+    return new SpeciesStats(
+        species,
+        B(0), B(1), B(2), B(3), B(4), B(5), B(6), B(7),
+        U(8), U(9), U(10), U(11), U(12),
+        B(13), B(14), B(15), B(16), B(17), B(18),
+        U(19), U(20), U(21));
 }
 
-static ModifierDatabase Db() => new(Path.Combine(RootDir(), "modifier_db"));
+static MoveData ReadMoveDataFromDb(ModifierDatabase db, int move)
+{
+    if (!db.Table("move_data").TryGetValue(move, out var raw))
+        throw new InvalidOperationException($"modifier_db/move_data.tsv missing move {move}");
+    var parts = raw.Split('\t');
+    if (parts.Length < 10)
+        throw new InvalidOperationException($"Invalid move_data row for move {move}");
+
+    ushort U(int i) => ushort.Parse(parts[i]);
+    byte B(int i) => byte.Parse(parts[i]);
+    sbyte S(int i) => sbyte.Parse(parts[i]);
+    return new MoveData(move, U(0), B(1), B(2), B(3), B(4), U(5), S(6), U(7), B(8), U(9), []);
+}
+
+static ItemData ReadItemDataFromDb(ModifierDatabase db, int item)
+{
+    if (!db.Table("item_data").TryGetValue(item, out var raw))
+        throw new InvalidOperationException($"modifier_db/item_data.tsv missing item {item}");
+    var parts = raw.Split('\t');
+    if (parts.Length < 13)
+        throw new InvalidOperationException($"Invalid item_data row for item {item}");
+
+    ushort U(int i) => ushort.Parse(parts[i]);
+    byte B(int i) => byte.Parse(parts[i]);
+    uint UI(int i) => uint.Parse(parts[i]);
+    return new ItemData(item, U(0), U(1), B(2), B(3), UI(4), B(5), B(6), B(7), B(8), UI(9), B(10), UI(11), UI(12), [], []);
+}
 
 static void RecalculateLiveStats(PartyPokemon mon, string[] args)
 {
-    var rom = GetArg(args, "--rom", DefaultRom());
-    if (string.IsNullOrEmpty(rom)) throw new InvalidOperationException("No ROM supplied; cannot recalculate live stats");
+    var db = Db();
     var info = mon.GetInfo();
-    var reader = new SpeciesStatsReader(rom);
-    mon.RecalculateStats(reader.Read(info.Species));
+    mon.RecalculateStats(ReadSpeciesStatsFromDb(db, info.Species));
 }
 
 static bool Confirm(string[] args, string summary)
@@ -412,15 +450,10 @@ static int PartyHeal(string[] args)
 static int SpeciesStats(string[] args)
 {
     var db = Db();
-    var rom = GetArg(args, "--rom", DefaultRom());
-    if (string.IsNullOrEmpty(rom)) throw new InvalidOperationException("No ROM supplied");
-    var offset = GetIntArg(args, "--offset", SpeciesStatsReader.DefaultBaseStatsOffset);
-    var entrySize = GetIntArg(args, "--entry-size", SpeciesStatsReader.DefaultEntrySize);
-    var reader = new SpeciesStatsReader(rom, offset, entrySize);
     foreach (var text in ValuesAfter(args, "--species", "--ids"))
     {
         var id = ParseInt(text);
-        var s = reader.Read(id);
+        var s = ReadSpeciesStatsFromDb(db, id);
         Console.WriteLine($"Species {id} ({db.NameOf("species", id)})");
         Console.WriteLine($"  stats HP {s.Hp} / Atk {s.Attack} / Def {s.Defense} / Spe {s.Speed} / SpA {s.SpAttack} / SpD {s.SpDefense} / BST {s.Bst}");
         Console.WriteLine($"  abilities {s.Ability1}({db.NameOf("abilities", s.Ability1)}) / {s.Ability2}({db.NameOf("abilities", s.Ability2)})" + (s.Ability3 is null ? "" : $" / {s.Ability3}({db.NameOf("abilities", s.Ability3.Value)})"));
@@ -432,13 +465,10 @@ static int SpeciesStats(string[] args)
 static int MoveStats(string[] args)
 {
     var db = Db();
-    var rom = GetArg(args, "--rom", DefaultRom());
-    if (string.IsNullOrEmpty(rom)) throw new InvalidOperationException("No ROM supplied");
-    var reader = new MoveDataReader(rom, GetIntArg(args, "--offset", MoveDataReader.DefaultMoveTableOffset), GetIntArg(args, "--entry-size", MoveDataReader.DefaultEntrySize));
     foreach (var text in ValuesAfter(args, "--moves", "--ids"))
     {
         var id = ParseInt(text);
-        var m = reader.Read(id);
+        var m = ReadMoveDataFromDb(db, id);
         Console.WriteLine($"Move {id} ({db.NameOf("moves", id)})");
         Console.WriteLine($"  power {m.Power} type {m.Type}({MoveDataReader.TypeName(m.Type)}) accuracy {m.Accuracy} pp {m.Pp} category {m.Category}({MoveDataReader.CategoryName(m.Category)}) priority {m.Priority}");
         Console.WriteLine($"  chance {m.SecondaryEffectChance} target=0x{m.Target:X4} flags=0x{m.Flags:X4} zPower={m.ZMovePower} raw={Convert.ToHexString(m.Raw)}");
@@ -449,13 +479,10 @@ static int MoveStats(string[] args)
 static int ItemStats(string[] args)
 {
     var db = Db();
-    var rom = GetArg(args, "--rom", DefaultRom());
-    if (string.IsNullOrEmpty(rom)) throw new InvalidOperationException("No ROM supplied");
-    var reader = new ItemDataReader(rom, GetIntArg(args, "--offset", ItemDataReader.DefaultItemTableOffset), GetIntArg(args, "--entry-size", ItemDataReader.DefaultEntrySize));
     foreach (var text in ValuesAfter(args, "--items", "--ids"))
     {
         var id = ParseInt(text);
-        var item = reader.Read(id);
+        var item = ReadItemDataFromDb(db, id);
         var effectName = item.HoldEffect == 0 ? "无" : db.NameOf("item_effects", item.HoldEffect);
         Console.WriteLine($"Item {id} ({db.NameOf("items", id)})");
         Console.WriteLine($"  itemId {item.ItemId} price {item.Price} holdEffect {item.HoldEffect}({effectName}) holdParam {item.HoldEffectParam}");
@@ -484,8 +511,6 @@ static int ShopProbe(string[] args)
 static int BagScan(string[] args)
 {
     var db = Db();
-    var rom = GetArg(args, "--rom", DefaultRom());
-    var itemReader = string.IsNullOrEmpty(rom) ? null : new ItemDataReader(rom);
     var host = GetArg(args, "--host", "127.0.0.1");
     var port = GetIntArg(args, "--port", 8765);
     var limit = GetIntArg(args, "--limit", 12);
@@ -520,8 +545,8 @@ static int BagScan(string[] args)
         if (item is >= 512 and <= 591) return 5;
         if (item is >= 592 and <= 837) return 7;
         if (item is >= 838 and <= 845) return 7;
-        if (itemReader is null) return -1;
-        try { return itemReader.Read(item).Pocket; }
+        if (db.Table("item_pockets").TryGetValue(item, out var pocket) && int.TryParse(pocket, out var pocketId)) return pocketId;
+        try { return ReadItemDataFromDb(db, item).Pocket; }
         catch { return -1; }
     }
 }
@@ -582,9 +607,9 @@ static int BagSet(string[] args)
 if (args.Length == 0)
 {
     Console.WriteLine("Usage:");
-    Console.WriteLine("  RocketTool.Cli species --species 42 229 [--rom path]");
-    Console.WriteLine("  RocketTool.Cli move --moves 17 44 305 [--rom path]");
-    Console.WriteLine("  RocketTool.Cli item --items 1 44 231 [--rom path]");
+    Console.WriteLine("  RocketTool.Cli species --species 42 229");
+    Console.WriteLine("  RocketTool.Cli move --moves 17 44 305");
+    Console.WriteLine("  RocketTool.Cli item --items 1 44 231");
     Console.WriteLine("  RocketTool.Cli party-scan [--host 127.0.0.1 --port 8765]");
     Console.WriteLine("  RocketTool.Cli party-dump [--base 0x02025170] [--slot 1]");
     Console.WriteLine("  RocketTool.Cli party-set-basic --slot 1 [--species N --item N --exp N --friendship N --pp-bonuses N --level N --hp N|max --max-hp N --status N] [--yes]");
