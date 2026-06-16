@@ -20,7 +20,7 @@ using RocketTool.Core;
 
 namespace RocketTool.Avalonia;
 
-public sealed record PartySlotRow(int Slot, uint Address, PartyPokemon Mon, PartyMonInfo? Info, string Title, string Detail);
+public sealed record PartySlotRow(int Slot, uint Address, PartyPokemon Mon, PartyMonInfo? Info, string Title, string Detail, Bitmap? Sprite);
 public sealed record BagSlotRow(
     uint Address,
     ushort ItemId,
@@ -31,7 +31,9 @@ public sealed record BagSlotRow(
     string Title,
     string Detail);
 public sealed record BagCalibrationRequest(int Pocket, ushort ItemId, ushort Quantity);
-public sealed record BoxSlotRow(int Slot, uint Address, BoxPokemon Mon, BoxMonInfo Info, string Title, string Detail);
+public sealed record BoxSlotRow(int Slot, uint Address, BoxPokemon Mon, BoxMonInfo Info, string Title, string Detail, Bitmap? Sprite);
+public sealed record BoxGridCell(int SlotInBox, BoxSlotRow? Row, Bitmap? Sprite, string Title, bool HasPokemon);
+public sealed record BoxGridGroup(int BoxNumber, string Title, IReadOnlyList<BoxGridCell> Cells);
 public sealed record DexSpeciesRow(int Id, string Name, string DisplayName, string Title, Bitmap? Sprite)
 {
     public override string ToString() => Title;
@@ -98,6 +100,7 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<PartySlotRow> _partyRows = [];
     private readonly ObservableCollection<BagSlotRow> _bagRows = [];
     private readonly ObservableCollection<BoxSlotRow> _boxRows = [];
+    private readonly ObservableCollection<BoxGridGroup> _boxGridGroups = [];
     private readonly ObservableCollection<DexSpeciesRow> _dexRows = [];
     private readonly ObservableCollection<DexInfoRow> _dexInfoRows = [];
     private readonly ObservableCollection<DexStatRow> _dexStatRows = [];
@@ -127,6 +130,7 @@ public partial class MainWindow : Window
     private readonly Dictionary<SearchableChoiceBox, IReadOnlyList<ChoiceRow>> _searchableChoices = [];
     private readonly Dictionary<int, IReadOnlyList<SpeciesEvolution>> _evolutionCache = [];
     private readonly Dictionary<int, IReadOnlyList<SpeciesLevelMove>> _levelMoveCache = [];
+    private readonly Dictionary<int, Bitmap?> _spriteCache = [];
 
 
     public MainWindow()
@@ -177,6 +181,7 @@ public partial class MainWindow : Window
         PartyList.ItemsSource = _partyRows;
         BagList.ItemsSource = _bagRows;
         BoxList.ItemsSource = _boxRows;
+        BoxGridGroupsView.ItemsSource = _boxGridGroups;
         DexSpeciesList.ItemsSource = _dexRows;
         DexInfoRowsView.ItemsSource = _dexInfoRows;
         DexStatRowsView.ItemsSource = _dexStatRows;
@@ -1040,6 +1045,12 @@ public partial class MainWindow : Window
         UpdateBoxNameText();
     }
 
+    private void OnBoxGridSlotClicked(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: BoxSlotRow row })
+            BoxList.SelectedItem = row;
+    }
+
     private async void OnBoxApplyClicked(object? sender, RoutedEventArgs e)
     {
         if (BoxList.SelectedItem is not BoxSlotRow row)
@@ -1344,7 +1355,7 @@ public partial class MainWindow : Window
             .Select(c =>
             {
                 var display = c.ToString();
-                return new DexSpeciesRow(c.Id, c.Name, display, $"No.{c.Id:0000} {display}", LoadDexSpriteBitmap(c.Id));
+                return new DexSpeciesRow(c.Id, c.Name, display, $"No.{c.Id:0000} {display}", LoadSpriteBitmap(c.Id));
             })
             .ToArray();
         ApplyDexFilter(selectFirst: true);
@@ -1421,7 +1432,15 @@ public partial class MainWindow : Window
         DexSpriteImage.IsVisible = sprite is not null;
     }
 
-    private static Bitmap? LoadDexSpriteBitmap(int speciesId)
+    private Bitmap? LoadSpriteBitmap(int speciesId)
+    {
+        if (_spriteCache.TryGetValue(speciesId, out var cached)) return cached;
+        var sprite = LoadSpriteBitmapCore(speciesId);
+        _spriteCache[speciesId] = sprite;
+        return sprite;
+    }
+
+    private static Bitmap? LoadSpriteBitmapCore(int speciesId)
     {
         try
         {
@@ -2186,7 +2205,7 @@ public partial class MainWindow : Window
 
     private PartySlotRow ToRow(int slot, uint addr, PartyPokemon mon)
     {
-        if (mon.IsEmpty) return new PartySlotRow(slot, addr, mon, null, $"{slot} 空槽", "");
+        if (mon.IsEmpty) return new PartySlotRow(slot, addr, mon, null, $"{slot} 空槽", "", null);
         var info = mon.GetInfo();
         var ok = info.Checksum == info.CalculatedChecksum ? "正常" : "异常";
         var title = $"{slot} {(mon.IsShiny ? "★" : "")}{SpeciesName(info.Species)} Lv{info.Level}";
@@ -2194,7 +2213,7 @@ public partial class MainWindow : Window
         var item = info.Item == 0 ? "无" : ItemName(info.Item);
         var shiny = mon.IsShiny ? "闪光" : "非闪";
         var detail = $"HP {info.Hp}/{info.MaxHp}  {shiny}  性格 {NatureText(info.Nature, info.GameNatureCode)}  特性 {AbilityText(info.Species, info.Ivs["ability"])}  携带 {item}  校验 {ok}";
-        return new PartySlotRow(slot, addr, mon, info, title, detail);
+        return new PartySlotRow(slot, addr, mon, info, title, detail, LoadSpriteBitmap(info.Species));
     }
 
     private void FillEditor(PartySlotRow row)
@@ -2385,11 +2404,30 @@ public partial class MainWindow : Window
             var title = $"箱{boxNo:00}-{slotInBox:00} {(mon.IsShiny ? "★" : "")}{SpeciesName(info.Species)}";
             if (info.Item != 0) title += $" / {ItemName(info.Item)}";
             if (HasSummaryAllStatsIncreaseNatureCode(info.GameNatureCode)) title += " / 性格代码异常";
-            _boxRows.Add(new BoxSlotRow(i + 1, address, mon, info, title, $"地址 0x{address:X8}"));
+            _boxRows.Add(new BoxSlotRow(i + 1, address, mon, info, title, $"地址 0x{address:X8}", LoadSpriteBitmap(info.Species)));
         }
 
+        RefreshBoxGridGroups();
         if (_boxRows.Count > 0) BoxList.SelectedIndex = 0;
         Log($"已定位箱子候选：起始 0x{run.StartAddress:X8}，连续非空 {_boxRows.Count} 槽。");
+    }
+
+    private void RefreshBoxGridGroups()
+    {
+        _boxGridGroups.Clear();
+        foreach (var group in _boxRows.GroupBy(row => (row.Slot - 1) / BoxScanner.BoxSlots + 1))
+        {
+            var bySlot = group.ToDictionary(row => (row.Slot - 1) % BoxScanner.BoxSlots + 1);
+            var cells = Enumerable.Range(1, BoxScanner.BoxSlots)
+                .Select(slotInBox =>
+                {
+                    if (bySlot.TryGetValue(slotInBox, out var row))
+                        return new BoxGridCell(slotInBox, row, row.Sprite, row.Title, true);
+                    return new BoxGridCell(slotInBox, null, null, "空槽", false);
+                })
+                .ToArray();
+            _boxGridGroups.Add(new BoxGridGroup(group.Key, $"箱{group.Key:00}", cells));
+        }
     }
 
     private void ApplyBagPocketFilter()

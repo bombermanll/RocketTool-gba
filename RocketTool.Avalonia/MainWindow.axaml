@@ -56,7 +56,22 @@
                                         <ListBox.ItemTemplate>
                                             <DataTemplate>
                                                 <Border Padding="8" Margin="0,0,0,5" CornerRadius="10" Background="#FFF9EE">
-                                                    <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="SemiBold" Foreground="#102E4A" />
+                                                    <Grid ColumnDefinitions="42,*" ColumnSpacing="8">
+                                                        <Image Source="{Binding Sprite}"
+                                                               Width="38"
+                                                               Height="38"
+                                                               Stretch="Uniform"
+                                                               RenderOptions.BitmapInterpolationMode="None"
+                                                               VerticalAlignment="Center" />
+                                                        <TextBlock Grid.Column="1"
+                                                                   Text="{Binding Title}"
+                                                                   FontSize="13"
+                                                                   FontWeight="SemiBold"
+                                                                   Foreground="#102E4A"
+                                                                   TextWrapping="NoWrap"
+                                                                   TextTrimming="CharacterEllipsis"
+                                                                   VerticalAlignment="Center" />
+                                                    </Grid>
                                                 </Border>
                                             </DataTemplate>
                                         </ListBox.ItemTemplate>
@@ -299,15 +314,48 @@
                                     <WrapPanel>
                                         <Button Content="读取箱子" Margin="0,0,6,4" Click="OnBoxScanClicked" Classes="primary" />
                                     </WrapPanel>
-                                    <ListBox x:Name="BoxList" Grid.Row="1" Classes="compactList" SelectionChanged="OnBoxSelectionChanged">
-                                        <ListBox.ItemTemplate>
-                                            <DataTemplate>
-                                                <Border Padding="6,2" Margin="0" CornerRadius="7" Background="#FFF9EE">
-                                                    <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold" Foreground="#102E4A" />
-                                                </Border>
-                                            </DataTemplate>
-                                        </ListBox.ItemTemplate>
-                                    </ListBox>
+                                    <Grid Grid.Row="1">
+                                        <ListBox x:Name="BoxList" IsVisible="False" SelectionChanged="OnBoxSelectionChanged" />
+                                        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                                            <ItemsControl x:Name="BoxGridGroupsView">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Border Background="#FFF9EE" BorderBrush="#D6B36F" BorderThickness="2" CornerRadius="8" Padding="8" Margin="0,0,0,10">
+                                                            <Grid RowDefinitions="Auto,Auto" RowSpacing="7">
+                                                                <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="SemiBold" Foreground="#102E4A" />
+                                                                <ItemsControl Grid.Row="1" ItemsSource="{Binding Cells}">
+                                                                    <ItemsControl.ItemsPanel>
+                                                                        <ItemsPanelTemplate>
+                                                                            <UniformGrid Columns="6" />
+                                                                        </ItemsPanelTemplate>
+                                                                    </ItemsControl.ItemsPanel>
+                                                                    <ItemsControl.ItemTemplate>
+                                                                        <DataTemplate>
+                                                                            <Button Classes="boxSlot"
+                                                                                    Width="44"
+                                                                                    Height="44"
+                                                                                    Padding="0"
+                                                                                    Margin="2"
+                                                                                    Tag="{Binding Row}"
+                                                                                    IsEnabled="{Binding HasPokemon}"
+                                                                                    Click="OnBoxGridSlotClicked"
+                                                                                    ToolTip.Tip="{Binding Title}">
+                                                                                <Image Source="{Binding Sprite}"
+                                                                                       Width="38"
+                                                                                       Height="38"
+                                                                                       Stretch="Uniform"
+                                                                                       RenderOptions.BitmapInterpolationMode="None" />
+                                                                            </Button>
+                                                                        </DataTemplate>
+                                                                    </ItemsControl.ItemTemplate>
+                                                                </ItemsControl>
+                                                            </Grid>
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </ScrollViewer>
+                                    </Grid>
                                 </Grid>
                             </Border>
 

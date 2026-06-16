@@ -15,6 +15,21 @@
             <Setter Property="Background" Value="#102E4A" />
             <Setter Property="Foreground" Value="#F7F2E8" />
         </Style>
+        <Style Selector="Button.boxSlot">
+            <Setter Property="Background" Value="#EFE5D3" />
+            <Setter Property="BorderBrush" Value="#D6B36F" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="0" />
+        </Style>
+        <Style Selector="Button.boxSlot:pointerover">
+            <Setter Property="Background" Value="#EED1A2" />
+        </Style>
+        <Style Selector="Button.boxSlot:disabled">
+            <Setter Property="Background" Value="#F7F2E8" />
+            <Setter Property="BorderBrush" Value="#E3D3B8" />
+            <Setter Property="Opacity" Value="1" />
+        </Style>
         <Style Selector="Border.card">
             <Setter Property="Background" Value="#F7F2E8" />
             <Setter Property="CornerRadius" Value="18" />
