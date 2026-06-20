@@ -130,44 +130,20 @@ public static class PartyScanner
     private static PartyCandidate ScoreMon(uint address, ReadOnlySpan<byte> mon)
     {
         if (mon.Length < Gen3Constants.PartyMonSize || IsZero(mon)) return new PartyCandidate(address, 0, false, 0, 0, 0, 0, 0);
-        var pid = U32(mon, 0x00);
-        var otid = U32(mon, 0x04);
-        if (pid == 0 || otid == 0) return new PartyCandidate(address, 0, false, 0, 0, 0, 0, pid);
-
-        var storedChecksum = U16(mon, 0x1C);
+        var pokemon = new PartyPokemon(mon);
+        if (pokemon.IsEmpty) return new PartyCandidate(address, 0, false, 0, 0, 0, 0, pokemon.Pid);
+        var info = pokemon.GetInfo();
         var language = mon[0x12];
-        var level = mon[0x54];
-        var hp = U16(mon, 0x56);
-        var maxHp = U16(mon, 0x58);
-        var decrypted = DecryptBoxData(mon, pid ^ otid);
-        var calcChecksum = PartyPokemon.ChecksumDecrypted(decrypted);
-        var growth = Subblock(pid, decrypted, 0);
-        var species = U16(growth, 0);
-        var exp = U32(growth, 4) & 0x007FFFFF;
-
         var score = 0;
-        var checksumOk = storedChecksum == calcChecksum;
+        var checksumOk = info.Checksum == info.CalculatedChecksum;
         if (checksumOk) score += 6;
-        if (1 <= species && species <= MaxSpecies) score += 5;
-        if (level >= 1) score += 3;
-        if (1 <= maxHp && maxHp <= 999 && hp <= maxHp) score += 3;
+        if (1 <= info.Species && info.Species <= MaxSpecies) score += 5;
+        if (info.Level >= 1) score += 3;
+        if (1 <= info.MaxHp && info.MaxHp <= 999 && info.Hp <= info.MaxHp) score += 3;
         if (language is >= 1 and <= 7) score += 1;
         if (HasNickname(mon.Slice(0x08, 0x0A))) score += 1;
-        if (exp < 2_000_000) score += 1;
-        return new PartyCandidate(address, score, checksumOk, species, level, hp, maxHp, pid);
-    }
-
-    private static byte[] DecryptBoxData(ReadOnlySpan<byte> mon, uint key)
-    {
-        var output = new byte[48];
-        for (var i = 0; i < 48; i += 4) WriteU32(output, i, U32(mon, 0x20 + i) ^ key);
-        return output;
-    }
-
-    private static ReadOnlySpan<byte> Subblock(uint pid, byte[] decrypted, int substructure)
-    {
-        var offset = Array.IndexOf(Gen3Constants.SubstructureOrders[pid % 24], substructure) * 12;
-        return decrypted.AsSpan(offset, 12);
+        if (info.Exp < 2_000_000) score += 1;
+        return new PartyCandidate(address, score, checksumOk, info.Species, info.Level, info.Hp, info.MaxHp, pokemon.Pid);
     }
 
     private static bool IsZero(ReadOnlySpan<byte> data)
@@ -186,17 +162,4 @@ public static class PartyScanner
         return false;
     }
 
-    private static ushort U16(ReadOnlySpan<byte> data, int offset)
-        => (ushort)(data[offset] | data[offset + 1] << 8);
-
-    private static uint U32(ReadOnlySpan<byte> data, int offset)
-        => (uint)(data[offset] | data[offset + 1] << 8 | data[offset + 2] << 16 | data[offset + 3] << 24);
-
-    private static void WriteU32(Span<byte> data, int offset, uint value)
-    {
-        data[offset] = (byte)value;
-        data[offset + 1] = (byte)(value >> 8);
-        data[offset + 2] = (byte)(value >> 16);
-        data[offset + 3] = (byte)(value >> 24);
-    }
 }

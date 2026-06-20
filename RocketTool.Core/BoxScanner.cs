@@ -4,10 +4,14 @@ public sealed record BoxCandidate(uint Address, int Score, bool ChecksumOk, usho
 
 public sealed record BoxRun(uint StartAddress, int Length, int ScoreSum, IReadOnlyList<BoxCandidate> Candidates);
 
+public sealed record BoxStorageRun(uint StartAddress, int NonEmptyCount, int ScoreSum, int BoundaryScore, IReadOnlyDictionary<int, BoxCandidate> CandidatesBySlot);
+
 public static class BoxScanner
 {
     public const int BoxSlots = 30;
     public const int MaxBoxes = 14;
+    public const int TotalSlots = BoxSlots * MaxBoxes;
+    public const int StorageSize = TotalSlots * BoxPokemon.Size;
 
     public static IReadOnlyList<BoxCandidate> FindCandidates(ReadOnlySpan<byte> ewram, int minScore = 12)
     {
@@ -58,42 +62,116 @@ public static class BoxScanner
                ?? GroupRuns(candidates).FirstOrDefault();
     }
 
+    public static BoxStorageRun? LocatePcStorage(ReadOnlySpan<byte> ewram, int minScore = 12)
+    {
+        var candidates = FindCandidates(ewram, minScore)
+            .Where(c => c.ChecksumOk && c.Species is >= 1 and <= PartyScanner.MaxSpecies)
+            .GroupBy(c => c.Address)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(c => c.Score).First());
+        if (candidates.Count == 0) return null;
+
+        var ewramStart = PartyScanner.EwramBase;
+        var ewramEnd = ewramStart + (uint)ewram.Length;
+        var scoredBases = new Dictionary<uint, (int Count, int Score, int BoundaryScore)>();
+        foreach (var candidate in candidates.Values)
+        {
+            for (var slot = 0; slot < TotalSlots; slot++)
+            {
+                var slotOffset = checked((uint)(slot * BoxPokemon.Size));
+                if (candidate.Address < ewramStart + slotOffset) continue;
+                var baseAddress = candidate.Address - slotOffset;
+                if (baseAddress < ewramStart) continue;
+                if (baseAddress + (uint)StorageSize > ewramEnd) continue;
+
+                if (scoredBases.ContainsKey(baseAddress)) continue;
+                var count = 0;
+                var score = 0;
+                for (var i = 0; i < TotalSlots; i++)
+                {
+                    var address = baseAddress + checked((uint)(i * BoxPokemon.Size));
+                    if (!candidates.TryGetValue(address, out var hit)) continue;
+                    count++;
+                    score += hit.Score;
+                }
+
+                var boundaryScore = ScoreBoxBoundaries(baseAddress, candidates);
+                scoredBases[baseAddress] = (count, score, boundaryScore);
+            }
+        }
+
+        if (scoredBases.Count == 0) return null;
+        var best = scoredBases
+            .OrderByDescending(kv => kv.Value.Count)
+            .ThenByDescending(kv => kv.Value.BoundaryScore)
+            .ThenByDescending(kv => kv.Value.Score)
+            .ThenBy(kv => kv.Key)
+            .First();
+        if (best.Value.Count < 2) return null;
+
+        var bySlot = new Dictionary<int, BoxCandidate>();
+        for (var i = 0; i < TotalSlots; i++)
+        {
+            var address = best.Key + checked((uint)(i * BoxPokemon.Size));
+            if (candidates.TryGetValue(address, out var hit))
+                bySlot[i + 1] = hit;
+        }
+
+        return new BoxStorageRun(best.Key, best.Value.Count, best.Value.Score, best.Value.BoundaryScore, bySlot);
+    }
+
+    private static int ScoreBoxBoundaries(uint baseAddress, IReadOnlyDictionary<uint, BoxCandidate> candidates)
+    {
+        var score = 0;
+        for (var box = 0; box < MaxBoxes; box++)
+        {
+            var firstSlot = BoxSlots;
+            var count = 0;
+            var contiguous = 0;
+            var stillContiguous = true;
+            for (var slot = 0; slot < BoxSlots; slot++)
+            {
+                var address = baseAddress + checked((uint)((box * BoxSlots + slot) * BoxPokemon.Size));
+                var occupied = candidates.ContainsKey(address);
+                if (occupied)
+                {
+                    count++;
+                    firstSlot = Math.Min(firstSlot, slot);
+                    if (stillContiguous) contiguous++;
+                }
+                else if (count > 0)
+                {
+                    stillContiguous = false;
+                }
+            }
+
+            if (count == 0) continue;
+
+            // PC boxes commonly fill from the first slot. This resolves bases that
+            // have the same total hits but shift every visible box by several slots.
+            score += BoxSlots - firstSlot;
+            if (firstSlot == 0) score += 30;
+            score += Math.Min(contiguous, BoxSlots);
+        }
+
+        return score;
+    }
+
     private static BoxCandidate ScoreBoxMon(uint address, ReadOnlySpan<byte> mon)
     {
         if (mon.Length < BoxPokemon.Size || IsZero(mon)) return new BoxCandidate(address, 0, false, 0, 0);
-        var pid = U32(mon, 0);
-        var otid = U32(mon, 4);
-        if (pid == 0 || otid == 0) return new BoxCandidate(address, 0, false, 0, pid);
-        var storedChecksum = U16(mon, 0x1C);
-        var decrypted = Decrypt(mon, pid ^ otid);
-        var calculatedChecksum = PartyPokemon.ChecksumDecrypted(decrypted);
-        var growth = Subblock(pid, decrypted, 0);
-        var species = U16(growth, 0);
-        var exp = U32(growth, 4);
+        var pokemon = new BoxPokemon(mon);
+        if (pokemon.IsEmpty) return new BoxCandidate(address, 0, false, 0, pokemon.Pid);
+        var info = pokemon.GetInfo();
         var language = mon[0x12];
 
         var score = 0;
-        var checksumOk = storedChecksum == calculatedChecksum;
+        var checksumOk = info.Checksum == info.CalculatedChecksum;
         if (checksumOk) score += 6;
-        if (species is >= 1 and <= PartyScanner.MaxSpecies) score += 5;
+        if (info.Species is >= 1 and <= PartyScanner.MaxSpecies) score += 5;
         if (language is >= 1 and <= 7) score += 1;
         if (HasNickname(mon.Slice(0x08, 0x0A))) score += 1;
-        if (exp < 2_000_000) score += 1;
-        return new BoxCandidate(address, score, checksumOk, species, pid);
-    }
-
-    private static byte[] Decrypt(ReadOnlySpan<byte> mon, uint key)
-    {
-        var output = new byte[48];
-        for (var i = 0; i < 48; i += 4)
-            WriteU32(output, i, U32(mon, 0x20 + i) ^ key);
-        return output;
-    }
-
-    private static ReadOnlySpan<byte> Subblock(uint pid, byte[] decrypted, int substructure)
-    {
-        var offset = Array.IndexOf(Gen3Constants.SubstructureOrders[pid % 24], substructure) * 12;
-        return decrypted.AsSpan(offset, 12);
+        if (info.Exp < 2_000_000) score += 1;
+        return new BoxCandidate(address, score, checksumOk, info.Species, pokemon.Pid);
     }
 
     private static bool IsZero(ReadOnlySpan<byte> data)
@@ -113,17 +191,4 @@ public static class BoxScanner
         return false;
     }
 
-    private static ushort U16(ReadOnlySpan<byte> data, int offset)
-        => (ushort)(data[offset] | data[offset + 1] << 8);
-
-    private static uint U32(ReadOnlySpan<byte> data, int offset)
-        => (uint)(data[offset] | data[offset + 1] << 8 | data[offset + 2] << 16 | data[offset + 3] << 24);
-
-    private static void WriteU32(Span<byte> data, int offset, uint value)
-    {
-        data[offset] = (byte)value;
-        data[offset + 1] = (byte)(value >> 8);
-        data[offset + 2] = (byte)(value >> 16);
-        data[offset + 3] = (byte)(value >> 24);
-    }
 }

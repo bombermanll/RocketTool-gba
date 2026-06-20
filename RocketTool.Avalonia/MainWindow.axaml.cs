@@ -14,6 +14,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using RocketTool.Core;
@@ -54,6 +55,12 @@ public sealed record MapLocationChoice(string Name, int X, int Y)
 public sealed record ChoiceRow(int Id, string Name, string? Display = null)
 {
     public override string ToString() => Display ?? Name;
+}
+
+public enum DataSourceMode
+{
+    Live,
+    SaveReadOnly
 }
 
 public partial class MainWindow : Window
@@ -122,6 +129,9 @@ public partial class MainWindow : Window
     private uint? _partyBase;
     private uint? _boxBase;
     private uint? _bagBase;
+    private DataSourceMode _dataSourceMode = DataSourceMode.Live;
+    private string? _loadedSavePath;
+    private bool _boxGridShowAllBoxes;
     private int? _abilitySpecies;
     private int? _boxAbilitySpecies;
     private bool _suppressEditorEvents;
@@ -216,7 +226,38 @@ public partial class MainWindow : Window
         ConfigureNumericInputLimits();
         HookNameRefresh();
         InitializeDexRows();
+        SetDataSourceMode(DataSourceMode.Live);
         Log("界面已就绪。请先在 mGBA 加载 bridge 脚本，然后点击“连接 mGBA”。");
+    }
+
+    private void SetDataSourceMode(DataSourceMode mode)
+    {
+        _dataSourceMode = mode;
+        var live = mode == DataSourceMode.Live;
+
+        ReadPartyButton.IsVisible = live;
+        BagTab.IsVisible = true;
+        BoxReadButton.IsVisible = live;
+        ExperimentTab.IsVisible = live;
+
+        PartyDeleteButton.IsVisible = live;
+        PartyApplyButton.IsVisible = live;
+        BoxDeleteButton.IsVisible = live;
+        BoxApplyButton.IsVisible = live;
+        BagReadButton.IsVisible = live;
+        BagSnapshotButton.IsVisible = live;
+        BagAddButton.IsVisible = live;
+        BagApplyButton.IsVisible = live;
+        DexImportPartyButton.IsVisible = live;
+        DexImportBoxButton.IsVisible = live;
+        DexImportPartyButton.IsEnabled = live;
+        DexImportBoxButton.IsEnabled = live;
+        BagModeHintText.Text = live
+            ? "请先对比下方道具列表是否和游戏中一致；如不一致，请先校准背包。"
+            : "存档模式保留背包编辑页；当前只做只读结构探测，写回存档前需要先确认本改版背包结构。";
+
+        if (!live && MainTabs.SelectedItem == ExperimentTab)
+            MainTabs.SelectedItem = PartyTab;
     }
 
     private void ApplyWindowTitle()
@@ -266,13 +307,40 @@ public partial class MainWindow : Window
 
     private async void OnScanClicked(object? sender, RoutedEventArgs e)
     {
+        SetDataSourceMode(DataSourceMode.Live);
+        _loadedSavePath = null;
         await RunUiTask("连接 mGBA", () =>
         {
             using var bridge = ConnectBridge();
             var gameCode = bridge.GameCode();
-            ConnectionStatusText.Text = $"上次连接成功 {gameCode}；载入存档后点击“读取队伍”";
+            ConnectionStatusText.Text = $"mGBA连接成功：{gameCode}";
+            LastWriteText.Text = "当前来源：mGBA 实时内存；可以读取队伍、背包和箱子。";
             Log($"已连接 mGBA：游戏={gameCode}。队伍数据尚未读取。连接会在本次操作结束后自动关闭，这是正常现象。");
         });
+    }
+
+    private async void OnLoadSaveClicked(object? sender, RoutedEventArgs e)
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "读取 GBA 存档",
+            AllowMultiple = false,
+            FileTypeFilter =
+            [
+                new FilePickerFileType("GBA 存档") { Patterns = ["*.sav", "*.srm"] },
+                FilePickerFileTypes.All
+            ]
+        });
+        var file = files.FirstOrDefault();
+        if (file is null) return;
+        var path = file.Path.LocalPath;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            ShowToast("无法读取该存档路径。", success: false);
+            return;
+        }
+
+        await RunUiTask("读取存档", () => LoadSaveFile(path));
     }
 
     private async void OnReloadPartyClicked(object? sender, RoutedEventArgs e) => await ReloadPartyAsync();
@@ -364,7 +432,7 @@ public partial class MainWindow : Window
             using var bridge = ConnectBridge();
             var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
             LoadPartyRows(bridge, baseAddr, selectSlot);
-            ConnectionStatusText.Text = $"上次连接成功。游戏={bridge.GameCode()} 队伍=0x{baseAddr:X8}";
+            ConnectionStatusText.Text = $"mGBA连接成功：{bridge.GameCode()}；队伍已刷新";
             Log($"已从 0x{baseAddr:X8} 刷新队伍，当前队伍数量={_partyRows.Count}。");
         });
     }
@@ -382,6 +450,77 @@ public partial class MainWindow : Window
         _partyRows.Clear();
         foreach (var row in rows) _partyRows.Add(row);
         PartyList.SelectedIndex = _partyRows.Count == 0 ? -1 : Math.Clamp(selectSlot - 1, 0, _partyRows.Count - 1);
+    }
+
+    private void LoadSaveFile(string path)
+    {
+        var save = Gen3SaveReader.Read(path);
+        SetDataSourceMode(DataSourceMode.SaveReadOnly);
+        _loadedSavePath = path;
+        _partyBase = null;
+        _boxBase = null;
+        _bagBase = null;
+        BaseBox.Text = string.Empty;
+
+        _partyRows.Clear();
+        for (var i = 0; i < save.Party.Count; i++)
+            _partyRows.Add(ToRow(i + 1, (uint)i, save.Party[i]));
+        PartyList.SelectedIndex = _partyRows.Count > 0 ? 0 : -1;
+        if (_partyRows.Count == 0)
+        {
+            SelectedTitleText.Text = "存档中没有识别到队伍";
+            ClearEditor();
+        }
+
+        _bagRows.Clear();
+        _allBagRows.Clear();
+        foreach (var entry in save.Bag)
+        {
+            var definition = new BagPocketDefinition(
+                entry.Pocket,
+                PocketNameZh(entry.Pocket is >= 1 and <= 8 ? entry.Pocket : PocketOfItem(entry.ItemId)),
+                0,
+                0,
+                entry.QuantityXor,
+                entry.QuantityKey);
+            _allBagRows.Add(ToBagRow(
+                (uint)entry.SaveOffset,
+                entry.ItemId,
+                entry.Quantity,
+                entry.Note,
+                entry.Pocket is >= 1 and <= 8 ? entry.Pocket : null,
+                entry.SlotInPocket,
+                definition));
+        }
+        ApplyBagPocketFilter();
+        BagList.SelectedIndex = -1;
+        if (_bagRows.Count > 0) BagList.SelectedIndex = 0;
+
+        _boxRows.Clear();
+        foreach (var entry in save.Boxes)
+        {
+            var info = entry.Mon.GetInfo();
+            var title = $"箱{entry.BoxNumber:00}-{entry.SlotInBox:00} {(entry.Mon.IsShiny ? "★" : "")}{SpeciesName(info.Species)}";
+            if (info.Item != 0) title += $" / {ItemName(info.Item)}";
+            if (HasSummaryAllStatsIncreaseNatureCode(info.GameNatureCode)) title += " / 性格代码异常";
+            _boxRows.Add(new BoxSlotRow(entry.GlobalSlot, (uint)entry.SaveOffset, entry.Mon, info, title, "存档只读", LoadSpriteBitmap(info.Species)));
+        }
+
+        _boxGridShowAllBoxes = true;
+        RefreshBoxGridGroups();
+        BoxList.SelectedIndex = _boxRows.Count > 0 ? 0 : -1;
+        if (_boxRows.Count == 0)
+        {
+            BoxNameText.Text = "存档中没有识别到箱子宝可梦。";
+            SetPokemonSprite(BoxDetailSpriteImage, 0);
+        }
+
+        ConnectionStatusText.Text = $"mGBA已断开；已读取存档：{save.FileName}";
+        LastWriteText.Text = "当前来源：存档只读预览；实时读取、实验功能和写回文件暂不开放。";
+        Log($"已读取存档：{save.FileName}，大小 {save.FileSize} 字节，使用副本 {save.SaveSlot}，save index {save.SaveIndex}，有效 section {save.ValidSectionCount}/14。");
+        Log($"存档内容：队伍 {save.Party.Count} 只，背包可显示 {save.Bag.Count} 格，箱子非空 {save.Boxes.Count} 格。支持 .sav/.srm 原始电池存档。");
+        foreach (var warning in save.Warnings)
+            Log("存档提示：" + warning);
     }
 
     private static int? ReadLivePartyCount(MgbaBridgeClient bridge, uint baseAddr)
@@ -1012,6 +1151,7 @@ public partial class MainWindow : Window
     {
         if (BoxList.SelectedItem is not BoxSlotRow row) return;
         var info = row.Info;
+        SetPokemonSprite(BoxDetailSpriteImage, info.Species);
         BoxAddressText.Text = $"0x{row.Address:X8}";
         SetChoice(BoxSpeciesBox, _speciesChoices, info.Species);
         SetChoice(BoxItemBox, _itemChoices, info.Item);
@@ -1430,6 +1570,13 @@ public partial class MainWindow : Window
     {
         DexSpriteImage.Source = sprite;
         DexSpriteImage.IsVisible = sprite is not null;
+    }
+
+    private void SetPokemonSprite(Image image, int speciesId)
+    {
+        var sprite = speciesId > 0 ? LoadSpriteBitmap(speciesId) : null;
+        image.Source = sprite;
+        image.IsVisible = sprite is not null;
     }
 
     private Bitmap? LoadSpriteBitmap(int speciesId)
@@ -2181,6 +2328,8 @@ public partial class MainWindow : Window
 
     private MgbaBridgeClient ConnectBridge()
     {
+        if (_dataSourceMode == DataSourceMode.SaveReadOnly)
+            throw new InvalidOperationException("当前是存档只读模式。请先点击“连接 mGBA”切换到实时模式；存档写回功能尚未开放。");
         var host = string.IsNullOrWhiteSpace(HostBox.Text) ? "127.0.0.1" : HostBox.Text.Trim();
         var port = int.TryParse(PortBox.Text, out var parsed) ? parsed : 8765;
         var bridge = MgbaBridgeClient.Connect(host, port);
@@ -2218,9 +2367,11 @@ public partial class MainWindow : Window
 
     private void FillEditor(PartySlotRow row)
     {
-        SelectedTitleText.Text = row.Info is { } headerInfo
+        var headerInfo = row.Info;
+        SelectedTitleText.Text = headerInfo is not null
             ? $"{SpeciesName(headerInfo.Species)} Lv{headerInfo.Level}"
             : row.Title;
+        SetPokemonSprite(PartyDetailSpriteImage, headerInfo?.Species ?? 0);
         SelectedDetailText.Text = string.Empty;
         SelectedDetailText.IsVisible = false;
         if (row.Info is not { } info)
@@ -2301,6 +2452,7 @@ public partial class MainWindow : Window
             AbilityBox.ItemsSource = null;
             foreach (var box in EditorBoxes()) box.Text = string.Empty;
             ClearStatTexts();
+            SetPokemonSprite(PartyDetailSpriteImage, 0);
         }
         finally
         {
@@ -2390,14 +2542,46 @@ public partial class MainWindow : Window
     private void LoadBoxRows(MgbaBridgeClient bridge)
     {
         var ewram = PartyScanner.ReadEwram(bridge);
-        var run = BoxScanner.LocateBestRun(ewram) ?? throw new InvalidOperationException("没有定位到箱子宝可梦。请先确保箱子里有连续的非空槽位。");
+        var storage = BoxScanner.LocatePcStorage(ewram);
+        if (storage is null)
+        {
+            LoadBoxRowsFromBestRun(ewram);
+            return;
+        }
+
+        _boxBase = storage.StartAddress;
+        _boxGridShowAllBoxes = true;
+        _boxRows.Clear();
+        foreach (var (globalSlot, candidate) in storage.CandidatesBySlot.OrderBy(kv => kv.Key))
+        {
+            var address = candidate.Address;
+            var offset = checked((int)(address - PartyScanner.EwramBase));
+            var mon = new BoxPokemon(ewram.AsSpan(offset, BoxPokemon.Size));
+            var info = mon.GetInfo();
+            var slotInBox = ((globalSlot - 1) % BoxScanner.BoxSlots) + 1;
+            var boxNo = ((globalSlot - 1) / BoxScanner.BoxSlots) + 1;
+            var title = $"箱{boxNo:00}-{slotInBox:00} {(mon.IsShiny ? "★" : "")}{SpeciesName(info.Species)}";
+            if (info.Item != 0) title += $" / {ItemName(info.Item)}";
+            if (HasSummaryAllStatsIncreaseNatureCode(info.GameNatureCode)) title += " / 性格代码异常";
+            _boxRows.Add(new BoxSlotRow(globalSlot, address, mon, info, title, $"地址 0x{address:X8}", LoadSpriteBitmap(info.Species)));
+        }
+
+        RefreshBoxGridGroups();
+        if (_boxRows.Count > 0) BoxList.SelectedIndex = 0;
+        Log($"已定位箱子存储：起始 0x{storage.StartAddress:X8}，非空 {storage.NonEmptyCount}/{BoxScanner.TotalSlots} 槽。");
+    }
+
+    private void LoadBoxRowsFromBestRun(ReadOnlySpan<byte> ewram)
+    {
+        var run = BoxScanner.LocateBestRun(ewram) ?? throw new InvalidOperationException("没有定位到箱子宝可梦。请先确保箱子里有非空槽位。");
         _boxBase = run.StartAddress;
+        _boxGridShowAllBoxes = false;
         _boxRows.Clear();
         for (var i = 0; i < run.Candidates.Count; i++)
         {
             var address = run.Candidates[i].Address;
             var offset = checked((int)(address - PartyScanner.EwramBase));
-            var mon = new BoxPokemon(ewram.AsSpan(offset, BoxPokemon.Size));
+            var mon = new BoxPokemon(ewram.Slice(offset, BoxPokemon.Size));
             var info = mon.GetInfo();
             var slotInBox = (i % BoxScanner.BoxSlots) + 1;
             var boxNo = (i / BoxScanner.BoxSlots) + 1;
@@ -2409,15 +2593,22 @@ public partial class MainWindow : Window
 
         RefreshBoxGridGroups();
         if (_boxRows.Count > 0) BoxList.SelectedIndex = 0;
-        Log($"已定位箱子候选：起始 0x{run.StartAddress:X8}，连续非空 {_boxRows.Count} 槽。");
+        Log($"只定位到连续箱子候选：起始 0x{run.StartAddress:X8}，连续非空 {_boxRows.Count} 槽；箱号可能不完整。");
     }
 
     private void RefreshBoxGridGroups()
     {
         _boxGridGroups.Clear();
-        foreach (var group in _boxRows.GroupBy(row => (row.Slot - 1) / BoxScanner.BoxSlots + 1))
+        var rowsByBox = _boxRows.GroupBy(row => (row.Slot - 1) / BoxScanner.BoxSlots + 1)
+            .ToDictionary(group => group.Key, group => group.ToArray());
+        var boxNumbers = _boxGridShowAllBoxes
+            ? Enumerable.Range(1, BoxScanner.MaxBoxes)
+            : rowsByBox.Keys.OrderBy(x => x);
+        foreach (var boxNumber in boxNumbers)
         {
-            var bySlot = group.ToDictionary(row => (row.Slot - 1) % BoxScanner.BoxSlots + 1);
+            var bySlot = rowsByBox.TryGetValue(boxNumber, out var groupRows)
+                ? groupRows.ToDictionary(row => (row.Slot - 1) % BoxScanner.BoxSlots + 1)
+                : new Dictionary<int, BoxSlotRow>();
             var cells = Enumerable.Range(1, BoxScanner.BoxSlots)
                 .Select(slotInBox =>
                 {
@@ -2426,7 +2617,7 @@ public partial class MainWindow : Window
                     return new BoxGridCell(slotInBox, null, null, "空槽", false);
                 })
                 .ToArray();
-            _boxGridGroups.Add(new BoxGridGroup(group.Key, $"箱{group.Key:00}", cells));
+            _boxGridGroups.Add(new BoxGridGroup(boxNumber, $"箱{boxNumber:00}", cells));
         }
     }
 
@@ -2504,6 +2695,7 @@ public partial class MainWindow : Window
         {
             var species = ParseChoiceUShortOrNull(SpeciesBox, _speciesChoices) ?? 0;
             var item = ParseChoiceUShortOrNull(ItemBox, _itemChoices) ?? 0;
+            SetPokemonSprite(PartyDetailSpriteImage, species);
             RefreshAbilityChoices(species, SelectedAbilitySlot());
             UpdateBaseStatTexts(species);
             var nature = SelectedChoiceId(NatureBox) is { } n ? $"PID性格：{NatureDisplays[n]}" : "PID性格：未选择";
@@ -2557,6 +2749,7 @@ public partial class MainWindow : Window
             var item = ParseChoiceUShortOrNull(BoxItemBox, _itemChoices) ?? 0;
             var exp = ParseUIntOrNull(BoxExpBox.Text);
             var friendship = ParseByteOrNull(BoxFriendshipBox.Text);
+            SetPokemonSprite(BoxDetailSpriteImage, species);
             RefreshBoxAbilityChoices(species, SelectedChoiceId(BoxAbilityBox));
             UpdateBoxStatsFromBoxes();
             var ppUps = new[] { BoxPpUp1Box, BoxPpUp2Box, BoxPpUp3Box, BoxPpUp4Box };
@@ -3922,8 +4115,16 @@ public partial class MainWindow : Window
     private void EnsureBoxStorageBaseFresh(MgbaBridgeClient bridge)
     {
         var ewram = PartyScanner.ReadEwram(bridge);
+        var storage = BoxScanner.LocatePcStorage(ewram);
+        if (storage is not null)
+        {
+            if (_boxBase is { } boxBase && storage.StartAddress == boxBase) return;
+            LoadBoxRows(bridge);
+            throw new InvalidOperationException("箱子位置已变化，已刷新箱子列表。请重新选择槽位后再写入。");
+        }
+
         var run = BoxScanner.LocateBestRun(ewram) ?? throw new InvalidOperationException("没有定位到箱子宝可梦。请重新读取箱子后再写入。");
-        if (_boxBase is { } boxBase && run.StartAddress == boxBase) return;
+        if (_boxBase is { } fallbackBase && run.StartAddress == fallbackBase) return;
         LoadBoxRows(bridge);
         throw new InvalidOperationException("箱子位置已变化，已刷新箱子列表。请重新选择槽位后再写入。");
     }

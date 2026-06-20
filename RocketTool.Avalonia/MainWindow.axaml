@@ -30,27 +30,28 @@
                     <TextBlock Text="mGBA 实时队伍/背包编辑" Foreground="#F7F2E8" Opacity="0.82" />
                 </StackPanel>
                 <Border Classes="card" Grid.Column="1" MinWidth="360">
-                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="6">
+                    <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="6">
                         <TextBox x:Name="HostBox" Text="127.0.0.1" IsVisible="False" />
                         <TextBox x:Name="PortBox" Text="8765" IsVisible="False" />
                         <TextBox x:Name="BaseBox" IsVisible="False" />
                         <Button x:Name="ReloadPartyButton" Content="刷新队伍" Click="OnReloadPartyClicked" IsVisible="False" />
                         <TextBlock x:Name="ConnectionStatusText" Text="尚未连接 mGBA bridge" VerticalAlignment="Center" Foreground="#2B2016" />
                         <Button x:Name="ScanButton" Grid.Column="1" Content="连接 mGBA" Click="OnScanClicked" Classes="primary" />
-                        <TextBlock x:Name="LastWriteText" Grid.Row="1" Grid.ColumnSpan="2" Text="最近写入：暂无" Foreground="#6C6255" TextWrapping="Wrap" />
+                        <Button x:Name="LoadSaveButton" Grid.Column="2" Content="读取存档" Click="OnLoadSaveClicked" />
+                        <TextBlock x:Name="LastWriteText" Grid.Row="1" Grid.ColumnSpan="3" Text="最近写入：暂无" Foreground="#6C6255" TextWrapping="Wrap" />
                     </Grid>
                 </Border>
             </Grid>
 
             <Border Grid.Row="1" Classes="card" Padding="0">
-                <TabControl>
-                    <TabItem Header="队伍编辑">
+                <TabControl x:Name="MainTabs">
+                    <TabItem x:Name="PartyTab" Header="队伍编辑">
                         <Grid ColumnDefinitions="330,*" ColumnSpacing="0" Margin="0">
                             <Border Background="#EFE5D3" Padding="16" CornerRadius="18,0,0,18">
                                 <Grid RowDefinitions="Auto,*" RowSpacing="12">
                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                                         <TextBlock Text="队伍槽位" FontSize="20" FontWeight="SemiBold" Foreground="#102E4A" VerticalAlignment="Center" />
-                                        <Button Grid.Column="1" Content="读取队伍" Click="OnReloadPartyClicked" Classes="primary" />
+                                        <Button x:Name="ReadPartyButton" Grid.Column="1" Content="读取队伍" Click="OnReloadPartyClicked" Classes="primary" />
                                     </Grid>
                                     <ListBox x:Name="PartyList" Grid.Row="1" SelectionChanged="OnPartySelectionChanged">
                                         <ListBox.ItemTemplate>
@@ -79,14 +80,26 @@
                                 </Grid>
                             </Border>
 
-                            <ScrollViewer x:Name="PartyRightScroll" Grid.Column="1" Padding="20,20,20,56" HorizontalScrollBarVisibility="Disabled">
-                                <StackPanel Spacing="16" Margin="0,0,0,96" MaxWidth="{Binding #PartyRightScroll.Bounds.Width}">
-                                    <TextBlock x:Name="SelectedTitleText" Text="请选择或刷新槽位" FontSize="24" FontWeight="Bold" Foreground="#102E4A" />
-                                    <TextBlock x:Name="SelectedDetailText" Text="" IsVisible="False" />
-                                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
-                                        <Button Grid.Column="1" Content="删除当前队伍精灵" HorizontalAlignment="Right" Click="OnPartyDeleteClicked" />
-                                        <Button Grid.Column="2" Content="写入当前精灵" HorizontalAlignment="Right" Click="OnApplyPokemonClicked" Classes="primary" />
+                            <Grid Grid.Column="1" RowDefinitions="Auto,*">
+                                <Border Background="#F7F2E8" Padding="20,18,20,12">
+                                    <Grid ColumnDefinitions="74,*,Auto,Auto" ColumnSpacing="12">
+                                        <Border Width="62" Height="62" Background="#FFF9EE" CornerRadius="10" Padding="5" VerticalAlignment="Center">
+                                            <Image x:Name="PartyDetailSpriteImage"
+                                                   Stretch="Uniform"
+                                                   RenderOptions.BitmapInterpolationMode="None"
+                                                   IsVisible="False" />
+                                        </Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <TextBlock x:Name="SelectedTitleText" Text="请选择或刷新槽位" FontSize="24" FontWeight="Bold" Foreground="#102E4A" TextWrapping="Wrap" />
+                                            <TextBlock x:Name="SelectedDetailText" Text="" IsVisible="False" />
+                                        </StackPanel>
+                                        <Button x:Name="PartyDeleteButton" Grid.Column="2" Content="删除当前队伍精灵" HorizontalAlignment="Right" VerticalAlignment="Center" Click="OnPartyDeleteClicked" />
+                                        <Button x:Name="PartyApplyButton" Grid.Column="3" Content="写入当前精灵" HorizontalAlignment="Right" VerticalAlignment="Center" Click="OnApplyPokemonClicked" Classes="primary" />
                                     </Grid>
+                                </Border>
+
+                                <ScrollViewer x:Name="PartyRightScroll" Grid.Row="1" Padding="20,0,20,56" HorizontalScrollBarVisibility="Disabled">
+                                    <StackPanel Spacing="16" Margin="0,0,0,96" MaxWidth="{Binding #PartyRightScroll.Bounds.Width}">
 
                                     <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
                                         <StackPanel Spacing="10">
@@ -201,19 +214,20 @@
                                     </Border>
                                     <Border Height="72" Background="Transparent" />
                                 </StackPanel>
-                            </ScrollViewer>
-                        </Grid>
-                    </TabItem>
+	                            </ScrollViewer>
+		                        </Grid>
+	                        </Grid>
+		                    </TabItem>
 
-                    <TabItem Header="背包编辑">
+                    <TabItem x:Name="BagTab" Header="背包编辑">
                         <Grid ColumnDefinitions="440,*" ColumnSpacing="0" Margin="0">
                             <Border Background="#EFE5D3" Padding="14" CornerRadius="18,0,0,18">
                                 <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="5">
                                     <WrapPanel>
-                                        <Button Content="读取背包" Margin="0,0,6,4" Click="OnBagScanClicked" Classes="primary" />
-                                        <Button Content="校准背包" Margin="0,0,6,4" Click="OnBagSnapshotClicked" />
+                                        <Button x:Name="BagReadButton" Content="读取背包" Margin="0,0,6,4" Click="OnBagScanClicked" Classes="primary" />
+                                        <Button x:Name="BagSnapshotButton" Content="校准背包" Margin="0,0,6,4" Click="OnBagSnapshotClicked" />
                                     </WrapPanel>
-                                    <TextBlock Grid.Row="1" Text="请先对比下方道具列表是否和游戏中一致；如不一致，请先校准背包。" Foreground="#B3261E" FontWeight="SemiBold" FontSize="12" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="BagModeHintText" Grid.Row="1" Text="请先对比下方道具列表是否和游戏中一致；如不一致，请先校准背包。" Foreground="#B3261E" FontWeight="SemiBold" FontSize="12" TextWrapping="Wrap" />
                                     <StackPanel Grid.Row="2" Spacing="2">
                                         <TabControl x:Name="BagPocketTabs" Classes="pocketTabs" SelectionChanged="OnBagPocketChanged">
                                             <TabControl.ItemTemplate>
@@ -259,18 +273,18 @@
                                             <Grid RowDefinitions="Auto,Auto" RowSpacing="8">
                                                 <TextBlock Text="写入会直接生效，建议先保存 mGBA 即时存档。" Foreground="#6C6255" TextWrapping="Wrap" />
                                                 <WrapPanel Grid.Row="1" HorizontalAlignment="Right">
-                                                    <Button Content="添加到当前背包" Margin="0,0,8,0" Click="OnBagAddClicked" />
-                                                    <Button Content="覆盖当前道具" Click="OnBagApplyClicked" Classes="primary" />
+                                                    <Button x:Name="BagAddButton" Content="添加到当前背包" Margin="0,0,8,0" Click="OnBagAddClicked" />
+                                                    <Button x:Name="BagApplyButton" Content="覆盖当前道具" Click="OnBagApplyClicked" Classes="primary" />
                                                 </WrapPanel>
                                             </Grid>
                                         </StackPanel>
                                     </Border>
                                 </StackPanel>
-                            </ScrollViewer>
-                        </Grid>
-                    </TabItem>
+	                            </ScrollViewer>
+	                        </Grid>
+		                    </TabItem>
 
-                    <TabItem Header="ROM 数据" IsVisible="False">
+	                    <TabItem Header="ROM 数据" IsVisible="False">
                         <ScrollViewer Padding="20,20,36,56" HorizontalScrollBarVisibility="Disabled">
                             <StackPanel Spacing="16" Margin="0,0,0,96">
                                 <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
@@ -307,12 +321,12 @@
                         </ScrollViewer>
                     </TabItem>
 
-                    <TabItem Header="箱子编辑">
+                    <TabItem x:Name="BoxTab" Header="箱子编辑">
                         <Grid ColumnDefinitions="360,*" ColumnSpacing="0" Margin="0">
                             <Border Background="#EFE5D3" Padding="14" CornerRadius="18,0,0,18">
                                 <Grid RowDefinitions="Auto,*" RowSpacing="8">
                                     <WrapPanel>
-                                        <Button Content="读取箱子" Margin="0,0,6,4" Click="OnBoxScanClicked" Classes="primary" />
+                                        <Button x:Name="BoxReadButton" Content="读取箱子" Margin="0,0,6,4" Click="OnBoxScanClicked" Classes="primary" />
                                     </WrapPanel>
                                     <Grid Grid.Row="1">
                                         <ListBox x:Name="BoxList" IsVisible="False" SelectionChanged="OnBoxSelectionChanged" />
@@ -359,13 +373,23 @@
                                 </Grid>
                             </Border>
 
-                            <ScrollViewer Grid.Column="1" Padding="20,20,36,56" HorizontalScrollBarVisibility="Disabled">
-                                <StackPanel Spacing="14" Margin="0,0,0,96">
-                                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
-                                        <TextBlock Text="箱子槽编辑" FontSize="24" FontWeight="Bold" Foreground="#102E4A" VerticalAlignment="Center" />
-                                        <Button Grid.Column="1" Content="删除当前箱子精灵" HorizontalAlignment="Right" Click="OnBoxDeleteClicked" />
-                                        <Button Grid.Column="2" Content="写入当前箱子精灵" HorizontalAlignment="Right" Click="OnBoxApplyClicked" Classes="primary" />
+                            <Grid Grid.Column="1" RowDefinitions="Auto,*">
+                                <Border Background="#F7F2E8" Padding="20,18,36,12">
+                                    <Grid ColumnDefinitions="72,*,Auto,Auto" ColumnSpacing="12">
+                                        <Border Width="62" Height="62" Background="#FFF9EE" CornerRadius="10" Padding="5" VerticalAlignment="Center">
+                                            <Image x:Name="BoxDetailSpriteImage"
+                                                   Stretch="Uniform"
+                                                   RenderOptions.BitmapInterpolationMode="None"
+                                                   IsVisible="False" />
+                                        </Border>
+                                        <TextBlock Grid.Column="1" Text="箱子槽编辑" FontSize="24" FontWeight="Bold" Foreground="#102E4A" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                        <Button x:Name="BoxDeleteButton" Grid.Column="2" Content="删除当前箱子精灵" HorizontalAlignment="Right" VerticalAlignment="Center" Click="OnBoxDeleteClicked" />
+                                        <Button x:Name="BoxApplyButton" Grid.Column="3" Content="写入当前箱子精灵" HorizontalAlignment="Right" VerticalAlignment="Center" Click="OnBoxApplyClicked" Classes="primary" />
                                     </Grid>
+                                </Border>
+
+                                <ScrollViewer Grid.Row="1" Padding="20,0,36,56" HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel Spacing="14" Margin="0,0,0,96">
                                     <TextBlock Text="先只定位并编辑非空箱子宝可梦。写入会重算校验并重新加密，建议先保存 mGBA 即时存档。" Foreground="#6C6255" TextWrapping="Wrap" />
                                     <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
                                         <StackPanel Spacing="10">
@@ -476,9 +500,10 @@
                                 </StackPanel>
                             </ScrollViewer>
                         </Grid>
+                        </Grid>
                     </TabItem>
 
-                    <TabItem Header="宝可梦图鉴">
+                    <TabItem x:Name="DexTab" Header="宝可梦图鉴">
                         <Grid ColumnDefinitions="340,*" ColumnSpacing="0" Margin="0">
                             <Border Background="#EFE5D3" Padding="16" CornerRadius="18,0,0,18">
                                 <Grid RowDefinitions="Auto,Auto,*" RowSpacing="10">
@@ -524,8 +549,8 @@
                                         <TextBlock x:Name="DexSubtitleText" Text="图鉴数据使用程序内置派生表，不在使用时读取 ROM。" Foreground="#6C6255" TextWrapping="Wrap" />
                                     </StackPanel>
                                     <WrapPanel Grid.Column="2" VerticalAlignment="Top">
-                                        <Button Content="导入队伍" Margin="0,0,6,4" Click="OnDexImportPartyClicked" Classes="primary" />
-                                        <Button Content="导入箱子" Margin="0,0,0,4" Click="OnDexImportBoxClicked" />
+                                        <Button x:Name="DexImportPartyButton" Content="导入队伍" Margin="0,0,6,4" Click="OnDexImportPartyClicked" Classes="primary" />
+                                        <Button x:Name="DexImportBoxButton" Content="导入箱子" Margin="0,0,0,4" Click="OnDexImportBoxClicked" />
                                     </WrapPanel>
                                 </Grid>
 
@@ -656,7 +681,7 @@
                         </Grid>
                     </TabItem>
 
-                    <TabItem Header="实验功能">
+                    <TabItem x:Name="ExperimentTab" Header="实验功能">
                         <ScrollViewer Padding="20,20,36,56" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                             <StackPanel Spacing="14" Margin="0,0,0,96">
                                 <TextBlock Text="实验功能" FontSize="24" FontWeight="Bold" Foreground="#102E4A" />

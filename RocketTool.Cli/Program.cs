@@ -246,6 +246,53 @@ static int PartyScan(string[] args)
     return 0;
 }
 
+static int BoxScan(string[] args)
+{
+    var db = Db();
+    var host = GetArg(args, "--host", "127.0.0.1");
+    var port = GetIntArg(args, "--port", 8765);
+    var minScore = GetIntArg(args, "--min-score", 12);
+    var limit = GetIntArg(args, "--limit", 30);
+    using var bridge = MgbaBridgeClient.Connect(host, port);
+    Console.WriteLine(bridge.Welcome);
+    Console.WriteLine($"Game code: {bridge.GameCode()}");
+    var ewram = PartyScanner.ReadEwram(bridge, (off, total) =>
+    {
+        if (off % 0x10000 == 0) Console.WriteLine($"read EWRAM 0x{off:X5}/0x{total:X5}");
+    });
+    var hits = BoxScanner.FindCandidates(ewram, minScore);
+    Console.WriteLine($"\nBox candidates: {hits.Count} with score >= {minScore}");
+    foreach (var c in hits.Take(limit))
+        Console.WriteLine($"0x{c.Address:X8} score={c.Score:00} species={c.Species}({db.NameOf("species", c.Species)}) checksum={(c.ChecksumOk ? "ok" : "bad")} pid=0x{c.Pid:X8}");
+
+    Console.WriteLine("\nConsecutive checksum-ok box runs:");
+    foreach (var run in BoxScanner.GroupRuns(hits, checksumRequired: true).Take(10))
+    {
+        var addrs = string.Join(", ", run.Candidates.Take(6).Select(c => $"0x{c.Address:X8}"));
+        Console.WriteLine($"len={run.Length} score_sum={run.ScoreSum} start=0x{run.StartAddress:X8} :: {addrs}");
+    }
+    var best = BoxScanner.LocateBestRun(ewram);
+    if (best is not null) Console.WriteLine($"\nBest live box base: 0x{best.StartAddress:X8} len={best.Length}");
+
+    var storage = BoxScanner.LocatePcStorage(ewram, minScore);
+    if (storage is not null)
+    {
+        Console.WriteLine($"\nBest PC storage base: 0x{storage.StartAddress:X8} non_empty={storage.NonEmptyCount}/{BoxScanner.TotalSlots} score_sum={storage.ScoreSum} boundary={storage.BoundaryScore}");
+        for (var box = 1; box <= BoxScanner.MaxBoxes; box++)
+        {
+            var start = (box - 1) * BoxScanner.BoxSlots + 1;
+            var end = start + BoxScanner.BoxSlots - 1;
+            var count = storage.CandidatesBySlot.Keys.Count(slot => slot >= start && slot <= end);
+            Console.WriteLine($"  box{box:00}: {count}");
+        }
+    }
+    else
+    {
+        Console.WriteLine("\nBest PC storage base: not found");
+    }
+    return 0;
+}
+
 static int PartySetBasic(string[] args)
 {
     var db = Db();
@@ -604,6 +651,52 @@ static int BagSet(string[] args)
     return 0;
 }
 
+static int SaveProbe(string[] args)
+{
+    var db = Db();
+    var path = GetArg(args, "--save", "");
+    if (string.IsNullOrWhiteSpace(path))
+        path = ValuesAfter(args, "--path").FirstOrDefault() ?? "";
+    if (string.IsNullOrWhiteSpace(path))
+        throw new ArgumentException("Missing --save path");
+
+    var result = Gen3SaveReader.Read(path);
+    Console.WriteLine($"Save: {result.FileName}");
+    Console.WriteLine($"  size={result.FileSize} slot={result.SaveSlot} saveIndex={result.SaveIndex} sections={result.ValidSectionCount}/14");
+    Console.WriteLine($"  party={result.Party.Count} bag={result.Bag.Count} boxes={result.Boxes.Count}");
+
+    Console.WriteLine("\nWarnings/probes:");
+    foreach (var warning in result.Warnings)
+        Console.WriteLine("  " + warning);
+
+    Console.WriteLine("\nParty:");
+    for (var i = 0; i < result.Party.Count; i++)
+    {
+        var info = result.Party[i].GetInfo();
+        Console.WriteLine($"  {i + 1}. {info.Species}({db.NameOf("species", info.Species)}) Lv{info.Level} item={info.Item}({(info.Item == 0 ? "无" : db.NameOf("items", info.Item))})");
+    }
+
+    Console.WriteLine("\nBag:");
+    foreach (var group in result.Bag.GroupBy(b => b.Pocket).OrderBy(g => g.Key))
+    {
+        Console.WriteLine($"  {PocketNameZh(group.Key)} ({group.Count()}):");
+        foreach (var entry in group.Take(80))
+        {
+            var qty = entry.Pocket == 8 ? "" : $" x{entry.Quantity}";
+            Console.WriteLine($"    {entry.SlotInPocket:00}. off=0x{entry.SaveOffset:X} item={entry.ItemId}({db.NameOf("items", entry.ItemId)}){qty} {entry.Note}");
+        }
+    }
+
+    Console.WriteLine("\nBoxes:");
+    foreach (var entry in result.Boxes.Take(30))
+    {
+        var info = entry.Mon.GetInfo();
+        Console.WriteLine($"  box{entry.BoxNumber:00}-{entry.SlotInBox:00} off=0x{entry.SaveOffset:X} {info.Species}({db.NameOf("species", info.Species)}) item={info.Item}({(info.Item == 0 ? "无" : db.NameOf("items", info.Item))})");
+    }
+
+    return 0;
+}
+
 if (args.Length == 0)
 {
     Console.WriteLine("Usage:");
@@ -612,6 +705,7 @@ if (args.Length == 0)
     Console.WriteLine("  RocketTool.Cli item --items 1 44 231");
     Console.WriteLine("  RocketTool.Cli party-scan [--host 127.0.0.1 --port 8765]");
     Console.WriteLine("  RocketTool.Cli party-dump [--base 0x02025170] [--slot 1]");
+    Console.WriteLine("  RocketTool.Cli box-scan [--limit 30 --min-score 12]");
     Console.WriteLine("  RocketTool.Cli party-set-basic --slot 1 [--species N --item N --exp N --friendship N --pp-bonuses N --level N --hp N|max --max-hp N --status N] [--yes]");
     Console.WriteLine("  RocketTool.Cli party-set-moves --slot 1 [--moves a b c d] [--pp a b c d] [--yes]");
     Console.WriteLine("  RocketTool.Cli party-set-evs --slot 1 [--hp N --atk N --def N --spe N --spa N --spd N] [--force] [--yes]");
@@ -621,6 +715,7 @@ if (args.Length == 0)
     Console.WriteLine("  RocketTool.Cli bag-scan [--limit 12 --min-items 2]");
     Console.WriteLine("  RocketTool.Cli bag-read --addr 0x02000000");
     Console.WriteLine("  RocketTool.Cli bag-set --addr 0x02000000 --item N --qty N [--yes]");
+    Console.WriteLine("  RocketTool.Cli save-probe --save path/to/file.sav");
     return 1;
 }
 
@@ -628,6 +723,7 @@ return args[0] switch
 {
     "party-dump" => PartyDump(args[1..]),
     "party-scan" => PartyScan(args[1..]),
+    "box-scan" => BoxScan(args[1..]),
     "party-set-basic" => PartySetBasic(args[1..]),
     "party-set-moves" => PartySetMoves(args[1..]),
     "party-set-evs" => PartySetEvs(args[1..]),
@@ -640,5 +736,6 @@ return args[0] switch
     "bag-scan" => BagScan(args[1..]),
     "bag-read" => BagRead(args[1..]),
     "bag-set" => BagSet(args[1..]),
+    "save-probe" => SaveProbe(args[1..]),
     _ => throw new ArgumentException($"Unknown command: {args[0]}")
 };
