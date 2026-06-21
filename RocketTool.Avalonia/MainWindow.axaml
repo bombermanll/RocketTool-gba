@@ -89,8 +89,25 @@
                                                    RenderOptions.BitmapInterpolationMode="None"
                                                    IsVisible="False" />
                                         </Border>
-                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="5">
                                             <TextBlock x:Name="SelectedTitleText" Text="请选择或刷新槽位" FontSize="24" FontWeight="Bold" Foreground="#102E4A" TextWrapping="Wrap" />
+                                            <WrapPanel>
+                                                <ItemsControl x:Name="PartyHeaderTypeBadgesView">
+                                                    <ItemsControl.ItemsPanel>
+                                                        <ItemsPanelTemplate>
+                                                            <WrapPanel />
+                                                        </ItemsPanelTemplate>
+                                                    </ItemsControl.ItemsPanel>
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Border Background="{Binding Background}" CornerRadius="10" Padding="10,2" Margin="0,0,6,4">
+                                                                <TextBlock Text="{Binding Name}" Foreground="{Binding Foreground}" FontWeight="SemiBold" FontSize="12" />
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                                <TextBlock x:Name="PartyHeaderBstText" Foreground="#6C6255" FontWeight="SemiBold" VerticalAlignment="Center" Margin="2,0,0,4" />
+                                            </WrapPanel>
                                             <TextBlock x:Name="SelectedDetailText" Text="" IsVisible="False" />
                                         </StackPanel>
                                         <Button x:Name="PartyDeleteButton" Grid.Column="2" Content="删除当前队伍精灵" HorizontalAlignment="Right" VerticalAlignment="Center" Click="OnPartyDeleteClicked" />
@@ -382,7 +399,26 @@
                                                    RenderOptions.BitmapInterpolationMode="None"
                                                    IsVisible="False" />
                                         </Border>
-                                        <TextBlock Grid.Column="1" Text="箱子槽编辑" FontSize="24" FontWeight="Bold" Foreground="#102E4A" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="5">
+                                            <TextBlock x:Name="BoxSelectedTitleText" Text="箱子槽编辑" FontSize="24" FontWeight="Bold" Foreground="#102E4A" TextWrapping="Wrap" />
+                                            <WrapPanel>
+                                                <ItemsControl x:Name="BoxHeaderTypeBadgesView">
+                                                    <ItemsControl.ItemsPanel>
+                                                        <ItemsPanelTemplate>
+                                                            <WrapPanel />
+                                                        </ItemsPanelTemplate>
+                                                    </ItemsControl.ItemsPanel>
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Border Background="{Binding Background}" CornerRadius="10" Padding="10,2" Margin="0,0,6,4">
+                                                                <TextBlock Text="{Binding Name}" Foreground="{Binding Foreground}" FontWeight="SemiBold" FontSize="12" />
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                                <TextBlock x:Name="BoxHeaderBstText" Foreground="#6C6255" FontWeight="SemiBold" VerticalAlignment="Center" Margin="2,0,0,4" />
+                                            </WrapPanel>
+                                        </StackPanel>
                                         <Button x:Name="BoxDeleteButton" Grid.Column="2" Content="删除当前箱子精灵" HorizontalAlignment="Right" VerticalAlignment="Center" Click="OnBoxDeleteClicked" />
                                         <Button x:Name="BoxApplyButton" Grid.Column="3" Content="写入当前箱子精灵" HorizontalAlignment="Right" VerticalAlignment="Center" Click="OnBoxApplyClicked" Classes="primary" />
                                     </Grid>
@@ -506,10 +542,14 @@
                     <TabItem x:Name="DexTab" Header="宝可梦图鉴">
                         <Grid ColumnDefinitions="340,*" ColumnSpacing="0" Margin="0">
                             <Border Background="#EFE5D3" Padding="16" CornerRadius="18,0,0,18">
-                                <Grid RowDefinitions="Auto,Auto,*" RowSpacing="10">
+                                <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="10">
                                     <TextBlock Text="宝可梦图鉴" FontSize="20" FontWeight="SemiBold" Foreground="#102E4A" />
                                     <TextBox x:Name="DexSearchBox" Grid.Row="1" Watermark="输入中文名或编号搜索" TextChanged="OnDexSearchChanged" />
-                                    <ListBox x:Name="DexSpeciesList" Grid.Row="2" Classes="compactList" SelectionChanged="OnDexSelectionChanged">
+                                    <Grid Grid.Row="2" ColumnDefinitions="*,92" ColumnSpacing="8">
+                                        <ComboBox x:Name="DexSortBox" SelectionChanged="OnDexSortChanged" />
+                                        <ComboBox x:Name="DexSortDirectionBox" Grid.Column="1" SelectionChanged="OnDexSortChanged" />
+                                    </Grid>
+                                    <ListBox x:Name="DexSpeciesList" Grid.Row="3" Classes="compactList" SelectionChanged="OnDexSelectionChanged">
                                         <ListBox.ItemTemplate>
                                             <DataTemplate>
                                                 <Border Padding="6,4" Margin="0" CornerRadius="7" Background="#FFF9EE">
@@ -544,8 +584,25 @@
                                                RenderOptions.BitmapInterpolationMode="None"
                                                IsVisible="False" />
                                     </Border>
-                                    <StackPanel Grid.Column="1">
+                                    <StackPanel Grid.Column="1" Spacing="5">
                                         <TextBlock x:Name="DexTitleText" Text="请选择宝可梦" FontSize="24" FontWeight="Bold" Foreground="#102E4A" TextWrapping="Wrap" />
+                                        <WrapPanel>
+                                            <ItemsControl x:Name="DexHeaderTypeBadgesView">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate>
+                                                        <WrapPanel />
+                                                    </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Border Background="{Binding Background}" CornerRadius="10" Padding="10,2" Margin="0,0,6,4">
+                                                            <TextBlock Text="{Binding Name}" Foreground="{Binding Foreground}" FontWeight="SemiBold" FontSize="12" />
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                            <TextBlock x:Name="DexHeaderBstText" Foreground="#6C6255" FontWeight="SemiBold" VerticalAlignment="Center" Margin="2,0,0,4" />
+                                        </WrapPanel>
                                         <TextBlock x:Name="DexSubtitleText" Text="图鉴数据使用程序内置派生表，不在使用时读取 ROM。" Foreground="#6C6255" TextWrapping="Wrap" />
                                     </StackPanel>
                                     <WrapPanel Grid.Column="2" VerticalAlignment="Top">
@@ -678,6 +735,61 @@
                                     </TabItem>
                                 </TabControl>
                             </Grid>
+                        </Grid>
+                    </TabItem>
+
+                    <TabItem x:Name="MoveDexTab" Header="招式图鉴">
+                        <Grid RowDefinitions="Auto,Auto,*" Margin="20,20,36,56" RowSpacing="12">
+                            <TextBlock Text="招式图鉴" FontSize="24" FontWeight="Bold" Foreground="#102E4A" />
+                            <Grid Grid.Row="1" ColumnDefinitions="*,150,150" ColumnSpacing="10">
+                                <TextBox x:Name="MoveDexSearchBox" Watermark="输入招式名或编号搜索" TextChanged="OnMoveDexSearchChanged" />
+                                <ComboBox x:Name="MoveDexTypeFilterBox" Grid.Column="1" SelectionChanged="OnMoveDexFilterChanged" />
+                                <ComboBox x:Name="MoveDexCategoryFilterBox" Grid.Column="2" SelectionChanged="OnMoveDexFilterChanged" />
+                            </Grid>
+                            <Border Grid.Row="2" Background="#FFF9EE" CornerRadius="14" Padding="14">
+                                <Grid RowDefinitions="Auto,*" RowSpacing="8">
+                                    <Grid ColumnDefinitions="72,*,96,76,58,58,42" ColumnSpacing="10">
+                                        <TextBlock Text="编号" Classes="label" HorizontalAlignment="Right" />
+                                        <TextBlock Grid.Column="1" Text="招式" Classes="label" />
+                                        <TextBlock Grid.Column="2" Text="属性" Classes="label" />
+                                        <TextBlock Grid.Column="3" Text="分类" Classes="label" />
+                                        <TextBlock Grid.Column="4" Text="威力" Classes="label" HorizontalAlignment="Right" />
+                                        <TextBlock Grid.Column="5" Text="命中" Classes="label" HorizontalAlignment="Right" />
+                                        <TextBlock Grid.Column="6" Text="PP" Classes="label" HorizontalAlignment="Right" />
+                                    </Grid>
+                                    <ListBox x:Name="MoveDexList" Grid.Row="1" Classes="compactList">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Padding="6,4" Margin="0" CornerRadius="7" Background="#FFF9EE">
+                                                    <Grid ColumnDefinitions="72,*,96,76,58,58,42" ColumnSpacing="10">
+                                                        <TextBlock Text="{Binding Id}" Foreground="#102E4A" HorizontalAlignment="Right" />
+                                                        <TextBlock Grid.Column="1" Text="{Binding Title}" Foreground="#102E4A" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                                        <ItemsControl Grid.Column="2" ItemsSource="{Binding TypeBadges}" IsVisible="{Binding HasTypeBadges}">
+                                                            <ItemsControl.ItemsPanel>
+                                                                <ItemsPanelTemplate>
+                                                                    <WrapPanel />
+                                                                </ItemsPanelTemplate>
+                                                            </ItemsControl.ItemsPanel>
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate>
+                                                                    <Border Background="{Binding Background}" CornerRadius="10" Padding="10,2" Margin="0,0,6,3">
+                                                                        <TextBlock Text="{Binding Name}" Foreground="{Binding Foreground}" FontWeight="SemiBold" FontSize="12" />
+                                                                    </Border>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                        <TextBlock Grid.Column="3" Text="{Binding Category}" Foreground="#102E4A" />
+                                                        <TextBlock Grid.Column="4" Text="{Binding Power}" Foreground="#102E4A" HorizontalAlignment="Right" />
+                                                        <TextBlock Grid.Column="5" Text="{Binding Accuracy}" Foreground="#102E4A" HorizontalAlignment="Right" />
+                                                        <TextBlock Grid.Column="6" Text="{Binding Pp}" Foreground="#102E4A" HorizontalAlignment="Right" />
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                    <TextBlock x:Name="MoveDexEmptyText" Grid.Row="1" Text="" Foreground="#6C6255" TextWrapping="Wrap" IsVisible="False" />
+                                </Grid>
+                            </Border>
                         </Grid>
                     </TabItem>
 

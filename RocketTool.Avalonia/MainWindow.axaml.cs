@@ -48,6 +48,20 @@ public sealed record DexInfoRow(string Label, string Value, string? Tooltip = nu
 }
 public sealed record DexStatRow(string Name, string Base, string Level50, string Level100, string MaxLevel);
 public sealed record DexLevelMoveRow(string Level, string Move, string Type, string Category, string Power, string Accuracy, string Pp);
+public sealed record MoveDexRow(
+    int Id,
+    string Name,
+    string Title,
+    int TypeId,
+    int CategoryId,
+    IReadOnlyList<DexTypeBadge> TypeBadges,
+    string Category,
+    string Power,
+    string Accuracy,
+    string Pp)
+{
+    public bool HasTypeBadges => TypeBadges.Count > 0;
+}
 public sealed record MapLocationChoice(string Name, int X, int Y)
 {
     public override string ToString() => Name;
@@ -112,7 +126,12 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<DexInfoRow> _dexInfoRows = [];
     private readonly ObservableCollection<DexStatRow> _dexStatRows = [];
     private readonly ObservableCollection<DexLevelMoveRow> _dexLevelMoveRows = [];
+    private readonly ObservableCollection<MoveDexRow> _moveDexRows = [];
+    private readonly ObservableCollection<DexTypeBadge> _partyHeaderTypeBadges = [];
+    private readonly ObservableCollection<DexTypeBadge> _boxHeaderTypeBadges = [];
+    private readonly ObservableCollection<DexTypeBadge> _dexHeaderTypeBadges = [];
     private DexSpeciesRow[] _allDexRows = [];
+    private MoveDexRow[] _allMoveDexRows = [];
     private int _dexMaxLevel = MaxPokemonLevel;
     private readonly List<BagSlotRow> _allBagRows = [];
     private readonly ChoiceRow[] _speciesChoices;
@@ -122,6 +141,10 @@ public partial class MainWindow : Window
     private readonly ChoiceRow[] _statusChoices;
     private readonly ChoiceRow[] _ppBonusChoices;
     private readonly ChoiceRow[] _bagPocketChoices;
+    private readonly ChoiceRow[] _dexSortChoices;
+    private readonly ChoiceRow[] _dexSortDirectionChoices;
+    private readonly ChoiceRow[] _moveDexTypeFilterChoices;
+    private readonly ChoiceRow[] _moveDexCategoryFilterChoices;
     private readonly MapDatabase _mapDatabase;
     private readonly ChoiceRow[] _mapGroupChoices;
     private IReadOnlyList<ChoiceRow> _bagItemChoices = [];
@@ -175,6 +198,34 @@ public partial class MainWindow : Window
             new(2, "2次"),
             new(3, "3次")
         ];
+        _dexSortChoices =
+        [
+            new(0, "按编号"),
+            new(1, "按总种族值"),
+            new(2, "按HP"),
+            new(3, "按攻击"),
+            new(4, "按防御"),
+            new(5, "按特攻"),
+            new(6, "按特防"),
+            new(7, "按速度")
+        ];
+        _dexSortDirectionChoices =
+        [
+            new(0, "升序"),
+            new(1, "降序")
+        ];
+        _moveDexTypeFilterChoices =
+        [
+            new(-1, "全部属性"),
+            .. Enumerable.Range(0, 19).Select(type => new ChoiceRow(type, MoveTypeNameZh(type)))
+        ];
+        _moveDexCategoryFilterChoices =
+        [
+            new(-1, "全部分类"),
+            new(0, "物理"),
+            new(1, "特殊"),
+            new(2, "变化")
+        ];
         _bagPocketChoices =
         [
             new(1, "普通道具"),
@@ -193,9 +244,21 @@ public partial class MainWindow : Window
         BoxList.ItemsSource = _boxRows;
         BoxGridGroupsView.ItemsSource = _boxGridGroups;
         DexSpeciesList.ItemsSource = _dexRows;
+        MoveDexList.ItemsSource = _moveDexRows;
         DexInfoRowsView.ItemsSource = _dexInfoRows;
         DexStatRowsView.ItemsSource = _dexStatRows;
         DexLevelMoveRowsView.ItemsSource = _dexLevelMoveRows;
+        PartyHeaderTypeBadgesView.ItemsSource = _partyHeaderTypeBadges;
+        BoxHeaderTypeBadgesView.ItemsSource = _boxHeaderTypeBadges;
+        DexHeaderTypeBadgesView.ItemsSource = _dexHeaderTypeBadges;
+        DexSortBox.ItemsSource = _dexSortChoices;
+        DexSortDirectionBox.ItemsSource = _dexSortDirectionChoices;
+        MoveDexTypeFilterBox.ItemsSource = _moveDexTypeFilterChoices;
+        MoveDexCategoryFilterBox.ItemsSource = _moveDexCategoryFilterChoices;
+        SetChoice(DexSortBox, _dexSortChoices, 0);
+        SetChoice(DexSortDirectionBox, _dexSortDirectionChoices, 0);
+        SetChoice(MoveDexTypeFilterBox, _moveDexTypeFilterChoices, -1);
+        SetChoice(MoveDexCategoryFilterBox, _moveDexCategoryFilterChoices, -1);
         ConfigureSearchableCombo(SpeciesBox, _speciesChoices, UpdateNameHintsFromBoxes);
         ConfigureSearchableCombo(ItemBox, _itemChoices, UpdateNameHintsFromBoxes);
         ConfigureSearchableCombo(Move1Box, _moveChoices, UpdateNameHintsFromBoxes);
@@ -226,6 +289,7 @@ public partial class MainWindow : Window
         ConfigureNumericInputLimits();
         HookNameRefresh();
         InitializeDexRows();
+        InitializeMoveDexRows();
         SetDataSourceMode(DataSourceMode.Live);
         Log("界面已就绪。请先在 mGBA 加载 bridge 脚本，然后点击“连接 mGBA”。");
     }
@@ -513,6 +577,7 @@ public partial class MainWindow : Window
         {
             BoxNameText.Text = "存档中没有识别到箱子宝可梦。";
             SetPokemonSprite(BoxDetailSpriteImage, 0);
+            UpdateBoxHeaderInfo(0, null);
         }
 
         ConnectionStatusText.Text = $"mGBA已断开；已读取存档：{save.FileName}";
@@ -1152,6 +1217,7 @@ public partial class MainWindow : Window
         if (BoxList.SelectedItem is not BoxSlotRow row) return;
         var info = row.Info;
         SetPokemonSprite(BoxDetailSpriteImage, info.Species);
+        UpdateBoxHeaderInfo(info.Species, info.Exp);
         BoxAddressText.Text = $"0x{row.Address:X8}";
         SetChoice(BoxSpeciesBox, _speciesChoices, info.Species);
         SetChoice(BoxItemBox, _itemChoices, info.Item);
@@ -1325,12 +1391,14 @@ public partial class MainWindow : Window
         {
             using var bridge = ConnectBridge();
             var ewram = PartyScanner.ReadEwram(bridge);
-            var run = BoxScanner.LocateBestRun(ewram)
-                      ?? throw new InvalidOperationException("没有定位到箱子。请先确保箱子里有连续的非空槽位，再点“读取箱子”。");
-            if (run.Length >= BoxScanner.BoxSlots * BoxScanner.MaxBoxes)
+            var storage = BoxScanner.LocatePcStorage(ewram)
+                          ?? throw new InvalidOperationException("没有定位到完整箱子存储。请先读取箱子，确认箱子列表正常后再导入。");
+            var targetSlot = Enumerable.Range(1, BoxScanner.TotalSlots)
+                                 .FirstOrDefault(slot => !storage.CandidatesBySlot.ContainsKey(slot));
+            if (targetSlot == 0)
                 throw new InvalidOperationException("箱子已满，无法从图鉴导入。");
 
-            var targetAddress = run.StartAddress + (uint)(run.Length * BoxPokemon.Size);
+            var targetAddress = storage.StartAddress + checked((uint)((targetSlot - 1) * BoxPokemon.Size));
             var targetOffset = checked((int)(targetAddress - PartyScanner.EwramBase));
             if (targetOffset < 0 || targetOffset + BoxPokemon.Size > ewram.Length)
                 throw new InvalidOperationException("箱子追加地址超出 EWRAM 范围，无法安全写入。");
@@ -1342,7 +1410,9 @@ public partial class MainWindow : Window
             bridge.WriteRangeVerified(targetAddress, mon.Raw);
             LoadBoxRows(bridge);
             BoxList.SelectedItem = _boxRows.FirstOrDefault(r => r.Address == targetAddress) ?? BoxList.SelectedItem;
-            SetWriteNotice($"已从图鉴导入到箱子后方空槽：{row.DisplayName}。请回游戏确认后手动保存。");
+            var boxNumber = (targetSlot - 1) / BoxScanner.BoxSlots + 1;
+            var slotInBox = (targetSlot - 1) % BoxScanner.BoxSlots + 1;
+            SetWriteNotice($"已从图鉴导入到箱{boxNumber:00}-{slotInBox:00}：{row.DisplayName}。请回游戏确认后手动保存。");
         });
     }
 
@@ -1482,6 +1552,12 @@ public partial class MainWindow : Window
 
     private void OnDexSearchChanged(object? sender, TextChangedEventArgs e) => ApplyDexFilter();
 
+    private void OnDexSortChanged(object? sender, SelectionChangedEventArgs e) => ApplyDexFilter(keepSelectedAtTop: true);
+
+    private void OnMoveDexFilterChanged(object? sender, SelectionChangedEventArgs e) => ApplyMoveDexFilter();
+
+    private void OnMoveDexSearchChanged(object? sender, TextChangedEventArgs e) => ApplyMoveDexFilter();
+
     private void OnDexSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (DexSpeciesList.SelectedItem is DexSpeciesRow row)
@@ -1501,17 +1577,56 @@ public partial class MainWindow : Window
         ApplyDexFilter(selectFirst: true);
     }
 
-    private void ApplyDexFilter(bool selectFirst = false)
+    private void InitializeMoveDexRows()
+    {
+        _allMoveDexRows = _moveChoices
+            .Where(c => c.Id > 0)
+            .Select(c =>
+            {
+                var name = c.ToString();
+                if (!TryReadEmbeddedMoveData(c.Id, out var data))
+                {
+                    return new MoveDexRow(
+                        c.Id,
+                        c.Name,
+                        $"No.{c.Id:000} {name}",
+                        -1,
+                        -1,
+                        [],
+                        "",
+                        "",
+                        "",
+                        "");
+                }
+
+                return new MoveDexRow(
+                    c.Id,
+                    c.Name,
+                    $"No.{c.Id:000} {name}",
+                    data.Type,
+                    data.Category,
+                    TypeBadges(data.Type, data.Type),
+                    MoveCategoryNameZh(data.Category),
+                    MovePowerText(data.Power),
+                    MoveAccuracyText(data.Accuracy),
+                    data.Pp.ToString());
+            })
+            .ToArray();
+        ApplyMoveDexFilter();
+    }
+
+    private void ApplyDexFilter(bool selectFirst = false, bool keepSelectedAtTop = false)
     {
         var previousId = DexSpeciesList.SelectedItem is DexSpeciesRow selected ? selected.Id : (int?)null;
         var filter = DexSearchBox.Text?.Trim() ?? string.Empty;
-        var rows = string.IsNullOrWhiteSpace(filter)
+        var filtered = string.IsNullOrWhiteSpace(filter)
             ? _allDexRows
             : _allDexRows
                 .Where(r => r.Id.ToString().Contains(filter, StringComparison.OrdinalIgnoreCase) ||
                             r.Name.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
                             r.DisplayName.Contains(filter, StringComparison.OrdinalIgnoreCase))
                 .ToArray();
+        var rows = SortDexRows(filtered);
 
         _dexRows.Clear();
         foreach (var row in rows)
@@ -1528,6 +1643,104 @@ public partial class MainWindow : Window
 
         var next = previousId is null ? null : _dexRows.FirstOrDefault(r => r.Id == previousId.Value);
         DexSpeciesList.SelectedItem = next ?? (selectFirst ? _dexRows[0] : _dexRows[0]);
+        if (keepSelectedAtTop)
+            ScrollDexSelectedItemToTop();
+    }
+
+    private void ScrollDexSelectedItemToTop()
+    {
+        if (DexSpeciesList.SelectedItem is not DexSpeciesRow row) return;
+        DexSpeciesList.ScrollIntoView(row);
+        Dispatcher.UIThread.Post(() =>
+        {
+            var scrollViewer = DexSpeciesList.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
+            var item = DexSpeciesList.GetVisualDescendants()
+                .OfType<ListBoxItem>()
+                .FirstOrDefault(x => Equals(x.DataContext, row));
+            if (scrollViewer is null || item is null) return;
+            var point = item.TranslatePoint(new Point(0, 0), scrollViewer);
+            if (point is null) return;
+            scrollViewer.Offset = new Vector(scrollViewer.Offset.X, Math.Max(0, scrollViewer.Offset.Y + point.Value.Y));
+        }, DispatcherPriority.Background);
+    }
+
+    private DexSpeciesRow[] SortDexRows(IEnumerable<DexSpeciesRow> rows)
+    {
+        var sortId = DexSortBox.SelectedItem is ChoiceRow sort ? sort.Id : 0;
+        var descending = DexSortDirectionBox.SelectedItem is ChoiceRow direction && direction.Id == 1;
+        if (sortId == 0)
+            return (descending ? rows.OrderByDescending(r => r.Id) : rows.OrderBy(r => r.Id)).ToArray();
+
+        var keyedRows = rows
+            .Select(row => (Row: row, SortValue: DexSortValue(row.Id, sortId)))
+            .ToArray();
+        var validRows = keyedRows.Where(x => x.SortValue is not null);
+        var invalidRows = keyedRows.Where(x => x.SortValue is null).OrderBy(x => x.Row.Id);
+        var orderedValid = descending
+            ? validRows.OrderByDescending(x => x.SortValue!.Value).ThenBy(x => x.Row.Id)
+            : validRows.OrderBy(x => x.SortValue!.Value).ThenBy(x => x.Row.Id);
+        return orderedValid.Concat(invalidRows).Select(x => x.Row).ToArray();
+    }
+
+    private int? DexSortValue(int species, int sortId)
+    {
+        try
+        {
+            var stats = ReadSpeciesStats(species);
+            return sortId switch
+            {
+                1 => stats.Bst,
+                2 => stats.Hp,
+                3 => stats.Attack,
+                4 => stats.Defense,
+                5 => stats.SpAttack,
+                6 => stats.SpDefense,
+                7 => stats.Speed,
+                _ => species
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private void ApplyMoveDexFilter()
+    {
+        var previousId = MoveDexList.SelectedItem is MoveDexRow selected ? selected.Id : (int?)null;
+        var filter = MoveDexSearchBox.Text?.Trim() ?? string.Empty;
+        var typeFilter = SelectedChoiceId(MoveDexTypeFilterBox) ?? -1;
+        var categoryFilter = SelectedChoiceId(MoveDexCategoryFilterBox) ?? -1;
+
+        var rows = _allMoveDexRows.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(filter))
+        {
+            rows = rows.Where(r => r.Id.ToString().Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+                                   r.Name.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+                                   r.Title.Contains(filter, StringComparison.OrdinalIgnoreCase));
+        }
+        if (typeFilter >= 0)
+            rows = rows.Where(r => r.TypeId == typeFilter);
+        if (categoryFilter >= 0)
+            rows = rows.Where(r => r.CategoryId == categoryFilter);
+
+        _moveDexRows.Clear();
+        foreach (var row in rows.OrderBy(r => r.Id))
+            _moveDexRows.Add(row);
+
+        MoveDexEmptyText.IsVisible = _moveDexRows.Count == 0;
+        MoveDexEmptyText.Text = _moveDexRows.Count == 0
+            ? "没有匹配的招式。"
+            : "";
+        if (_moveDexRows.Count == 0)
+        {
+            MoveDexList.SelectedIndex = -1;
+            return;
+        }
+
+        MoveDexList.SelectedItem = previousId is null
+            ? null
+            : _moveDexRows.FirstOrDefault(r => r.Id == previousId.Value);
     }
 
     private void RefreshDexDetails(DexSpeciesRow row)
@@ -1537,14 +1750,18 @@ public partial class MainWindow : Window
         try
         {
             var stats = ReadSpeciesStats(row.Id);
-            DexSubtitleText.Text = $"{TypePairText(stats.Type1, stats.Type2)}  |  总种族值 {stats.Bst}";
+            SetHeaderSpeciesInfo(stats, _dexHeaderTypeBadges, DexHeaderBstText);
+            DexSubtitleText.Text = "";
+            DexSubtitleText.IsVisible = false;
             FillDexBaseInfo(row, stats);
             FillDexEvolutionInfo(row);
             FillDexLevelMoves(row.Id);
         }
         catch (Exception ex)
         {
+            ClearHeaderSpeciesInfo(_dexHeaderTypeBadges, DexHeaderBstText);
             DexSubtitleText.Text = "图鉴数据读取失败。";
+            DexSubtitleText.IsVisible = true;
             ClearDexDetails();
             _dexInfoRows.Add(new DexInfoRow("错误", ex.Message));
             SetDexEvolutionPlainText("错误：" + ex.Message);
@@ -1559,6 +1776,7 @@ public partial class MainWindow : Window
         _dexInfoRows.Clear();
         _dexStatRows.Clear();
         _dexLevelMoveRows.Clear();
+        ClearHeaderSpeciesInfo(_dexHeaderTypeBadges, DexHeaderBstText);
         DexSpriteImage.Source = null;
         DexSpriteImage.IsVisible = false;
         SetDexEvolutionPlainText("");
@@ -1577,6 +1795,72 @@ public partial class MainWindow : Window
         var sprite = speciesId > 0 ? LoadSpriteBitmap(speciesId) : null;
         image.Source = sprite;
         image.IsVisible = sprite is not null;
+    }
+
+    private void UpdatePartyHeaderInfo(int species, int? level)
+    {
+        if (species <= 0)
+        {
+            SelectedTitleText.Text = "请选择或刷新槽位";
+            ClearHeaderSpeciesInfo(_partyHeaderTypeBadges, PartyHeaderBstText);
+            return;
+        }
+
+        SelectedTitleText.Text = level is > 0
+            ? $"{SpeciesName(species)} Lv{level.Value}"
+            : SpeciesName(species);
+        UpdateHeaderSpeciesInfo(species, _partyHeaderTypeBadges, PartyHeaderBstText);
+    }
+
+    private void UpdateBoxHeaderInfo(int species, uint? exp)
+    {
+        if (species <= 0)
+        {
+            BoxSelectedTitleText.Text = "箱子槽编辑";
+            ClearHeaderSpeciesInfo(_boxHeaderTypeBadges, BoxHeaderBstText);
+            return;
+        }
+
+        try
+        {
+            var stats = ReadSpeciesStats(species);
+            int? level = exp is null ? null : LevelFromExp(exp.Value, stats.GrowthRate);
+            BoxSelectedTitleText.Text = level is > 0
+                ? $"{SpeciesName(species)} Lv{level.Value}"
+                : SpeciesName(species);
+            SetHeaderSpeciesInfo(stats, _boxHeaderTypeBadges, BoxHeaderBstText);
+        }
+        catch
+        {
+            BoxSelectedTitleText.Text = SpeciesName(species);
+            ClearHeaderSpeciesInfo(_boxHeaderTypeBadges, BoxHeaderBstText);
+        }
+    }
+
+    private void UpdateHeaderSpeciesInfo(int species, ObservableCollection<DexTypeBadge> target, TextBlock bstText)
+    {
+        try
+        {
+            SetHeaderSpeciesInfo(ReadSpeciesStats(species), target, bstText);
+        }
+        catch
+        {
+            ClearHeaderSpeciesInfo(target, bstText);
+        }
+    }
+
+    private static void SetHeaderSpeciesInfo(SpeciesStats stats, ObservableCollection<DexTypeBadge> target, TextBlock bstText)
+    {
+        target.Clear();
+        foreach (var badge in TypeBadges(stats.Type1, stats.Type2))
+            target.Add(badge);
+        bstText.Text = $"总种族值 {stats.Bst}";
+    }
+
+    private static void ClearHeaderSpeciesInfo(ObservableCollection<DexTypeBadge> target, TextBlock bstText)
+    {
+        target.Clear();
+        bstText.Text = string.Empty;
     }
 
     private Bitmap? LoadSpriteBitmap(int speciesId)
@@ -2368,9 +2652,10 @@ public partial class MainWindow : Window
     private void FillEditor(PartySlotRow row)
     {
         var headerInfo = row.Info;
-        SelectedTitleText.Text = headerInfo is not null
-            ? $"{SpeciesName(headerInfo.Species)} Lv{headerInfo.Level}"
-            : row.Title;
+        if (headerInfo is not null)
+            UpdatePartyHeaderInfo(headerInfo.Species, headerInfo.Level);
+        else
+            UpdatePartyHeaderInfo(0, null);
         SetPokemonSprite(PartyDetailSpriteImage, headerInfo?.Species ?? 0);
         SelectedDetailText.Text = string.Empty;
         SelectedDetailText.IsVisible = false;
@@ -2453,6 +2738,7 @@ public partial class MainWindow : Window
             foreach (var box in EditorBoxes()) box.Text = string.Empty;
             ClearStatTexts();
             SetPokemonSprite(PartyDetailSpriteImage, 0);
+            UpdatePartyHeaderInfo(0, null);
         }
         finally
         {
@@ -2568,6 +2854,7 @@ public partial class MainWindow : Window
 
         RefreshBoxGridGroups();
         if (_boxRows.Count > 0) BoxList.SelectedIndex = 0;
+        else UpdateBoxHeaderInfo(0, null);
         Log($"已定位箱子存储：起始 0x{storage.StartAddress:X8}，非空 {storage.NonEmptyCount}/{BoxScanner.TotalSlots} 槽。");
     }
 
@@ -2593,6 +2880,7 @@ public partial class MainWindow : Window
 
         RefreshBoxGridGroups();
         if (_boxRows.Count > 0) BoxList.SelectedIndex = 0;
+        else UpdateBoxHeaderInfo(0, null);
         Log($"只定位到连续箱子候选：起始 0x{run.StartAddress:X8}，连续非空 {_boxRows.Count} 槽；箱号可能不完整。");
     }
 
@@ -2653,6 +2941,7 @@ public partial class MainWindow : Window
         PpUp2Box.SelectionChanged += (_, _) => UpdateNameHintsFromBoxes();
         PpUp3Box.SelectionChanged += (_, _) => UpdateNameHintsFromBoxes();
         PpUp4Box.SelectionChanged += (_, _) => UpdateNameHintsFromBoxes();
+        LevelBox.TextChanged += (_, _) => UpdateNameHintsFromBoxes();
         BagItemBox.SelectionChanged += (_, _) => UpdateBagNameText();
         BoxSpeciesBox.SelectionChanged += (_, _) => UpdateBoxNameText();
         BoxItemBox.SelectionChanged += (_, _) => UpdateBoxNameText();
@@ -2677,6 +2966,7 @@ public partial class MainWindow : Window
 
     private void UpdateNameHints(PartyMonInfo info)
     {
+        UpdatePartyHeaderInfo(info.Species, info.Level);
         var itemName = info.Item == 0 ? "无" : ItemName(info.Item);
         var nature = NatureText(info.Nature, info.GameNatureCode);
         var ability = AbilityText(info.Species, info.Ivs["ability"]);
@@ -2695,7 +2985,9 @@ public partial class MainWindow : Window
         {
             var species = ParseChoiceUShortOrNull(SpeciesBox, _speciesChoices) ?? 0;
             var item = ParseChoiceUShortOrNull(ItemBox, _itemChoices) ?? 0;
+            var level = ParseByteOrNull(LevelBox.Text);
             SetPokemonSprite(PartyDetailSpriteImage, species);
+            UpdatePartyHeaderInfo(species, level);
             RefreshAbilityChoices(species, SelectedAbilitySlot());
             UpdateBaseStatTexts(species);
             var nature = SelectedChoiceId(NatureBox) is { } n ? $"PID性格：{NatureDisplays[n]}" : "PID性格：未选择";
@@ -2750,6 +3042,7 @@ public partial class MainWindow : Window
             var exp = ParseUIntOrNull(BoxExpBox.Text);
             var friendship = ParseByteOrNull(BoxFriendshipBox.Text);
             SetPokemonSprite(BoxDetailSpriteImage, species);
+            UpdateBoxHeaderInfo(species, exp);
             RefreshBoxAbilityChoices(species, SelectedChoiceId(BoxAbilityBox));
             UpdateBoxStatsFromBoxes();
             var ppUps = new[] { BoxPpUp1Box, BoxPpUp2Box, BoxPpUp3Box, BoxPpUp4Box };

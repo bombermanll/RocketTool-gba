@@ -168,7 +168,7 @@ public static class BoxScanner
         var checksumOk = info.Checksum == info.CalculatedChecksum;
         if (checksumOk) score += 6;
         if (info.Species is >= 1 and <= PartyScanner.MaxSpecies) score += 5;
-        if (language is >= 1 and <= 7) score += 1;
+        if (language is >= 1 and <= 7 or 0x12) score += 1;
         if (HasNickname(mon.Slice(0x08, 0x0A))) score += 1;
         if (info.Exp < 2_000_000) score += 1;
         return new BoxCandidate(address, score, checksumOk, info.Species, pokemon.Pid);

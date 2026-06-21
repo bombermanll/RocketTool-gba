@@ -55,7 +55,8 @@ public sealed class BoxPokemon
         var raw = new byte[Size];
         WriteU32(raw, 0x00, pid);
         WriteU32(raw, 0x04, otId);
-        raw[0x12] = 1;
+        raw[0x12] = 0x12;
+        raw[0x13] = 0x0B;
         var key = pid ^ otId;
         for (var i = 0x20; i < 0x50; i += 4)
             WriteU32(raw, i, key);
@@ -119,6 +120,8 @@ public sealed class BoxPokemon
         if (speciesNameEntry.Length < NicknameLength)
             throw new ArgumentException($"Species name entry must contain at least {NicknameLength} bytes.", nameof(speciesNameEntry));
         speciesNameEntry[..NicknameLength].CopyTo(_raw.AsSpan(NicknameOffset, NicknameLength));
+        _raw[0x12] = 0x12;
+        _raw[0x13] = 0x0B;
     }
 
     public void SetMoves(IReadOnlyList<ushort?> moves, IReadOnlyList<byte?> pp)

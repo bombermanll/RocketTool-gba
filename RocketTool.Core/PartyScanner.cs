@@ -140,7 +140,7 @@ public static class PartyScanner
         if (1 <= info.Species && info.Species <= MaxSpecies) score += 5;
         if (info.Level >= 1) score += 3;
         if (1 <= info.MaxHp && info.MaxHp <= 999 && info.Hp <= info.MaxHp) score += 3;
-        if (language is >= 1 and <= 7) score += 1;
+        if (language is >= 1 and <= 7 or 0x12) score += 1;
         if (HasNickname(mon.Slice(0x08, 0x0A))) score += 1;
         if (info.Exp < 2_000_000) score += 1;
         return new PartyCandidate(address, score, checksumOk, info.Species, info.Level, info.Hp, info.MaxHp, pokemon.Pid);
