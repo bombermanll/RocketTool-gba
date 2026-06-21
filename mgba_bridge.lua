@@ -23,11 +23,10 @@ local BATTLE_MON_MAX_HP_OFFSET = 0x2C
 local BATTLE_MON_PERSONALITY_OFFSET = 0x48
 local ROM_BASE = 0x08000000
 local G_MAIN_CALLBACK2 = 0x030032E4
+local G_FIELD_CALLBACK = 0x0300526C
 local G_WARP_DESTINATION = 0x020332A0
-local LOAD_MAP_FROM_WARP_FUNC = 0x080BA485
-local SET_MAIN_CALLBACK2_FUNC = 0x08000541
-local CB2_LOAD_MAP_FUNC = 0x080BB901
-local TELEPORT_STUB_ADDR = 0x09FFF000
+local QUEUE_WARP_TASK_FUNC = 0x080E6B19
+local CB2_FIELD_TRANSITION = 0x080BBA71
 local WALK_THROUGH_WALLS_PATCH_ADDR = 0x080C8A80
 local WALK_THROUGH_WALLS_ORIGINAL = { 0xF0, 0xB5, 0x57, 0x46 }
 local WALK_THROUGH_WALLS_PATCHED = { 0x00, 0x20, 0x70, 0x47 } -- Thumb: movs r0,#0; bx lr
@@ -250,32 +249,6 @@ local function write_warp_data(addr, map_group, map_num, warp_id, x, y)
     write_u16(addr + 6, y)
 end
 
-local function teleport_stub_bytes()
-    local bytes = {
-        0x10, 0xB5,             -- push {r4, lr}
-        0x05, 0x48,             -- ldr r0, [pc, #0x14]
-        0xFE, 0x46,             -- mov lr, pc
-        0x00, 0x47,             -- bx r0
-        0x04, 0x48,             -- ldr r0, [pc, #0x10]
-        0x05, 0x49,             -- ldr r1, [pc, #0x14]
-        0xFE, 0x46,             -- mov lr, pc
-        0x08, 0x47,             -- bx r1
-        0x10, 0xBC,             -- pop {r4}
-        0x01, 0xBC,             -- pop {r0}
-        0x00, 0x47,             -- bx r0
-        0x00, 0x00,             -- align literals
-    }
-    local literals = { LOAD_MAP_FROM_WARP_FUNC, CB2_LOAD_MAP_FUNC, SET_MAIN_CALLBACK2_FUNC }
-    for _, value in ipairs(literals) do
-        value = to_u32(value)
-        bytes[#bytes + 1] = value % 0x100
-        bytes[#bytes + 1] = math.floor(value / 0x100) % 0x100
-        bytes[#bytes + 1] = math.floor(value / 0x10000) % 0x100
-        bytes[#bytes + 1] = math.floor(value / 0x1000000) % 0x100
-    end
-    return bytes
-end
-
 local function request_teleport(map_group, map_num, x, y)
     if not emu then return false, "emu API unavailable" end
     if map_group < 0 or map_group > 255 or map_num < 0 or map_num > 255 then
@@ -288,19 +261,14 @@ local function request_teleport(map_group, map_num, x, y)
     write_warp_data(G_WARP_DESTINATION, map_group, map_num, 0xFF, x, y)
 
     local old_callback2 = read_u32(G_MAIN_CALLBACK2)
-    if old_callback2 == 0 or old_callback2 == (TELEPORT_STUB_ADDR + 1) then
+    local old_field_callback = read_u32(G_FIELD_CALLBACK)
+    if old_callback2 == 0 then
         return false, string.format("unexpected callback2: 0x%08X", old_callback2)
     end
 
-    local stub = teleport_stub_bytes()
-    local method = write_rom_range(TELEPORT_STUB_ADDR, stub)
-    local verify = read_rom_range(TELEPORT_STUB_ADDR, #stub)
-    if not bytes_equal(verify, stub) then
-        return false, "teleport stub write failed via " .. method .. ": " .. bytes_to_hex(verify)
-    end
-
-    write_u32(G_MAIN_CALLBACK2, TELEPORT_STUB_ADDR + 1)
-    return true, string.format("queued group=%d map=%d x=%d y=%d old_cb=0x%08X load_cb=0x%08X", map_group, map_num, x, y, old_callback2, CB2_LOAD_MAP_FUNC)
+    write_u32(G_FIELD_CALLBACK, QUEUE_WARP_TASK_FUNC)
+    write_u32(G_MAIN_CALLBACK2, CB2_FIELD_TRANSITION)
+    return true, string.format("queued group=%d map=%d x=%d y=%d old_cb=0x%08X old_field_cb=0x%08X mode=field-callback field_cb=0x%08X transition_cb=0x%08X", map_group, map_num, x, y, old_callback2, old_field_callback, QUEUE_WARP_TASK_FUNC, CB2_FIELD_TRANSITION)
 end
 
 local function read_u16_from_table(bytes, offset)
