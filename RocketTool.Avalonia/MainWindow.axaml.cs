@@ -117,6 +117,12 @@ public partial class MainWindow : Window
     private const int MaxPokemonLevel = 150;
     private const int DexImportLevel = 5;
     private const ushort MaxBagWriteQuantity = 255;
+    private const uint SaveBlock2PointerAddress = 0x03005250;
+    private const int SaveBlock2PlayerOtIdOffset = 0x0A;
+    private const int SaveBlock2HeaderLength = 0x0E;
+    private const int PlayerNameLength = 7;
+
+    private sealed record PlayerTrainerIdentity(uint OtId, byte[] OtName);
 
     private readonly ObservableCollection<PartySlotRow> _partyRows = [];
     private readonly ObservableCollection<BagSlotRow> _bagRows = [];
@@ -138,6 +144,7 @@ public partial class MainWindow : Window
     private readonly ChoiceRow[] _itemChoices;
     private readonly ChoiceRow[] _moveChoices;
     private readonly ChoiceRow[] _natureChoices;
+    private readonly ChoiceRow[] _genderChoices;
     private readonly ChoiceRow[] _statusChoices;
     private readonly ChoiceRow[] _ppBonusChoices;
     private readonly ChoiceRow[] _bagPocketChoices;
@@ -181,6 +188,12 @@ public partial class MainWindow : Window
         _bagItemChoices = _itemChoices;
         _moveChoices = [new ChoiceRow(0, "无"), .. ChoiceRows("moves")];
         _natureChoices = NatureDisplays.Select((name, id) => new ChoiceRow(id, name, name)).ToArray();
+        _genderChoices =
+        [
+            new(PartyPokemon.GenderMale, "雄性"),
+            new(PartyPokemon.GenderFemale, "雌性"),
+            new(PartyPokemon.Genderless, "无性别")
+        ];
         _statusChoices =
         [
             new(0x00, "无异常"),
@@ -274,6 +287,8 @@ public partial class MainWindow : Window
         ConfigureSearchableCombo(BoxMove3Box, _moveChoices, UpdateBoxNameText);
         ConfigureSearchableCombo(BoxMove4Box, _moveChoices, UpdateBoxNameText);
         ConfigureSearchableCombo(BoxNatureBox, _natureChoices, UpdateBoxNameText);
+        GenderBox.ItemsSource = _genderChoices;
+        BoxGenderBox.ItemsSource = _genderChoices;
         StatusBox.ItemsSource = _statusChoices;
         foreach (var box in PpBonusBoxes())
         {
@@ -281,6 +296,8 @@ public partial class MainWindow : Window
             box.SelectedIndex = 0;
         }
         FitComboToContent(StatusBox, _statusChoices);
+        FitComboToContent(GenderBox, _genderChoices);
+        FitComboToContent(BoxGenderBox, _genderChoices);
         BagPocketTabs.ItemsSource = _bagPocketChoices;
         BagPocketTabs.SelectedIndex = 0;
         TeleportGroupBox.ItemsSource = _mapGroupChoices;
@@ -659,9 +676,11 @@ public partial class MainWindow : Window
             var before = mon.GetInfo();
             var species = ParseSpeciesOrNull(SpeciesBox);
             SyncNicknameForSpeciesChange(mon, species);
+            SyncOtIdForSpeciesChange(bridge, mon, before.Species, species);
             var nature = SelectedChoiceId(NatureBox);
             if (nature is not null) mon.SetNature(nature.Value);
             mon.SetShiny(ShinyBox.IsChecked == true);
+            ApplyGenderChoice(mon, species ?? before.Species);
             var abilitySlot = SelectedAbilitySlot();
             if (abilitySlot is not null) mon.SetAbilitySlot(abilitySlot.Value);
             mon.SetGrowth(species, ParseItemOrNull(ItemBox), ParseUIntOrNull(ExpBox.Text), ParseByteOrNull(FriendshipBox.Text), null);
@@ -700,11 +719,14 @@ public partial class MainWindow : Window
             using var bridge = ConnectBridge();
             var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
             var (addr, mon) = ReadSelectedLiveMon(bridge, baseAddr, row);
+            var before = mon.GetInfo();
             var species = ParseSpeciesOrNull(SpeciesBox);
             SyncNicknameForSpeciesChange(mon, species);
+            SyncOtIdForSpeciesChange(bridge, mon, before.Species, species);
 
             if (SelectedChoiceId(NatureBox) is { } nature) mon.SetNature(nature);
             mon.SetShiny(ShinyBox.IsChecked == true);
+            ApplyGenderChoice(mon, species ?? before.Species);
             if (SelectedAbilitySlot() is { } abilitySlot) mon.SetAbilitySlot(abilitySlot);
             mon.SetGrowth(
                 species,
@@ -1222,6 +1244,7 @@ public partial class MainWindow : Window
         SetChoice(BoxSpeciesBox, _speciesChoices, info.Species);
         SetChoice(BoxItemBox, _itemChoices, info.Item);
         SetChoice(BoxNatureBox, _natureChoices, info.Nature);
+        SetChoice(BoxGenderBox, _genderChoices, GenderChoiceId(info.Species, info.Pid));
         BoxShinyBox.IsChecked = row.Mon.IsShiny;
         BoxExpBox.Text = info.Exp.ToString();
         BoxFriendshipBox.Text = info.Friendship.ToString();
@@ -1271,8 +1294,10 @@ public partial class MainWindow : Window
         {
             using var bridge = ConnectBridge();
             var mon = ReadSelectedBoxMon(bridge, row);
+            var before = mon.GetInfo();
             var species = ParseSpeciesRequired(BoxSpeciesBox, "箱子宝可梦");
             SyncNicknameForSpeciesChange(mon, species);
+            SyncOtIdForSpeciesChange(bridge, mon, before.Species, species);
             var item = ParseItemRequired(BoxItemBox, "箱子携带道具");
             mon.SetGrowth(
                 species: species,
@@ -1283,6 +1308,7 @@ public partial class MainWindow : Window
             if (SelectedChoiceId(BoxNatureBox) is { } nature)
                 mon.SetNature(nature);
             mon.SetShiny(BoxShinyBox.IsChecked == true);
+            ApplyGenderChoice(mon, species);
             if (SelectedChoiceId(BoxAbilityBox) is { } ability)
                 mon.SetIvs(new Dictionary<string, int> { ["ability"] = ability });
             var ivs = BuildIntStats(BoxIvHpBox, BoxIvAtkBox, BoxIvDefBox, BoxIvSpeBox, BoxIvSpaBox, BoxIvSpdBox);
@@ -1368,8 +1394,8 @@ public partial class MainWindow : Window
             if (count >= Gen3Constants.PartySlots)
                 throw new InvalidOperationException("队伍已满，无法从图鉴导入。");
 
-            var otId = ResolveImportOtId(bridge, baseAddr, count);
-            var mon = BuildDexPartyPokemon(row.Id, otId);
+            var trainer = ResolveImportTrainerIdentity(bridge, baseAddr, count);
+            var mon = BuildDexPartyPokemon(row.Id, trainer);
             var targetSlot = count + 1;
             var targetAddress = SlotAddress(baseAddr, targetSlot);
             bridge.WriteRangeVerified(targetAddress, mon.Raw);
@@ -1405,8 +1431,8 @@ public partial class MainWindow : Window
             if (!IsAllZero(ewram.AsSpan(targetOffset, BoxPokemon.Size)))
                 throw new InvalidOperationException("箱子后方目标槽不是空槽，箱子可能已满或定位不可靠。请重新读取箱子后再试。");
 
-            var otId = ResolveImportOtId(bridge, null, null);
-            var mon = BuildDexBoxPokemon(row.Id, otId);
+            var trainer = ResolveImportTrainerIdentity(bridge, null, null);
+            var mon = BuildDexBoxPokemon(row.Id, trainer);
             bridge.WriteRangeVerified(targetAddress, mon.Raw);
             LoadBoxRows(bridge);
             BoxList.SelectedItem = _boxRows.FirstOrDefault(r => r.Address == targetAddress) ?? BoxList.SelectedItem;
@@ -1416,20 +1442,22 @@ public partial class MainWindow : Window
         });
     }
 
-    private PartyPokemon BuildDexPartyPokemon(int species, uint otId)
+    private PartyPokemon BuildDexPartyPokemon(int species, PlayerTrainerIdentity trainer)
     {
         var stats = ReadSpeciesStats(species);
-        var mon = PartyPokemon.Create(NewNonShinyPid(otId), otId);
+        var mon = PartyPokemon.Create(NewNonShinyPid(trainer.OtId), trainer.OtId);
+        mon.SetOtName(trainer.OtName);
         ApplyDexImportDefaults(mon, species, stats);
         mon.SetUnencrypted(status: 0, level: DexImportLevel);
         mon.RecalculateStats(stats);
         return mon;
     }
 
-    private BoxPokemon BuildDexBoxPokemon(int species, uint otId)
+    private BoxPokemon BuildDexBoxPokemon(int species, PlayerTrainerIdentity trainer)
     {
         var stats = ReadSpeciesStats(species);
-        var mon = BoxPokemon.Create(NewNonShinyPid(otId), otId);
+        var mon = BoxPokemon.Create(NewNonShinyPid(trainer.OtId), trainer.OtId);
+        mon.SetOtName(trainer.OtName);
         ApplyDexImportDefaults(mon, species, stats);
         return mon;
     }
@@ -1499,7 +1527,15 @@ public partial class MainWindow : Window
         ["spd"] = 0
     };
 
-    private uint ResolveImportOtId(MgbaBridgeClient bridge, uint? partyBase, int? partyCount)
+    private PlayerTrainerIdentity ResolveImportTrainerIdentity(MgbaBridgeClient bridge, uint? partyBase, int? partyCount)
+    {
+        if (TryReadCurrentPlayerIdentity(bridge) is { } player)
+            return player;
+
+        return new PlayerTrainerIdentity(ResolveFallbackImportOtId(bridge, partyBase, partyCount), new byte[PlayerNameLength]);
+    }
+
+    private uint ResolveFallbackImportOtId(MgbaBridgeClient bridge, uint? partyBase, int? partyCount)
     {
         try
         {
@@ -1508,7 +1544,7 @@ public partial class MainWindow : Window
             if (count > 0)
             {
                 var first = new PartyPokemon(bridge.Read(SlotAddress(baseAddr, 1), Gen3Constants.PartyMonSize));
-                if (first.OtId != 0) return first.OtId;
+                if (!first.IsEmpty) return first.OtId;
             }
         }
         catch
@@ -1516,11 +1552,51 @@ public partial class MainWindow : Window
             // Fall through to cached rows or a generated non-zero OT ID.
         }
 
-        if (_partyRows.FirstOrDefault(r => r.Mon.OtId != 0) is { } partyRow)
+        if (_partyRows.FirstOrDefault(r => !r.Mon.IsEmpty) is { } partyRow)
             return partyRow.Mon.OtId;
-        if (_boxRows.FirstOrDefault(r => r.Mon.OtId != 0) is { } boxRow)
+        if (_boxRows.FirstOrDefault(r => !r.Mon.IsEmpty) is { } boxRow)
             return boxRow.Mon.OtId;
         return NewNonZeroRandomUInt();
+    }
+
+    private static PlayerTrainerIdentity? TryReadCurrentPlayerIdentity(MgbaBridgeClient bridge)
+    {
+        try
+        {
+            var pointerRaw = bridge.Read(SaveBlock2PointerAddress, 4);
+            var saveBlock2 = ReadU32Le(pointerRaw, 0);
+            if (!IsEwramRange(saveBlock2, SaveBlock2HeaderLength)) return null;
+
+            var header = bridge.Read(saveBlock2, SaveBlock2HeaderLength);
+            if (!LooksLikePlayerSaveBlock2Header(header)) return null;
+            var otName = new byte[PlayerNameLength];
+            header.AsSpan(0, PlayerNameLength).CopyTo(otName);
+            return new PlayerTrainerIdentity(ReadU32Le(header, SaveBlock2PlayerOtIdOffset), otName);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void SyncOtIdForSpeciesChange(MgbaBridgeClient bridge, PartyPokemon mon, ushort oldSpecies, ushort? newSpecies)
+    {
+        if (newSpecies is not { } species || species == 0 || species == oldSpecies) return;
+        if (TryReadCurrentPlayerIdentity(bridge) is { } player)
+        {
+            mon.SetOtId(player.OtId);
+            mon.SetOtName(player.OtName);
+        }
+    }
+
+    private static void SyncOtIdForSpeciesChange(MgbaBridgeClient bridge, BoxPokemon mon, ushort oldSpecies, ushort newSpecies)
+    {
+        if (newSpecies == 0 || newSpecies == oldSpecies) return;
+        if (TryReadCurrentPlayerIdentity(bridge) is { } player)
+        {
+            mon.SetOtId(player.OtId);
+            mon.SetOtName(player.OtName);
+        }
     }
 
     private static uint NewNonShinyPid(uint otId)
@@ -2645,7 +2721,8 @@ public partial class MainWindow : Window
         if (HasSummaryAllStatsIncreaseNatureCode(info.GameNatureCode)) title += " / 性格代码异常";
         var item = info.Item == 0 ? "无" : ItemName(info.Item);
         var shiny = mon.IsShiny ? "闪光" : "非闪";
-        var detail = $"HP {info.Hp}/{info.MaxHp}  {shiny}  性格 {NatureText(info.Nature, info.GameNatureCode)}  特性 {AbilityText(info.Species, info.Ivs["ability"])}  携带 {item}  校验 {ok}";
+        var gender = GenderText(GenderChoiceId(info.Species, info.Pid));
+        var detail = $"HP {info.Hp}/{info.MaxHp}  {shiny}  性别 {gender}  性格 {NatureText(info.Nature, info.GameNatureCode)}  特性 {AbilityText(info.Species, info.Ivs["ability"])}  携带 {item}  校验 {ok}";
         return new PartySlotRow(slot, addr, mon, info, title, detail, LoadSpriteBitmap(info.Species));
     }
 
@@ -2670,6 +2747,7 @@ public partial class MainWindow : Window
             SetChoice(SpeciesBox, _speciesChoices, info.Species);
             SetChoice(ItemBox, _itemChoices, info.Item);
             SetChoice(NatureBox, _natureChoices, info.Nature);
+            SetChoice(GenderBox, _genderChoices, GenderChoiceId(info.Species, info.Pid));
             RefreshAbilityChoices(info.Species, info.Ivs["ability"]);
             ExpBox.Text = info.Exp.ToString();
             FriendshipBox.Text = info.Friendship.ToString();
@@ -2732,6 +2810,7 @@ public partial class MainWindow : Window
             ClearMaxPpTexts(Move1MaxPpText, Move2MaxPpText, Move3MaxPpText, Move4MaxPpText);
             NatureBox.Text = string.Empty;
             NatureBox.SelectedItem = null;
+            GenderBox.SelectedItem = null;
             StatusBox.SelectedItem = null;
             ShinyBox.IsChecked = false;
             AbilityBox.ItemsSource = null;
@@ -2931,6 +3010,7 @@ public partial class MainWindow : Window
         SpeciesBox.SelectionChanged += (_, _) => UpdateNameHintsFromBoxes();
         ItemBox.SelectionChanged += (_, _) => UpdateNameHintsFromBoxes();
         NatureBox.SelectionChanged += (_, _) => UpdateNameHintsFromBoxes();
+        GenderBox.SelectionChanged += (_, _) => UpdateNameHintsFromBoxes();
         AbilityBox.SelectionChanged += (_, _) => UpdateNameHintsFromBoxes();
         ShinyBox.IsCheckedChanged += (_, _) => UpdateNameHintsFromBoxes();
         Move1Box.SelectionChanged += (_, _) => UpdateNameHintsFromBoxes();
@@ -2946,6 +3026,7 @@ public partial class MainWindow : Window
         BoxSpeciesBox.SelectionChanged += (_, _) => UpdateBoxNameText();
         BoxItemBox.SelectionChanged += (_, _) => UpdateBoxNameText();
         BoxNatureBox.SelectionChanged += (_, _) => UpdateBoxNameText();
+        BoxGenderBox.SelectionChanged += (_, _) => UpdateBoxNameText();
         BoxAbilityBox.SelectionChanged += (_, _) => UpdateBoxNameText();
         BoxShinyBox.IsCheckedChanged += (_, _) => UpdateBoxNameText();
         BoxMove1Box.SelectionChanged += (_, _) => UpdateBoxNameText();
@@ -2970,7 +3051,7 @@ public partial class MainWindow : Window
         var itemName = info.Item == 0 ? "无" : ItemName(info.Item);
         var nature = NatureText(info.Nature, info.GameNatureCode);
         var ability = AbilityText(info.Species, info.Ivs["ability"]);
-        BasicNameText.Text = $"种类：{SpeciesName(info.Species)}  携带道具：{itemName}  性格：{nature}  特性：{ability}  闪光：{(PartyPokemon.IsShinyPid(info.Pid, info.OtId) ? "是" : "否")}";
+        BasicNameText.Text = $"种类：{SpeciesName(info.Species)}  携带道具：{itemName}  性格：{nature}  性别：{GenderText(GenderChoiceId(info.Species, info.Pid))}  特性：{ability}  闪光：{(PartyPokemon.IsShinyPid(info.Pid, info.OtId) ? "是" : "否")}";
         MoveNameText.Text = string.Join("  /  ", info.Moves.Select((m, i) => $"招式{i + 1}: {(m == 0 ? "无" : MoveName(m))}"));
         UpdateMaxPpTexts(
             [Move1Box, Move2Box, Move3Box, Move4Box],
@@ -2989,10 +3070,12 @@ public partial class MainWindow : Window
             SetPokemonSprite(PartyDetailSpriteImage, species);
             UpdatePartyHeaderInfo(species, level);
             RefreshAbilityChoices(species, SelectedAbilitySlot());
+            EnsureValidGenderChoice(GenderBox, species);
             UpdateBaseStatTexts(species);
             var nature = SelectedChoiceId(NatureBox) is { } n ? $"PID性格：{NatureDisplays[n]}" : "PID性格：未选择";
+            var gender = SelectedChoiceId(GenderBox) is { } g ? GenderText(g) : "未选择";
             var ability = AbilityBox.SelectedItem?.ToString() ?? "未选择";
-            BasicNameText.Text = $"种类：{(species == 0 ? "无" : SpeciesName(species))}  携带道具：{ItemName(item)}  {nature}  特性：{ability}  闪光：{(ShinyBox.IsChecked == true ? "是" : "否")}";
+            BasicNameText.Text = $"种类：{(species == 0 ? "无" : SpeciesName(species))}  携带道具：{ItemName(item)}  {nature}  性别：{gender}  特性：{ability}  闪光：{(ShinyBox.IsChecked == true ? "是" : "否")}";
 
             var ppUps = new[] { PpUp1Box, PpUp2Box, PpUp3Box, PpUp4Box };
             UpdateMaxPpTexts(
@@ -3044,6 +3127,7 @@ public partial class MainWindow : Window
             SetPokemonSprite(BoxDetailSpriteImage, species);
             UpdateBoxHeaderInfo(species, exp);
             RefreshBoxAbilityChoices(species, SelectedChoiceId(BoxAbilityBox));
+            EnsureValidGenderChoice(BoxGenderBox, species);
             UpdateBoxStatsFromBoxes();
             var ppUps = new[] { BoxPpUp1Box, BoxPpUp2Box, BoxPpUp3Box, BoxPpUp4Box };
             UpdateMaxPpTexts(
@@ -3058,6 +3142,7 @@ public partial class MainWindow : Window
                 });
             BoxNameText.Text = $"宝可梦：{(species == 0 ? "无" : SpeciesName(species))}  携带：{ItemName(item)}  " +
                                $"PID性格：{(SelectedChoiceId(BoxNatureBox) is { } n ? NatureDisplays[n] : "未选择")}  " +
+                               $"性别：{(SelectedChoiceId(BoxGenderBox) is { } g ? GenderText(g) : "未选择")}  " +
                                $"特性：{BoxAbilityBox.SelectedItem?.ToString() ?? "未选择"}  " +
                                $"闪光：{(BoxShinyBox.IsChecked == true ? "是" : "否")}  " +
                                $"经验：{(exp is null ? "未填" : exp.Value)}  亲密度：{(friendship is null ? "未填" : friendship.Value)}\n" +
@@ -3703,6 +3788,61 @@ public partial class MainWindow : Window
         {
             return false;
         }
+    }
+
+    private int GenderChoiceId(ushort species, uint pid)
+        => GenderChoiceId((int)species, pid);
+
+    private int GenderChoiceId(int species, uint pid)
+    {
+        if (species <= 0) return PartyPokemon.Genderless;
+        return PartyPokemon.GenderFromPid(pid, ReadSpeciesStats(species).GenderRatio);
+    }
+
+    private static string GenderText(int gender) => gender switch
+    {
+        PartyPokemon.GenderMale => "雄性",
+        PartyPokemon.GenderFemale => "雌性",
+        PartyPokemon.Genderless => "无性别",
+        _ => "未知"
+    };
+
+    private void EnsureValidGenderChoice(ComboBox box, int species)
+    {
+        if (species <= 0) return;
+        var ratio = ReadSpeciesStats(species).GenderRatio;
+        var selected = SelectedChoiceId(box);
+        var valid = ratio switch
+        {
+            255 => selected == PartyPokemon.Genderless,
+            254 => selected == PartyPokemon.GenderFemale,
+            0 => selected == PartyPokemon.GenderMale,
+            _ => selected is PartyPokemon.GenderMale or PartyPokemon.GenderFemale
+        };
+        if (valid) return;
+
+        var replacement = ratio switch
+        {
+            255 => PartyPokemon.Genderless,
+            254 => PartyPokemon.GenderFemale,
+            0 => PartyPokemon.GenderMale,
+            _ => PartyPokemon.GenderMale
+        };
+        SetChoice(box, _genderChoices, replacement);
+    }
+
+    private void ApplyGenderChoice(PartyPokemon mon, int species)
+    {
+        if (species <= 0) return;
+        if (SelectedChoiceId(GenderBox) is not { } gender) return;
+        mon.SetGender(ReadSpeciesStats(species).GenderRatio, gender);
+    }
+
+    private void ApplyGenderChoice(BoxPokemon mon, int species)
+    {
+        if (species <= 0) return;
+        if (SelectedChoiceId(BoxGenderBox) is not { } gender) return;
+        mon.SetGender(ReadSpeciesStats(species).GenderRatio, gender);
     }
 
     private IReadOnlyList<SpeciesEvolution> ReadSpeciesEvolutions(int species)
@@ -4617,6 +4757,28 @@ public partial class MainWindow : Window
         -1 => "未知/候选",
         _ => $"#{pocket}"
     };
+
+    private static bool IsEwramRange(uint address, int length)
+    {
+        if (length <= 0) return false;
+        const uint ewramEnd = PartyScanner.EwramBase + PartyScanner.EwramSize;
+        return address >= PartyScanner.EwramBase && address <= ewramEnd - (uint)length;
+    }
+
+    private static bool LooksLikePlayerSaveBlock2Header(ReadOnlySpan<byte> header)
+    {
+        if (header.Length < SaveBlock2HeaderLength) return false;
+        for (var i = 0; i < 8; i++)
+        {
+            if (header[i] is not 0x00 and not 0xFF)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static uint ReadU32Le(ReadOnlySpan<byte> data, int offset)
+        => (uint)(data[offset] | data[offset + 1] << 8 | data[offset + 2] << 16 | data[offset + 3] << 24);
 
     private static string MoveCategoryNameZh(int category) => category switch
     {

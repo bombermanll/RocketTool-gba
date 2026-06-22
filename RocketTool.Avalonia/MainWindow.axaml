@@ -121,7 +121,7 @@
                                     <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
                                         <StackPanel Spacing="10">
                                             <TextBlock Text="基础信息" FontWeight="SemiBold" Foreground="#102E4A" />
-                                            <Grid ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+                                            <Grid ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
                                                 <TextBlock Text="宝可梦" Classes="label" />
                                                 <local:SearchableChoiceBox x:Name="SpeciesBox" Grid.Row="1" Grid.ColumnSpan="3" PlaceholderText="输入中文名搜索" />
 
@@ -143,7 +143,9 @@
                                                 <TextBox x:Name="LevelBox" Grid.Row="7" />
                                                 <TextBox x:Name="MaxHpBox" Grid.Row="7" Grid.Column="1" />
                                                 <ComboBox x:Name="StatusBox" Grid.Row="7" Grid.Column="2" />
-                                                <CheckBox x:Name="ShinyBox" Grid.Row="8" Grid.ColumnSpan="3" Content="闪光宝可梦" />
+                                                <TextBlock Text="性别" Classes="label" Grid.Row="8" />
+                                                <ComboBox x:Name="GenderBox" Grid.Row="9" />
+                                                <CheckBox x:Name="ShinyBox" Grid.Row="9" Grid.Column="1" Grid.ColumnSpan="2" Content="闪光宝可梦" />
                                             </Grid>
                                             <TextBlock x:Name="BasicNameText" Text="" Foreground="#102E4A" TextWrapping="Wrap" IsVisible="False" />
                                         </StackPanel>
@@ -430,7 +432,7 @@
                                     <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
                                         <StackPanel Spacing="10">
                                             <TextBlock Text="基础信息" FontWeight="SemiBold" Foreground="#102E4A" />
-                                            <Grid ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+                                            <Grid ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
                                                 <TextBlock Text="宝可梦" Classes="label" />
                                                 <local:SearchableChoiceBox x:Name="BoxSpeciesBox" Grid.Row="1" Grid.ColumnSpan="3" PlaceholderText="输入中文名搜索" />
 
@@ -446,9 +448,11 @@
                                                 <TextBox x:Name="BoxExpBox" Grid.Row="5" Grid.Column="1" />
                                                 <TextBox x:Name="BoxFriendshipBox" Grid.Row="5" Grid.Column="2" />
 
-                                                <CheckBox x:Name="BoxShinyBox" Grid.Row="6" Grid.ColumnSpan="3" Content="闪光宝可梦" />
-                                                <TextBlock Text="箱子槽地址（只读）" Classes="label" Grid.Row="7" IsVisible="False" />
-                                                <TextBlock x:Name="BoxAddressText" Grid.Row="7" Grid.ColumnSpan="3" Text="未选择" Foreground="#6C6255" IsVisible="False" />
+                                                <TextBlock Text="性别" Classes="label" Grid.Row="6" />
+                                                <ComboBox x:Name="BoxGenderBox" Grid.Row="7" />
+                                                <CheckBox x:Name="BoxShinyBox" Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="2" Content="闪光宝可梦" />
+                                                <TextBlock Text="箱子槽地址（只读）" Classes="label" Grid.Row="8" IsVisible="False" />
+                                                <TextBlock x:Name="BoxAddressText" Grid.Row="8" Grid.ColumnSpan="3" Text="未选择" Foreground="#6C6255" IsVisible="False" />
                                             </Grid>
                                             <TextBlock Text="箱子数据不保存当前HP、状态和直接等级；等级由经验决定。" Foreground="#6C6255" TextWrapping="Wrap" />
                                             <TextBlock x:Name="BoxNameText" Text="选择箱子槽后显示。" Foreground="#102E4A" TextWrapping="Wrap" />

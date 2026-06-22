@@ -23,6 +23,8 @@ public sealed class BoxPokemon
     public const int Size = 80;
     private const int NicknameOffset = 0x08;
     private const int NicknameLength = 10;
+    private const int OtNameOffset = 0x14;
+    public const int OtNameLength = 7;
     private const int GrowthPpBonusesOffset = 7;
     private const int GrowthFriendshipOffset = 8;
     private const int GrowthNatureOverrideWordOffset = 8;
@@ -51,7 +53,6 @@ public sealed class BoxPokemon
     public static BoxPokemon Create(uint pid, uint otId)
     {
         if (pid == 0) throw new ArgumentOutOfRangeException(nameof(pid), "PID must be non-zero.");
-        if (otId == 0) throw new ArgumentOutOfRangeException(nameof(otId), "OT ID must be non-zero.");
         var raw = new byte[Size];
         WriteU32(raw, 0x00, pid);
         WriteU32(raw, 0x04, otId);
@@ -177,6 +178,30 @@ public sealed class BoxPokemon
         SetDecrypted(decrypted);
     }
 
+    public void SetGender(byte genderRatio, int gender)
+    {
+        if (PartyPokemon.GenderFromPid(Pid, genderRatio) == gender) return;
+        ValidateGenderTarget(genderRatio, gender);
+        var decrypted = Decrypted();
+        WriteU32(_raw, 0, FindPidWithNatureShinyGenderState(Pid, OtId, NatureFromPid(Pid), IsShiny, genderRatio, gender));
+        SetDecrypted(decrypted);
+    }
+
+    public void SetOtId(uint otId)
+    {
+        if (OtId == otId) return;
+        var decrypted = Decrypted();
+        WriteU32(_raw, 4, otId);
+        SetDecrypted(decrypted);
+    }
+
+    public void SetOtName(ReadOnlySpan<byte> otName)
+    {
+        var target = _raw.AsSpan(OtNameOffset, OtNameLength);
+        target.Clear();
+        otName[..Math.Min(otName.Length, OtNameLength)].CopyTo(target);
+    }
+
     private static uint ReadExp(ReadOnlySpan<byte> growth)
         => ReadU32(growth, 4) & GrowthExpMask;
 
@@ -260,6 +285,48 @@ public sealed class BoxPokemon
         }
 
         throw new InvalidOperationException("没有找到可用的闪光 PID。");
+    }
+
+    private static uint FindPidWithNatureShinyGenderState(uint oldPid, uint otId, int nature, bool shiny, byte genderRatio, int gender)
+    {
+        var targetNature = (uint)nature;
+        var targetOrder = oldPid % 24;
+        uint residue = 0;
+        for (; residue < 600; residue++)
+            if (residue % 25 == targetNature && residue % 24 == targetOrder) break;
+        if (residue >= 600) throw new InvalidOperationException("无法生成保持性格和加密顺序的 PID。");
+
+        var oldK = oldPid >= residue ? (oldPid - residue) / 600 : 0;
+        var maxK = (uint.MaxValue - residue) / 600;
+        for (uint delta = 0; delta <= maxK; delta++)
+        {
+            if (oldK + delta <= maxK)
+            {
+                var candidate = residue + (oldK + delta) * 600;
+                if (PartyPokemon.IsShinyPid(candidate, otId) == shiny && PartyPokemon.GenderFromPid(candidate, genderRatio) == gender) return candidate;
+            }
+            if (delta != 0 && oldK >= delta)
+            {
+                var candidate = residue + (oldK - delta) * 600;
+                if (PartyPokemon.IsShinyPid(candidate, otId) == shiny && PartyPokemon.GenderFromPid(candidate, genderRatio) == gender) return candidate;
+            }
+        }
+
+        throw new InvalidOperationException("没有找到可用的性别 PID。");
+    }
+
+    private static void ValidateGenderTarget(byte genderRatio, int gender)
+    {
+        if (gender is not (PartyPokemon.GenderMale or PartyPokemon.GenderFemale or PartyPokemon.Genderless))
+            throw new ArgumentOutOfRangeException(nameof(gender), "gender must be male, female, or genderless.");
+        if (genderRatio == 255)
+        {
+            if (gender != PartyPokemon.Genderless) throw new InvalidOperationException("该宝可梦固定为无性别，不能改为雄性或雌性。");
+            return;
+        }
+        if (gender == PartyPokemon.Genderless) throw new InvalidOperationException("该宝可梦不是无性别种族，不能改为无性别。");
+        if (genderRatio == 0 && gender != PartyPokemon.GenderMale) throw new InvalidOperationException("该宝可梦固定为雄性。");
+        if (genderRatio == 254 && gender != PartyPokemon.GenderFemale) throw new InvalidOperationException("该宝可梦固定为雌性。");
     }
 
     private byte[] Subblock(byte[] decrypted, int substructure)

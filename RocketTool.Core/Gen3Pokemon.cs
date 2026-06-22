@@ -50,8 +50,13 @@ public sealed record PartyMonInfo(
 public sealed class PartyPokemon
 {
     public const int Size = Gen3Constants.PartyMonSize;
+    public const int GenderMale = 0;
+    public const int GenderFemale = 1;
+    public const int Genderless = 2;
     private const int NicknameOffset = 0x08;
     private const int NicknameLength = 10;
+    private const int OtNameOffset = 0x14;
+    public const int OtNameLength = 7;
     private const int GrowthPpBonusesOffset = 7;
     private const int GrowthFriendshipOffset = 8;
     private const int GrowthNatureOverrideWordOffset = 8;
@@ -80,7 +85,6 @@ public sealed class PartyPokemon
     public static PartyPokemon Create(uint pid, uint otId)
     {
         if (pid == 0) throw new ArgumentOutOfRangeException(nameof(pid), "PID must be non-zero.");
-        if (otId == 0) throw new ArgumentOutOfRangeException(nameof(otId), "OT ID must be non-zero.");
         var raw = new byte[Size];
         WriteU32(raw, 0x00, pid);
         WriteU32(raw, 0x04, otId);
@@ -219,6 +223,29 @@ public sealed class PartyPokemon
         var decrypted = Decrypted();
         Put32(0x00, FindPidWithShinyState(Pid, OtId, shiny));
         SetDecrypted(decrypted);
+    }
+
+    public void SetGender(byte genderRatio, int gender)
+    {
+        if (GenderFromPid(Pid, genderRatio) == gender) return;
+        var decrypted = Decrypted();
+        Put32(0x00, FindPidWithNatureShinyGenderState(Pid, OtId, NatureFromPid(Pid), IsShiny, genderRatio, gender));
+        SetDecrypted(decrypted);
+    }
+
+    public void SetOtId(uint otId)
+    {
+        if (OtId == otId) return;
+        var decrypted = Decrypted();
+        Put32(0x04, otId);
+        SetDecrypted(decrypted);
+    }
+
+    public void SetOtName(ReadOnlySpan<byte> otName)
+    {
+        var target = _raw.AsSpan(OtNameOffset, OtNameLength);
+        target.Clear();
+        otName[..Math.Min(otName.Length, OtNameLength)].CopyTo(target);
     }
 
     public void SetAbilitySlot(int abilitySlot)
@@ -375,6 +402,14 @@ public sealed class PartyPokemon
     public static bool IsShinyPid(uint pid, uint otId)
         => (((pid & 0xFFFF) ^ (pid >> 16) ^ (otId & 0xFFFF) ^ (otId >> 16)) < 8);
 
+    public static int GenderFromPid(uint pid, byte genderRatio) => genderRatio switch
+    {
+        255 => Genderless,
+        254 => GenderFemale,
+        0 => GenderMale,
+        _ => (pid & 0xFF) < genderRatio ? GenderFemale : GenderMale
+    };
+
     private static uint FindPidWithShinyState(uint oldPid, uint otId, bool shiny)
         => FindPidWithNatureAndShinyState(oldPid, otId, (int)(oldPid % 25), shiny);
 
@@ -404,6 +439,49 @@ public sealed class PartyPokemon
         }
 
         throw new InvalidOperationException("没有找到可用的闪光 PID。");
+    }
+
+    private static uint FindPidWithNatureShinyGenderState(uint oldPid, uint otId, int nature, bool shiny, byte genderRatio, int gender)
+    {
+        ValidateGenderTarget(genderRatio, gender);
+        var targetNature = (uint)nature;
+        var targetOrder = oldPid % 24;
+        uint residue = 0;
+        for (; residue < 600; residue++)
+            if (residue % 25 == targetNature && residue % 24 == targetOrder) break;
+        if (residue >= 600) throw new InvalidOperationException("无法生成保持性格和加密顺序的 PID。");
+
+        var oldK = oldPid >= residue ? (oldPid - residue) / 600 : 0;
+        var maxK = (uint.MaxValue - residue) / 600;
+        for (uint delta = 0; delta <= maxK; delta++)
+        {
+            if (oldK + delta <= maxK)
+            {
+                var candidate = residue + (oldK + delta) * 600;
+                if (IsShinyPid(candidate, otId) == shiny && GenderFromPid(candidate, genderRatio) == gender) return candidate;
+            }
+            if (delta != 0 && oldK >= delta)
+            {
+                var candidate = residue + (oldK - delta) * 600;
+                if (IsShinyPid(candidate, otId) == shiny && GenderFromPid(candidate, genderRatio) == gender) return candidate;
+            }
+        }
+
+        throw new InvalidOperationException("没有找到可用的性别 PID。");
+    }
+
+    private static void ValidateGenderTarget(byte genderRatio, int gender)
+    {
+        if (gender is not (GenderMale or GenderFemale or Genderless))
+            throw new ArgumentOutOfRangeException(nameof(gender), "gender must be male, female, or genderless.");
+        if (genderRatio == 255)
+        {
+            if (gender != Genderless) throw new InvalidOperationException("该宝可梦固定为无性别，不能改为雄性或雌性。");
+            return;
+        }
+        if (gender == Genderless) throw new InvalidOperationException("该宝可梦不是无性别种族，不能改为无性别。");
+        if (genderRatio == 0 && gender != GenderMale) throw new InvalidOperationException("该宝可梦固定为雄性。");
+        if (genderRatio == 254 && gender != GenderFemale) throw new InvalidOperationException("该宝可梦固定为雌性。");
     }
 
     private static ushort CalculateOtherStat(int baseStat, int iv, int ev, int level, int nature, int statIndex)
