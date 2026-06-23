@@ -56,7 +56,7 @@ public sealed class PartyPokemon
     private const int NicknameOffset = 0x08;
     private const int NicknameLength = 10;
     private const int OtNameOffset = 0x14;
-    public const int OtNameLength = 7;
+    public const int OtNameLength = 8;
     private const int GrowthPpBonusesOffset = 7;
     private const int GrowthFriendshipOffset = 8;
     private const int GrowthNatureOverrideWordOffset = 8;
@@ -244,7 +244,7 @@ public sealed class PartyPokemon
     public void SetOtName(ReadOnlySpan<byte> otName)
     {
         var target = _raw.AsSpan(OtNameOffset, OtNameLength);
-        target.Clear();
+        target.Fill(0xFF);
         otName[..Math.Min(otName.Length, OtNameLength)].CopyTo(target);
     }
 

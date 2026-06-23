@@ -120,7 +120,7 @@ public partial class MainWindow : Window
     private const uint SaveBlock2PointerAddress = 0x03005250;
     private const int SaveBlock2PlayerOtIdOffset = 0x0A;
     private const int SaveBlock2HeaderLength = 0x0E;
-    private const int PlayerNameLength = 7;
+    private const int PlayerNameLength = 8;
 
     private sealed record PlayerTrainerIdentity(uint OtId, byte[] OtName);
 
@@ -1532,7 +1532,7 @@ public partial class MainWindow : Window
         if (TryReadCurrentPlayerIdentity(bridge) is { } player)
             return player;
 
-        return new PlayerTrainerIdentity(ResolveFallbackImportOtId(bridge, partyBase, partyCount), new byte[PlayerNameLength]);
+        return new PlayerTrainerIdentity(ResolveFallbackImportOtId(bridge, partyBase, partyCount), EmptyGameText(PlayerNameLength));
     }
 
     private uint ResolveFallbackImportOtId(MgbaBridgeClient bridge, uint? partyBase, int? partyCount)
@@ -1569,8 +1569,7 @@ public partial class MainWindow : Window
 
             var header = bridge.Read(saveBlock2, SaveBlock2HeaderLength);
             if (!LooksLikePlayerSaveBlock2Header(header)) return null;
-            var otName = new byte[PlayerNameLength];
-            header.AsSpan(0, PlayerNameLength).CopyTo(otName);
+            var otName = CopyGameTextBuffer(header, PlayerNameLength);
             return new PlayerTrainerIdentity(ReadU32Le(header, SaveBlock2PlayerOtIdOffset), otName);
         }
         catch
@@ -1624,6 +1623,20 @@ public partial class MainWindow : Window
         foreach (var b in data)
             if (b != 0) return false;
         return true;
+    }
+
+    private static byte[] EmptyGameText(int length)
+    {
+        var bytes = new byte[length];
+        Array.Fill<byte>(bytes, 0xFF);
+        return bytes;
+    }
+
+    private static byte[] CopyGameTextBuffer(ReadOnlySpan<byte> source, int length)
+    {
+        var bytes = EmptyGameText(length);
+        source[..Math.Min(source.Length, length)].CopyTo(bytes);
+        return bytes;
     }
 
     private void OnDexSearchChanged(object? sender, TextChangedEventArgs e) => ApplyDexFilter();
