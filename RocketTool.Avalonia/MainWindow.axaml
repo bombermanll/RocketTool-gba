@@ -147,6 +147,14 @@
                                                 <ComboBox x:Name="GenderBox" Grid.Row="9" />
                                                 <CheckBox x:Name="ShinyBox" Grid.Row="9" Grid.Column="1" Grid.ColumnSpan="2" Content="闪光宝可梦" />
                                             </Grid>
+                                            <Grid ColumnDefinitions="*,Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="6">
+                                                <TextBlock Text="初训家名字" Classes="label" />
+                                                <TextBlock Text="初训家 ID" Classes="label" Grid.Column="2" />
+                                                <TextBox x:Name="PartyOtNameBox" Grid.Row="1" />
+                                                <Button Grid.Row="1" Grid.Column="1" Content="同步" Click="OnPartyOtNameSyncClicked" />
+                                                <TextBlock x:Name="PartyOtIdText" Grid.Row="1" Grid.Column="2" Text="未选择" Foreground="#102E4A" VerticalAlignment="Center" />
+                                                <TextBlock Grid.Row="2" Grid.ColumnSpan="3" Text="提示：如果修改训练家名字，现有宝可梦的初训家不一致时可能会不听话。" Foreground="#B3261E" FontSize="12" TextWrapping="Wrap" />
+                                            </Grid>
                                             <TextBlock x:Name="BasicNameText" Text="" Foreground="#102E4A" TextWrapping="Wrap" IsVisible="False" />
                                         </StackPanel>
                                     </Border>
@@ -237,6 +245,59 @@
 		                        </Grid>
 	                        </Grid>
 		                    </TabItem>
+
+                    <TabItem x:Name="TrainerTab" Header="训练家信息">
+                        <ScrollViewer Padding="20,20,36,56" HorizontalScrollBarVisibility="Disabled">
+                            <StackPanel Spacing="16" Margin="0,0,0,96">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                    <TextBlock Text="训练家信息" FontSize="24" FontWeight="Bold" Foreground="#102E4A" VerticalAlignment="Center" />
+                                    <Button x:Name="TrainerReadButton" Grid.Column="1" Content="读取训练家" Click="OnTrainerReadClicked" Classes="primary" />
+                                </Grid>
+                                <TextBlock x:Name="TrainerStatusText" Text="请连接 mGBA 后读取。存档只读模式下暂不开放写入。" Foreground="#6C6255" TextWrapping="Wrap" />
+
+                                <Grid ColumnDefinitions="*,*" ColumnSpacing="14">
+                                    <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
+                                        <StackPanel Spacing="10">
+                                            <TextBlock Text="身份" FontSize="18" FontWeight="SemiBold" Foreground="#102E4A" />
+                                            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+                                                <TextBlock Text="训练家名字" Classes="label" />
+                                                <TextBlock Text="数据源" Classes="label" Grid.Column="1" />
+                                                <TextBox x:Name="TrainerNameBox" Grid.Row="1" />
+                                                <TextBlock x:Name="TrainerSourceText" Grid.Row="1" Grid.Column="1" Text="未读取" Foreground="#102E4A" VerticalAlignment="Center" />
+
+                                                <TextBlock Text="Trainer ID" Classes="label" Grid.Row="2" />
+                                                <TextBlock Text="Secret ID" Classes="label" Grid.Row="2" Grid.Column="1" />
+                                                <TextBlock x:Name="TrainerPublicIdText" Grid.Row="3" Text="-" Foreground="#102E4A" />
+                                                <TextBlock x:Name="TrainerSecretIdText" Grid.Row="3" Grid.Column="1" Text="-" Foreground="#102E4A" />
+
+                                                <TextBlock Text="合并 OT ID" Classes="label" Grid.Row="4" />
+                                                <TextBlock Text="名字编码" Classes="label" Grid.Row="4" Grid.Column="1" />
+                                                <TextBlock x:Name="TrainerOtIdText" Grid.Row="5" Text="-" Foreground="#102E4A" />
+                                                <TextBlock x:Name="TrainerNameEncodingText" Grid.Row="5" Grid.Column="1" Text="-" Foreground="#6C6255" TextWrapping="Wrap" />
+                                            </Grid>
+                                            <WrapPanel HorizontalAlignment="Right">
+                                                <Button x:Name="TrainerApplyNameButton" Content="写入名字" Click="OnTrainerApplyNameClicked" Classes="primary" />
+                                            </WrapPanel>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Grid.Column="1" Background="#FFF9EE" CornerRadius="14" Padding="14">
+                                        <StackPanel Spacing="10">
+                                            <TextBlock Text="金钱" FontSize="18" FontWeight="SemiBold" Foreground="#102E4A" />
+                                            <TextBlock Text="金钱使用 ROM 确认的加密存档字段；写入后请回游戏确认并手动保存。" Foreground="#6C6255" TextWrapping="Wrap" />
+                                            <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+                                                <TextBlock Text="当前金钱" Classes="label" />
+                                                <TextBox x:Name="TrainerMoneyCurrentBox" Grid.Row="1" />
+                                                <Button x:Name="TrainerMoneyReadButton" Grid.Row="1" Grid.Column="1" Content="读取金钱" Click="OnTrainerMoneyReadClicked" />
+                                                <Button x:Name="TrainerMoneyApplyButton" Grid.Row="1" Grid.Column="2" Content="写入金钱" Click="OnTrainerMoneyApplyClicked" Classes="primary" />
+                                            </Grid>
+                                            <TextBlock x:Name="TrainerMoneyStatusText" Text="未读取。" Foreground="#102E4A" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
 
                     <TabItem x:Name="BagTab" Header="背包编辑">
                         <Grid ColumnDefinitions="440,*" ColumnSpacing="0" Margin="0">
@@ -453,6 +514,14 @@
                                                 <CheckBox x:Name="BoxShinyBox" Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="2" Content="闪光宝可梦" />
                                                 <TextBlock Text="箱子槽地址（只读）" Classes="label" Grid.Row="8" IsVisible="False" />
                                                 <TextBlock x:Name="BoxAddressText" Grid.Row="8" Grid.ColumnSpan="3" Text="未选择" Foreground="#6C6255" IsVisible="False" />
+                                            </Grid>
+                                            <Grid ColumnDefinitions="*,Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="6">
+                                                <TextBlock Text="初训家名字" Classes="label" />
+                                                <TextBlock Text="初训家 ID" Classes="label" Grid.Column="2" />
+                                                <TextBox x:Name="BoxOtNameBox" Grid.Row="1" />
+                                                <Button Grid.Row="1" Grid.Column="1" Content="同步" Click="OnBoxOtNameSyncClicked" />
+                                                <TextBlock x:Name="BoxOtIdText" Grid.Row="1" Grid.Column="2" Text="未选择" Foreground="#102E4A" VerticalAlignment="Center" />
+                                                <TextBlock Grid.Row="2" Grid.ColumnSpan="3" Text="提示：如果修改训练家名字，现有宝可梦的初训家不一致时可能会不听话。" Foreground="#B3261E" FontSize="12" TextWrapping="Wrap" />
                                             </Grid>
                                             <TextBlock Text="箱子数据不保存当前HP、状态和直接等级；等级由经验决定。" Foreground="#6C6255" TextWrapping="Wrap" />
                                             <TextBlock x:Name="BoxNameText" Text="选择箱子槽后显示。" Foreground="#102E4A" TextWrapping="Wrap" />

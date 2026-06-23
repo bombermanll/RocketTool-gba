@@ -70,6 +70,7 @@ public sealed record ChoiceRow(int Id, string Name, string? Display = null)
 {
     public override string ToString() => Display ?? Name;
 }
+public sealed record TrainerInfo(uint SaveBlock2Address, byte[] NameBytes, string Name, uint OtId, ushort TrainerId, ushort SecretId, string Source);
 
 public enum DataSourceMode
 {
@@ -117,10 +118,16 @@ public partial class MainWindow : Window
     private const int MaxPokemonLevel = 150;
     private const int DexImportLevel = 5;
     private const ushort MaxBagWriteQuantity = 255;
+    private const int MaxTrainerMoney = 99999999;
+    private const uint SaveBlock1PointerAddress = 0x0300524C;
     private const uint SaveBlock2PointerAddress = 0x03005250;
+    private const uint SaveBlock1MoneyOffset = 0x490;
+    private const uint SaveBlock2EncryptionKeyOffset = 0xAC;
     private const int SaveBlock2PlayerOtIdOffset = 0x0A;
     private const int SaveBlock2HeaderLength = 0x0E;
     private const int PlayerNameLength = 8;
+    private const int PokemonOtNameOffset = 0x13;
+    private const int PokemonOtNameLength = 7;
 
     private sealed record PlayerTrainerIdentity(uint OtId, byte[] OtName);
 
@@ -156,6 +163,8 @@ public partial class MainWindow : Window
     private readonly ChoiceRow[] _mapGroupChoices;
     private IReadOnlyList<ChoiceRow> _bagItemChoices = [];
     private readonly ModifierDatabase _db;
+    private Dictionary<char, byte[]>? _gameTextEncodeMap;
+    private Dictionary<ushort, string>? _gameTextDecodeMap;
     private uint? _partyBase;
     private uint? _boxBase;
     private uint? _bagBase;
@@ -176,6 +185,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        ReorderMainTabs();
         ApplyWindowIcon();
         ApplyWindowTitle();
         _db = new ModifierDatabase(Path.Combine(RootDir(), "modifier_db"), typeof(MainWindow).Assembly);
@@ -309,6 +319,14 @@ public partial class MainWindow : Window
         InitializeMoveDexRows();
         SetDataSourceMode(DataSourceMode.Live);
         Log("界面已就绪。请先在 mGBA 加载 bridge 脚本，然后点击“连接 mGBA”。");
+    }
+
+    private void ReorderMainTabs()
+    {
+        if (!MainTabs.Items.Contains(TrainerTab) || !MainTabs.Items.Contains(BoxTab)) return;
+        MainTabs.Items.Remove(TrainerTab);
+        var boxIndex = MainTabs.Items.IndexOf(BoxTab);
+        MainTabs.Items.Insert(boxIndex + 1, TrainerTab);
     }
 
     private void SetDataSourceMode(DataSourceMode mode)
@@ -632,6 +650,86 @@ public partial class MainWindow : Window
         FillEditor(row);
     }
 
+    private async void OnTrainerReadClicked(object? sender, RoutedEventArgs e)
+    {
+        await RunUiTask("读取训练家", () =>
+        {
+            using var bridge = ConnectBridge();
+            var info = ReadTrainerInfo(bridge);
+            FillTrainerInfo(info);
+            try
+            {
+                FillTrainerMoney(bridge);
+            }
+            catch (Exception ex)
+            {
+                TrainerMoneyStatusText.Text = $"金钱读取失败：{ex.Message}";
+                Log($"训练家金钱读取失败：{ex.Message}");
+            }
+            Log($"已读取训练家：{info.Name}，Trainer ID={info.TrainerId}，Secret ID={info.SecretId}。");
+        });
+    }
+
+    private async void OnTrainerApplyNameClicked(object? sender, RoutedEventArgs e)
+    {
+        await RunUiTask("写入训练家名字", () =>
+        {
+            using var bridge = ConnectBridge();
+            var before = ReadTrainerInfo(bridge);
+            var newName = TrainerNameBox.Text?.Trim() ?? string.Empty;
+            var encoded = EncodeGameTextBuffer(newName, PlayerNameLength);
+            bridge.WriteRangeVerified(before.SaveBlock2Address, encoded);
+            var after = ReadTrainerInfo(bridge);
+            FillTrainerInfo(after);
+            SetWriteNotice($"训练家名字已写入：{before.Name} -> {after.Name}。现有宝可梦的初训家名字不会自动批量改写。");
+            Log($"训练家名字写入完成：{before.Name} -> {after.Name}。");
+        });
+    }
+
+    private async void OnPartyOtNameSyncClicked(object? sender, RoutedEventArgs e)
+        => await SyncCurrentTrainerNameToOtBox("同步队伍初训家", PartyOtNameBox);
+
+    private async void OnBoxOtNameSyncClicked(object? sender, RoutedEventArgs e)
+        => await SyncCurrentTrainerNameToOtBox("同步箱子初训家", BoxOtNameBox);
+
+    private async Task SyncCurrentTrainerNameToOtBox(string label, TextBox target)
+    {
+        await RunUiTask(label, () =>
+        {
+            using var bridge = ConnectBridge();
+            var trainer = ReadTrainerInfo(bridge);
+            target.Text = trainer.Name;
+            Log($"{label}：已从当前训练家信息同步名字 {trainer.Name}。");
+        });
+    }
+
+    private async void OnTrainerMoneyReadClicked(object? sender, RoutedEventArgs e)
+    {
+        await RunUiTask("读取金钱", () =>
+        {
+            using var bridge = ConnectBridge();
+            FillTrainerMoney(bridge);
+        });
+    }
+
+    private async void OnTrainerMoneyApplyClicked(object? sender, RoutedEventArgs e)
+    {
+        await RunUiTask("写入金钱", () =>
+        {
+            var money = ParseIntRequired(TrainerMoneyCurrentBox.Text, "当前金钱");
+            if (money is < 0 or > MaxTrainerMoney)
+                throw new InvalidOperationException($"当前金钱必须在 0..{MaxTrainerMoney}。");
+
+            using var bridge = ConnectBridge();
+            WriteTrainerMoney(bridge, money);
+            var actual = ReadTrainerMoney(bridge);
+            TrainerMoneyCurrentBox.Text = actual.ToString();
+            TrainerMoneyStatusText.Text = $"已写入金钱：{actual}。";
+            SetWriteNotice($"金钱已写入：{actual}。请回游戏确认后手动保存。");
+            Log($"金钱写入完成：{actual}。");
+        });
+    }
+
     private static bool HasSummaryAllStatsIncreaseNatureCode(byte gameNatureCode)
         => gameNatureCode == SummaryAllStatsIncreaseNatureCode;
 
@@ -674,9 +772,10 @@ public partial class MainWindow : Window
             var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
             var (addr, mon) = ReadSelectedLiveMon(bridge, baseAddr, row);
             var before = mon.GetInfo();
+            var originalOtName = PokemonOtName(mon.Raw);
             var species = ParseSpeciesOrNull(SpeciesBox);
             SyncNicknameForSpeciesChange(mon, species);
-            SyncOtIdForSpeciesChange(bridge, mon, before.Species, species);
+            ApplyEditedOtName(mon, PartyOtNameBox.Text, originalOtName);
             var nature = SelectedChoiceId(NatureBox);
             if (nature is not null) mon.SetNature(nature.Value);
             mon.SetShiny(ShinyBox.IsChecked == true);
@@ -720,9 +819,10 @@ public partial class MainWindow : Window
             var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
             var (addr, mon) = ReadSelectedLiveMon(bridge, baseAddr, row);
             var before = mon.GetInfo();
+            var originalOtName = PokemonOtName(mon.Raw);
             var species = ParseSpeciesOrNull(SpeciesBox);
             SyncNicknameForSpeciesChange(mon, species);
-            SyncOtIdForSpeciesChange(bridge, mon, before.Species, species);
+            ApplyEditedOtName(mon, PartyOtNameBox.Text, originalOtName);
 
             if (SelectedChoiceId(NatureBox) is { } nature) mon.SetNature(nature);
             mon.SetShiny(ShinyBox.IsChecked == true);
@@ -1240,6 +1340,7 @@ public partial class MainWindow : Window
         var info = row.Info;
         SetPokemonSprite(BoxDetailSpriteImage, info.Species);
         UpdateBoxHeaderInfo(info.Species, info.Exp);
+        SetOtEditor(BoxOtNameBox, BoxOtIdText, row.Mon.Raw, info.OtId);
         BoxAddressText.Text = $"0x{row.Address:X8}";
         SetChoice(BoxSpeciesBox, _speciesChoices, info.Species);
         SetChoice(BoxItemBox, _itemChoices, info.Item);
@@ -1295,9 +1396,10 @@ public partial class MainWindow : Window
             using var bridge = ConnectBridge();
             var mon = ReadSelectedBoxMon(bridge, row);
             var before = mon.GetInfo();
+            var originalOtName = PokemonOtName(mon.Raw);
             var species = ParseSpeciesRequired(BoxSpeciesBox, "箱子宝可梦");
             SyncNicknameForSpeciesChange(mon, species);
-            SyncOtIdForSpeciesChange(bridge, mon, before.Species, species);
+            ApplyEditedOtName(mon, BoxOtNameBox.Text, originalOtName);
             var item = ParseItemRequired(BoxItemBox, "箱子携带道具");
             mon.SetGrowth(
                 species: species,
@@ -1394,7 +1496,7 @@ public partial class MainWindow : Window
             if (count >= Gen3Constants.PartySlots)
                 throw new InvalidOperationException("队伍已满，无法从图鉴导入。");
 
-            var trainer = ResolveImportTrainerIdentity(bridge, baseAddr, count);
+            var trainer = ResolveImportTrainerIdentity(bridge);
             var mon = BuildDexPartyPokemon(row.Id, trainer);
             var targetSlot = count + 1;
             var targetAddress = SlotAddress(baseAddr, targetSlot);
@@ -1431,7 +1533,7 @@ public partial class MainWindow : Window
             if (!IsAllZero(ewram.AsSpan(targetOffset, BoxPokemon.Size)))
                 throw new InvalidOperationException("箱子后方目标槽不是空槽，箱子可能已满或定位不可靠。请重新读取箱子后再试。");
 
-            var trainer = ResolveImportTrainerIdentity(bridge, null, null);
+            var trainer = ResolveImportTrainerIdentity(bridge);
             var mon = BuildDexBoxPokemon(row.Id, trainer);
             bridge.WriteRangeVerified(targetAddress, mon.Raw);
             LoadBoxRows(bridge);
@@ -1527,36 +1629,10 @@ public partial class MainWindow : Window
         ["spd"] = 0
     };
 
-    private PlayerTrainerIdentity ResolveImportTrainerIdentity(MgbaBridgeClient bridge, uint? partyBase, int? partyCount)
+    private PlayerTrainerIdentity ResolveImportTrainerIdentity(MgbaBridgeClient bridge)
     {
-        if (TryReadCurrentPlayerIdentity(bridge) is { } player)
-            return player;
-
-        return new PlayerTrainerIdentity(ResolveFallbackImportOtId(bridge, partyBase, partyCount), EmptyGameText(PlayerNameLength));
-    }
-
-    private uint ResolveFallbackImportOtId(MgbaBridgeClient bridge, uint? partyBase, int? partyCount)
-    {
-        try
-        {
-            var baseAddr = partyBase ?? ResolvePartyBase(bridge, forceRefresh: true);
-            var count = partyCount ?? ReadLivePartyCount(bridge, baseAddr) ?? 0;
-            if (count > 0)
-            {
-                var first = new PartyPokemon(bridge.Read(SlotAddress(baseAddr, 1), Gen3Constants.PartyMonSize));
-                if (!first.IsEmpty) return first.OtId;
-            }
-        }
-        catch
-        {
-            // Fall through to cached rows or a generated non-zero OT ID.
-        }
-
-        if (_partyRows.FirstOrDefault(r => !r.Mon.IsEmpty) is { } partyRow)
-            return partyRow.Mon.OtId;
-        if (_boxRows.FirstOrDefault(r => !r.Mon.IsEmpty) is { } boxRow)
-            return boxRow.Mon.OtId;
-        return NewNonZeroRandomUInt();
+        var trainer = ReadTrainerInfo(bridge);
+        return new PlayerTrainerIdentity(trainer.OtId, trainer.NameBytes);
     }
 
     private static PlayerTrainerIdentity? TryReadCurrentPlayerIdentity(MgbaBridgeClient bridge)
@@ -1578,24 +1654,79 @@ public partial class MainWindow : Window
         }
     }
 
-    private static void SyncOtIdForSpeciesChange(MgbaBridgeClient bridge, PartyPokemon mon, ushort oldSpecies, ushort? newSpecies)
+    private TrainerInfo ReadTrainerInfo(MgbaBridgeClient bridge)
     {
-        if (newSpecies is not { } species || species == 0 || species == oldSpecies) return;
-        if (TryReadCurrentPlayerIdentity(bridge) is { } player)
-        {
-            mon.SetOtId(player.OtId);
-            mon.SetOtName(player.OtName);
-        }
+        var pointerRaw = bridge.Read(SaveBlock2PointerAddress, 4);
+        var saveBlock2 = ReadU32Le(pointerRaw, 0);
+        if (!IsEwramRange(saveBlock2, SaveBlock2HeaderLength))
+            throw new InvalidOperationException("没有读到有效的 SaveBlock2 指针。请确认游戏已经载入存档。");
+
+        var header = bridge.Read(saveBlock2, SaveBlock2HeaderLength);
+        if (!LooksLikePlayerSaveBlock2Header(header))
+            throw new InvalidOperationException("SaveBlock2 头部不像玩家数据，当前状态暂不安全读取训练家信息。");
+
+        var nameBytes = CopyGameTextBuffer(header, PlayerNameLength);
+        var otId = ReadU32Le(header, SaveBlock2PlayerOtIdOffset);
+        return new TrainerInfo(
+            saveBlock2,
+            nameBytes,
+            DecodeGameTextBuffer(nameBytes),
+            otId,
+            (ushort)(otId & 0xFFFF),
+            (ushort)(otId >> 16),
+            "实时 mGBA / SaveBlock2");
     }
 
-    private static void SyncOtIdForSpeciesChange(MgbaBridgeClient bridge, BoxPokemon mon, ushort oldSpecies, ushort newSpecies)
+    private void FillTrainerInfo(TrainerInfo info)
     {
-        if (newSpecies == 0 || newSpecies == oldSpecies) return;
-        if (TryReadCurrentPlayerIdentity(bridge) is { } player)
-        {
-            mon.SetOtId(player.OtId);
-            mon.SetOtName(player.OtName);
-        }
+        TrainerNameBox.Text = info.Name;
+        TrainerSourceText.Text = info.Source;
+        TrainerPublicIdText.Text = info.TrainerId.ToString();
+        TrainerSecretIdText.Text = info.SecretId.ToString();
+        TrainerOtIdText.Text = info.OtId.ToString();
+        TrainerNameEncodingText.Text = NameEncodingStatus(info.NameBytes);
+        TrainerStatusText.Text = "已读取训练家信息。修改名字前建议保存 mGBA 即时存档。";
+    }
+
+    private void FillTrainerMoney(MgbaBridgeClient bridge)
+    {
+        var money = ReadTrainerMoney(bridge);
+        TrainerMoneyCurrentBox.Text = money.ToString();
+        TrainerMoneyStatusText.Text = $"已读取当前金钱：{money}。";
+    }
+
+    private static int ReadTrainerMoney(MgbaBridgeClient bridge)
+    {
+        var (address, key) = ResolveTrainerMoneyField(bridge);
+        var encrypted = ReadU32Le(bridge.Read(address, 4), 0);
+        var money = encrypted ^ key;
+        if (money > MaxTrainerMoney)
+            throw new InvalidOperationException($"金钱字段解密后为 {money}，超出 0..{MaxTrainerMoney}。");
+
+        return (int)money;
+    }
+
+    private static void WriteTrainerMoney(MgbaBridgeClient bridge, int money)
+    {
+        var (address, key) = ResolveTrainerMoneyField(bridge);
+        var encrypted = (uint)money ^ key;
+        bridge.WriteRangeVerified(address, U32Le(encrypted));
+    }
+
+    private static (uint Address, uint Key) ResolveTrainerMoneyField(MgbaBridgeClient bridge)
+    {
+        var saveBlock1 = ReadU32Le(bridge.Read(SaveBlock1PointerAddress, 4), 0);
+        var saveBlock2 = ReadU32Le(bridge.Read(SaveBlock2PointerAddress, 4), 0);
+
+        if (!IsEwramRange(saveBlock1, (int)SaveBlock1MoneyOffset + 4))
+            throw new InvalidOperationException("没有读到有效的 SaveBlock1 金钱字段。请确认游戏已经载入存档。");
+        if (!IsEwramRange(saveBlock2, (int)SaveBlock2EncryptionKeyOffset + 4))
+            throw new InvalidOperationException("没有读到有效的 SaveBlock2 加密密钥。请确认游戏已经载入存档。");
+
+        var moneyAddress = saveBlock1 + SaveBlock1MoneyOffset;
+        var keyAddress = saveBlock2 + SaveBlock2EncryptionKeyOffset;
+        var key = ReadU32Le(bridge.Read(keyAddress, 4), 0);
+        return (moneyAddress, key);
     }
 
     private static uint NewNonShinyPid(uint otId)
@@ -1637,6 +1768,260 @@ public partial class MainWindow : Window
         var bytes = EmptyGameText(length);
         source[..Math.Min(source.Length, length)].CopyTo(bytes);
         return bytes;
+    }
+
+    private string DecodeGameTextBuffer(ReadOnlySpan<byte> bytes)
+    {
+        var decodeMap = GameTextDecodeMap();
+        var output = new List<string>();
+        for (var i = 0; i < bytes.Length;)
+        {
+            var b = bytes[i];
+            if (b is 0x00 or 0xFF) break;
+            if (TrySingleByteGameTextChar(b, out var ch))
+            {
+                output.Add(ch.ToString());
+                i++;
+                continue;
+            }
+
+            if (i + 1 < bytes.Length && bytes[i + 1] != 0xFF)
+            {
+                var code = (ushort)(b << 8 | bytes[i + 1]);
+                output.Add(decodeMap.TryGetValue(code, out var text) ? text : "□");
+                i += 2;
+                continue;
+            }
+
+            output.Add("□");
+            i++;
+        }
+
+        return string.Concat(output);
+    }
+
+    private string PokemonOtName(ReadOnlySpan<byte> raw)
+    {
+        if (raw.Length < PokemonOtNameOffset + PokemonOtNameLength) return "未设置";
+        var nameBytes = CopyGameTextBuffer(raw.Slice(PokemonOtNameOffset, PokemonOtNameLength), PlayerNameLength);
+        var decoded = DecodeGameTextBuffer(nameBytes);
+        return string.IsNullOrWhiteSpace(decoded) ? "未设置" : decoded;
+    }
+
+    private void SetOtEditor(TextBox nameBox, TextBlock idText, ReadOnlySpan<byte> raw, uint otId)
+    {
+        nameBox.Text = PokemonOtName(raw);
+        idText.Text = $"训练家ID {(ushort)(otId & 0xFFFF)}  秘密ID {(ushort)(otId >> 16)}";
+    }
+
+    private void ApplyEditedOtName(PartyPokemon mon, string? text, string originalName)
+    {
+        var name = (text ?? string.Empty).Trim();
+        if (name == originalName) return;
+        mon.SetOtName(EncodeGameTextBuffer(name, PokemonOtNameLength));
+    }
+
+    private void ApplyEditedOtName(BoxPokemon mon, string? text, string originalName)
+    {
+        var name = (text ?? string.Empty).Trim();
+        if (name == originalName) return;
+        mon.SetOtName(EncodeGameTextBuffer(name, PokemonOtNameLength));
+    }
+
+    private byte[] EncodeGameTextBuffer(string text, int length)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            throw new InvalidOperationException("名字不能为空。");
+
+        var encodeMap = GameTextEncodeMap();
+        var output = new List<byte>(length);
+        foreach (var rawCh in text.Trim().ToUpperInvariant())
+        {
+            if (TrySingleByteGameTextCode(rawCh, out var code))
+            {
+                output.Add(code);
+            }
+            else if (encodeMap.TryGetValue(rawCh, out var bytes))
+            {
+                output.AddRange(bytes);
+            }
+            else
+            {
+                throw new InvalidOperationException($"当前字库还不能安全编码“{rawCh}”。请先用英文大写/数字，或等后续补完整中文编码表。");
+            }
+
+            if (output.Count > length)
+                throw new InvalidOperationException($"名字内部编码超过 {length} 字节，无法写入。");
+        }
+
+        var result = EmptyGameText(length);
+        output.CopyTo(result);
+        return result;
+    }
+
+    private string NameEncodingStatus(ReadOnlySpan<byte> bytes)
+    {
+        var decoded = DecodeGameTextBuffer(bytes);
+        return decoded.Contains('□')
+            ? "含未识别字码"
+            : "已识别";
+    }
+
+    private Dictionary<char, byte[]> GameTextEncodeMap()
+    {
+        EnsureGameTextMaps();
+        return _gameTextEncodeMap!;
+    }
+
+    private Dictionary<ushort, string> GameTextDecodeMap()
+    {
+        EnsureGameTextMaps();
+        return _gameTextDecodeMap!;
+    }
+
+    private void EnsureGameTextMaps()
+    {
+        if (_gameTextEncodeMap is not null && _gameTextDecodeMap is not null) return;
+        var encode = new Dictionary<char, byte[]>();
+        var decode = new Dictionary<ushort, string>();
+        var names = _db.Table("species");
+        foreach (var (species, hex) in _db.Table("species_name_bytes"))
+        {
+            if (!names.TryGetValue(species, out var name) || string.IsNullOrWhiteSpace(name))
+                continue;
+            byte[] raw;
+            try
+            {
+                raw = Convert.FromHexString(hex.Trim());
+            }
+            catch (FormatException)
+            {
+                continue;
+            }
+
+            LearnGameTextName(name, raw, encode, decode);
+        }
+
+        _gameTextEncodeMap = encode;
+        _gameTextDecodeMap = decode;
+    }
+
+    private static void LearnGameTextName(
+        string name,
+        ReadOnlySpan<byte> raw,
+        Dictionary<char, byte[]> encode,
+        Dictionary<ushort, string> decode)
+    {
+        var pos = 0;
+        foreach (var ch in name)
+        {
+            if (pos >= raw.Length || raw[pos] == 0xFF) return;
+            if (TrySingleByteGameTextCode(ch, out var single) && raw[pos] == single)
+            {
+                pos++;
+                continue;
+            }
+
+            if (pos + 1 >= raw.Length || raw[pos + 1] == 0xFF) return;
+            var code = (ushort)(raw[pos] << 8 | raw[pos + 1]);
+            encode.TryAdd(ch, [raw[pos], raw[pos + 1]]);
+            decode.TryAdd(code, ch.ToString());
+            pos += 2;
+        }
+    }
+
+    private static bool TrySingleByteGameTextCode(char ch, out byte code)
+    {
+        if (ch is >= '0' and <= '9')
+        {
+            code = (byte)(0xA1 + ch - '0');
+            return true;
+        }
+        if (ch is >= 'A' and <= 'Z')
+        {
+            code = (byte)(0xBB + ch - 'A');
+            return true;
+        }
+        if (ch == '-')
+        {
+            code = 0xBA;
+            return true;
+        }
+
+        code = 0;
+        return false;
+    }
+
+    private static bool TrySingleByteGameTextChar(byte code, out char ch)
+    {
+        if (code is >= 0xA1 and <= 0xAA)
+        {
+            ch = (char)('0' + code - 0xA1);
+            return true;
+        }
+        if (code is >= 0xBB and <= 0xD4)
+        {
+            ch = (char)('A' + code - 0xBB);
+            return true;
+        }
+        if (code == 0xBA)
+        {
+            ch = '-';
+            return true;
+        }
+
+        ch = '\0';
+        return false;
+    }
+
+    private static IReadOnlyList<(string Name, int Count)> ScanMoneyCandidates(ReadOnlySpan<byte> ewram, int money)
+    {
+        var bcd3 = EncodeMoneyBcd(money, 3);
+        var bcd4 = EncodeMoneyBcd(money, 4);
+        var u24 = new byte[] { (byte)money, (byte)(money >> 8), (byte)(money >> 16) };
+        var u24Be = u24.Reverse().ToArray();
+        var u32 = BitConverter.GetBytes(money);
+        var patterns = new (string Name, byte[] Bytes)[]
+        {
+            ("3字节BCD", bcd3),
+            ("3字节BCD反序", bcd3.Reverse().ToArray()),
+            ("4字节BCD", bcd4),
+            ("4字节BCD反序", bcd4.Reverse().ToArray()),
+            ("24位整数", u24),
+            ("24位整数反序", u24Be),
+            ("32位整数", u32)
+        };
+
+        var results = new List<(string Name, int Count)>();
+        foreach (var pattern in patterns)
+        {
+            var count = CountPattern(ewram, pattern.Bytes);
+            if (count > 0)
+                results.Add((pattern.Name, count));
+        }
+
+        return results;
+    }
+
+    private static byte[] EncodeMoneyBcd(int money, int byteCount)
+    {
+        var text = money.ToString().PadLeft(byteCount * 2, '0');
+        if (text.Length > byteCount * 2)
+            text = text.Substring(text.Length - byteCount * 2);
+        var bytes = new byte[byteCount];
+        for (var i = 0; i < byteCount; i++)
+            bytes[i] = (byte)(((text[i * 2] - '0') << 4) | (text[i * 2 + 1] - '0'));
+        return bytes;
+    }
+
+    private static int CountPattern(ReadOnlySpan<byte> data, ReadOnlySpan<byte> pattern)
+    {
+        if (pattern.Length == 0 || data.Length < pattern.Length) return 0;
+        var count = 0;
+        for (var i = 0; i <= data.Length - pattern.Length; i++)
+            if (data.Slice(i, pattern.Length).SequenceEqual(pattern))
+                count++;
+        return count;
     }
 
     private void OnDexSearchChanged(object? sender, TextChangedEventArgs e) => ApplyDexFilter();
@@ -1907,6 +2292,8 @@ public partial class MainWindow : Window
         {
             BoxSelectedTitleText.Text = "箱子槽编辑";
             ClearHeaderSpeciesInfo(_boxHeaderTypeBadges, BoxHeaderBstText);
+            BoxOtNameBox.Text = string.Empty;
+            BoxOtIdText.Text = "未选择";
             return;
         }
 
@@ -2754,6 +3141,7 @@ public partial class MainWindow : Window
             ClearEditor();
             return;
         }
+        SetOtEditor(PartyOtNameBox, PartyOtIdText, row.Mon.Raw, info.OtId);
         _suppressEditorEvents = true;
         try
         {
@@ -2831,6 +3219,8 @@ public partial class MainWindow : Window
             ClearStatTexts();
             SetPokemonSprite(PartyDetailSpriteImage, 0);
             UpdatePartyHeaderInfo(0, null);
+            PartyOtNameBox.Text = string.Empty;
+            PartyOtIdText.Text = "未选择";
         }
         finally
         {
@@ -4792,6 +5182,14 @@ public partial class MainWindow : Window
 
     private static uint ReadU32Le(ReadOnlySpan<byte> data, int offset)
         => (uint)(data[offset] | data[offset + 1] << 8 | data[offset + 2] << 16 | data[offset + 3] << 24);
+
+    private static byte[] U32Le(uint value) =>
+    [
+        (byte)value,
+        (byte)(value >> 8),
+        (byte)(value >> 16),
+        (byte)(value >> 24)
+    ];
 
     private static string MoveCategoryNameZh(int category) => category switch
     {

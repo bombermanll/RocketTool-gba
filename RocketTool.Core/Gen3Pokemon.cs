@@ -55,8 +55,8 @@ public sealed class PartyPokemon
     public const int Genderless = 2;
     private const int NicknameOffset = 0x08;
     private const int NicknameLength = 10;
-    private const int OtNameOffset = 0x14;
-    public const int OtNameLength = 8;
+    private const int OtNameOffset = 0x13;
+    public const int OtNameLength = 7;
     private const int GrowthPpBonusesOffset = 7;
     private const int GrowthFriendshipOffset = 8;
     private const int GrowthNatureOverrideWordOffset = 8;
@@ -89,7 +89,7 @@ public sealed class PartyPokemon
         WriteU32(raw, 0x00, pid);
         WriteU32(raw, 0x04, otId);
         raw[0x12] = 0x12;
-        raw[0x13] = 0x0B;
+        raw.AsSpan(OtNameOffset, OtNameLength).Fill(0xFF);
         var key = pid ^ otId;
         for (var i = 0x20; i < 0x50; i += 4)
             WriteU32(raw, i, key);
@@ -163,7 +163,6 @@ public sealed class PartyPokemon
             throw new ArgumentException($"Species name entry must contain at least {NicknameLength} bytes.", nameof(speciesNameEntry));
         speciesNameEntry[..NicknameLength].CopyTo(_raw.AsSpan(NicknameOffset, NicknameLength));
         _raw[0x12] = 0x12;
-        _raw[0x13] = 0x0B;
     }
 
     public void SetMoves(IReadOnlyList<ushort?>? moves, IReadOnlyList<byte?>? pp)
