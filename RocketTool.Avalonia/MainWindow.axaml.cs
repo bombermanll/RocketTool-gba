@@ -183,6 +183,7 @@ public partial class MainWindow : Window
     private readonly Dictionary<int, IReadOnlyList<SpeciesEvolution>> _evolutionCache = [];
     private readonly Dictionary<int, IReadOnlyList<SpeciesLevelMove>> _levelMoveCache = [];
     private readonly Dictionary<int, Bitmap?> _spriteCache = [];
+    private Bitmap? _eggSpriteCache;
 
 
     public MainWindow()
@@ -605,10 +606,9 @@ public partial class MainWindow : Window
         foreach (var entry in save.Boxes)
         {
             var info = entry.Mon.GetInfo();
-            var title = $"箱{entry.BoxNumber:00}-{entry.SlotInBox:00} {(entry.Mon.IsShiny ? "★" : "")}{SpeciesName(info.Species)}";
-            if (info.Item != 0) title += $" / {ItemName(info.Item)}";
+            var title = BoxDisplayTitle(entry.BoxNumber, entry.SlotInBox, entry.Mon, info);
             if (HasSummaryAllStatsIncreaseNatureCode(info.GameNatureCode)) title += " / 性格代码异常";
-            _boxRows.Add(new BoxSlotRow(entry.GlobalSlot, (uint)entry.SaveOffset, entry.Mon, info, title, "存档只读", LoadSpriteBitmap(info.Species)));
+            _boxRows.Add(new BoxSlotRow(entry.GlobalSlot, (uint)entry.SaveOffset, entry.Mon, info, title, "存档只读", BoxDisplaySprite(info)));
         }
 
         _boxGridShowAllBoxes = true;
@@ -789,7 +789,7 @@ public partial class MainWindow : Window
             ApplyGenderChoice(mon, species ?? before.Species);
             var abilitySlot = SelectedAbilitySlot();
             if (abilitySlot is not null) mon.SetAbilitySlot(abilitySlot.Value);
-            mon.SetGrowth(species, ParseItemOrNull(ItemBox), ParseUIntOrNull(ExpBox.Text), ParseByteOrNull(FriendshipBox.Text), null);
+            mon.SetGrowth(species, ParseItemOrNull(ItemBox), ParseUIntOrNull(ExpBox.Text), ParsePartyFriendshipOrHatchCounter(before), null);
             var level = ParseByteOrNull(LevelBox.Text);
             var maxHp = ParseUShortOrNull(MaxHpBox.Text);
             mon.SetUnencrypted(null, null, SelectedStatus(), level);
@@ -802,30 +802,6 @@ public partial class MainWindow : Window
                 mon.SetUnencrypted(maxHp: maxHp);
             WriteMon(bridge, addr, mon);
             SetWriteNotice($"队伍槽位 {row.Slot} 基础信息写入成功：种类/道具/经验/亲密度/等级/性格/特性/闪光/状态已更新。");
-        });
-        await RefreshPartyAndBoxAfterWriteAsync(row.Slot);
-    }
-
-    private async void OnEggHatchApplyClicked(object? sender, RoutedEventArgs e)
-    {
-        if (SelectedRow() is not { } row) return;
-        await RunUiTask("设置孵化步数", () =>
-        {
-            var hatchCounter = ParseByteOrNull(EggHatchStepsBox.Text)
-                ?? throw new InvalidOperationException("缺少孵化所需步数。");
-            if (hatchCounter < 1)
-                throw new InvalidOperationException("孵化所需步数最小为 1。");
-
-            using var bridge = ConnectBridge();
-            var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
-            var (addr, mon) = ReadSelectedLiveMon(bridge, baseAddr, row);
-            var info = mon.GetInfo();
-            if (!IsEgg(info))
-                throw new InvalidOperationException("当前选中的不是蛋，不能写入孵化步数。");
-
-            mon.SetGrowth(friendship: hatchCounter);
-            WriteMon(bridge, addr, mon);
-            SetWriteNotice($"队伍槽位 {row.Slot} 的蛋孵化步数已设置为 {hatchCounter}。请回游戏走路确认后手动保存。");
         });
         await RefreshPartyAndBoxAfterWriteAsync(row.Slot);
     }
@@ -863,7 +839,7 @@ public partial class MainWindow : Window
                 species,
                 ParseItemOrNull(ItemBox),
                 ParseUIntOrNull(ExpBox.Text),
-                ParseByteOrNull(FriendshipBox.Text),
+                ParsePartyFriendshipOrHatchCounter(before),
                 BuildPpBonuses(PpUp1Box, PpUp2Box, PpUp3Box, PpUp4Box));
             mon.SetUnencrypted(null, ParseUShortOrNull(MaxHpBox.Text), SelectedStatus(), ParseByteOrNull(LevelBox.Text));
             mon.SetMoves(
@@ -1586,7 +1562,7 @@ public partial class MainWindow : Window
                 species: species,
                 item: item,
                 exp: ParseUIntOrNull(BoxExpBox.Text),
-                friendship: ParseByteOrNull(BoxFriendshipBox.Text),
+                friendship: ParseBoxFriendshipOrHatchCounter(before),
                 ppBonuses: BuildPpBonuses(BoxPpUp1Box, BoxPpUp2Box, BoxPpUp3Box, BoxPpUp4Box));
             if (SelectedChoiceId(BoxNatureBox) is { } nature)
                 mon.SetNature(nature);
@@ -1622,36 +1598,6 @@ public partial class MainWindow : Window
                     ? $"箱子槽写入成功：{SpeciesName(species)}。警告：努力值总和已超过限制，可能发生未知错误或坏档。"
                     : $"箱子槽写入成功：{SpeciesName(species)}。",
                 success: evTotal <= 510);
-            LoadBoxRows(bridge);
-            RefreshPartyRowsIfPossible(bridge);
-            BoxList.SelectedItem = _boxRows.FirstOrDefault(r => r.Address == row.Address) ?? BoxList.SelectedItem;
-        });
-    }
-
-    private async void OnBoxEggHatchApplyClicked(object? sender, RoutedEventArgs e)
-    {
-        if (BoxList.SelectedItem is not BoxSlotRow row)
-        {
-            ShowToast("请先选择一个箱子槽。", success: false);
-            return;
-        }
-
-        await RunUiTask("设置箱子蛋孵化步数", () =>
-        {
-            var hatchCounter = ParseByteOrNull(BoxEggHatchStepsBox.Text)
-                ?? throw new InvalidOperationException("缺少孵化所需步数。");
-            if (hatchCounter < 1)
-                throw new InvalidOperationException("孵化所需步数最小为 1。");
-
-            using var bridge = ConnectBridge();
-            var mon = ReadSelectedBoxMon(bridge, row);
-            var info = mon.GetInfo();
-            if (!IsEgg(info))
-                throw new InvalidOperationException("当前选中的不是蛋，不能写入孵化步数。");
-
-            mon.SetGrowth(friendship: hatchCounter);
-            bridge.WriteRangeVerified(row.Address, mon.Raw.ToArray());
-            SetWriteNotice($"箱子槽 {row.Slot} 的蛋孵化步数已设置为 {hatchCounter}。请回游戏确认后手动保存。");
             LoadBoxRows(bridge);
             RefreshPartyRowsIfPossible(bridge);
             BoxList.SelectedItem = _boxRows.FirstOrDefault(r => r.Address == row.Address) ?? BoxList.SelectedItem;
@@ -2558,11 +2504,20 @@ public partial class MainWindow : Window
         return sprite;
     }
 
+    private Bitmap? LoadEggSpriteBitmap()
+    {
+        _eggSpriteCache ??= LoadSpriteBitmapCore("egg");
+        return _eggSpriteCache;
+    }
+
     private static Bitmap? LoadSpriteBitmapCore(int speciesId)
+        => LoadSpriteBitmapCore($"{speciesId:0000}");
+
+    private static Bitmap? LoadSpriteBitmapCore(string assetName)
     {
         try
         {
-            var uri = new Uri($"avares://RocketTool.Avalonia/Assets/Pokemon/front/{speciesId:0000}.png");
+            var uri = new Uri($"avares://RocketTool.Avalonia/Assets/Pokemon/front/{assetName}.png");
             return new Bitmap(AssetLoader.Open(uri));
         }
         catch
@@ -3574,6 +3529,20 @@ public partial class MainWindow : Window
         BoxEggHatchStepsBox.Text = isEgg ? Math.Max(1, (int)info!.Friendship).ToString() : string.Empty;
     }
 
+    private byte? ParsePartyFriendshipOrHatchCounter(PartyMonInfo info)
+        => IsEgg(info) ? ParseHatchCounter(EggHatchStepsBox.Text) : ParseByteOrNull(FriendshipBox.Text);
+
+    private byte? ParseBoxFriendshipOrHatchCounter(BoxMonInfo info)
+        => IsEgg(info) ? ParseHatchCounter(BoxEggHatchStepsBox.Text) : ParseByteOrNull(BoxFriendshipBox.Text);
+
+    private static byte ParseHatchCounter(string? text)
+    {
+        var value = ParseByteOrNull(text) ?? throw new InvalidOperationException("缺少孵化所需步数。");
+        if (value < 1)
+            throw new InvalidOperationException("孵化所需步数最小为 1。");
+        return value;
+    }
+
     private static bool IsEgg(PartyMonInfo info)
         => info.Ivs.TryGetValue("egg", out var egg) && egg == 1;
 
@@ -3667,10 +3636,9 @@ public partial class MainWindow : Window
             var info = mon.GetInfo();
             var slotInBox = ((globalSlot - 1) % BoxScanner.BoxSlots) + 1;
             var boxNo = ((globalSlot - 1) / BoxScanner.BoxSlots) + 1;
-            var title = $"箱{boxNo:00}-{slotInBox:00} {(mon.IsShiny ? "★" : "")}{SpeciesName(info.Species)}";
-            if (info.Item != 0) title += $" / {ItemName(info.Item)}";
+            var title = BoxDisplayTitle(boxNo, slotInBox, mon, info);
             if (HasSummaryAllStatsIncreaseNatureCode(info.GameNatureCode)) title += " / 性格代码异常";
-            _boxRows.Add(new BoxSlotRow(globalSlot, address, mon, info, title, $"地址 0x{address:X8}", LoadSpriteBitmap(info.Species)));
+            _boxRows.Add(new BoxSlotRow(globalSlot, address, mon, info, title, $"地址 0x{address:X8}", BoxDisplaySprite(info)));
         }
 
         RefreshBoxGridGroups();
@@ -3697,10 +3665,9 @@ public partial class MainWindow : Window
             var info = mon.GetInfo();
             var slotInBox = (i % BoxScanner.BoxSlots) + 1;
             var boxNo = (i / BoxScanner.BoxSlots) + 1;
-            var title = $"箱{boxNo:00}-{slotInBox:00} {(mon.IsShiny ? "★" : "")}{SpeciesName(info.Species)}";
-            if (info.Item != 0) title += $" / {ItemName(info.Item)}";
+            var title = BoxDisplayTitle(boxNo, slotInBox, mon, info);
             if (HasSummaryAllStatsIncreaseNatureCode(info.GameNatureCode)) title += " / 性格代码异常";
-            _boxRows.Add(new BoxSlotRow(i + 1, address, mon, info, title, $"地址 0x{address:X8}", LoadSpriteBitmap(info.Species)));
+            _boxRows.Add(new BoxSlotRow(i + 1, address, mon, info, title, $"地址 0x{address:X8}", BoxDisplaySprite(info)));
         }
 
         RefreshBoxGridGroups();
@@ -3737,6 +3704,19 @@ public partial class MainWindow : Window
             _boxGridGroups.Add(new BoxGridGroup(boxNumber, $"箱{boxNumber:00}", cells));
         }
     }
+
+    private string BoxDisplayTitle(int boxNumber, int slotInBox, BoxPokemon mon, BoxMonInfo info)
+    {
+        if (IsEgg(info))
+            return $"箱{boxNumber:00}-{slotInBox:00} 蛋";
+
+        var title = $"箱{boxNumber:00}-{slotInBox:00} {(mon.IsShiny ? "★" : "")}{SpeciesName(info.Species)}";
+        if (info.Item != 0) title += $" / {ItemName(info.Item)}";
+        return title;
+    }
+
+    private Bitmap? BoxDisplaySprite(BoxMonInfo info)
+        => IsEgg(info) ? LoadEggSpriteBitmap() : LoadSpriteBitmap(info.Species);
 
     private void ApplyBagPocketFilter()
     {
