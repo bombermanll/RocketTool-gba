@@ -115,6 +115,7 @@ public partial class MainWindow : Window
     private const int MachineTmCount = 246;
     private const int MachineHmStartItem = 838;
     private const int MachineHmCount = 8;
+    private const int MachineHmMoveStartIndex = 246;
     private const int MaxPokemonLevel = 150;
     private const int DexImportLevel = 5;
     private const ushort MaxBagWriteQuantity = 255;
@@ -194,7 +195,7 @@ public partial class MainWindow : Window
             .Select(g => new ChoiceRow(g.Key, MapGroupChoiceText(g.Key, g)))
             .ToArray();
         _speciesChoices = SpeciesChoiceRows();
-        _itemChoices = [new ChoiceRow(0, "无"), .. ChoiceRows("items")];
+        _itemChoices = [new ChoiceRow(0, "无"), .. ItemChoiceRows()];
         _bagItemChoices = _itemChoices;
         _moveChoices = [new ChoiceRow(0, "无"), .. ChoiceRows("moves")];
         _natureChoices = NatureDisplays.Select((name, id) => new ChoiceRow(id, name, name)).ToArray();
@@ -3645,6 +3646,17 @@ public partial class MainWindow : Window
     private ChoiceRow[] ChoiceRows(string table)
         => _db.Table(table).OrderBy(kv => kv.Key).Select(kv => new ChoiceRow(kv.Key, kv.Value)).ToArray();
 
+    private ChoiceRow[] ItemChoiceRows()
+        => _db.Table("items")
+            .OrderBy(kv => kv.Key)
+            .Select(kv =>
+            {
+                var machineName = MachineMoveName(kv.Key);
+                var display = machineName is null ? kv.Value : $"{kv.Value} / {machineName}";
+                return new ChoiceRow(kv.Key, kv.Value, display);
+            })
+            .ToArray();
+
     private ChoiceRow[] SpeciesChoiceRows()
     {
         var table = _db.Table("species");
@@ -4868,8 +4880,8 @@ public partial class MainWindow : Window
         var hmIndex = item - MachineHmStartItem;
         if (hmIndex >= 0 && hmIndex < MachineHmCount)
         {
-            var moveId = MachineMoveId(MachineTmCount + hmIndex);
-            if (moveId > 0) return $"MO{hmIndex + 1} {MoveName(moveId)}";
+            var moveId = MachineMoveId(MachineHmMoveStartIndex + hmIndex);
+            if (moveId > 0) return $"MO{hmIndex + 1:00} {MoveName(moveId)}";
         }
 
         return null;
@@ -4889,6 +4901,8 @@ public partial class MainWindow : Window
     {
         if (item == 0) return -1;
         if (item < 0 || item > MaxItemId()) return -1;
+        if (item is >= MachineTmStartItem and <= 845)
+            return IsBagMachineItem(item) ? 7 : -1;
 
         if (_db.Table("item_pockets").TryGetValue(item, out var pocketText) &&
             int.TryParse(pocketText, out var embeddedPocket) &&
@@ -4912,11 +4926,14 @@ public partial class MainWindow : Window
         if (item is >= 1 and <= 27) return 3;
         if (item is >= 28 and <= 48 or 921) return 2;
         if (item is >= 512 and <= 591) return 5;
-        if (item is >= MachineTmStartItem and < MachineTmStartItem + MachineTmCount) return 7;
-        if (item is >= MachineHmStartItem and < MachineHmStartItem + MachineHmCount) return 7;
+        if (IsBagMachineItem(item)) return 7;
         if (item >= 0x300) return 8;
         return null;
     }
+
+    private static bool IsBagMachineItem(int item)
+        => item is >= MachineTmStartItem and < MachineTmStartItem + MachineTmCount ||
+           item is >= MachineHmStartItem and < MachineHmStartItem + MachineHmCount;
 
     private void EnsureBagSelectionFresh(MgbaBridgeClient bridge)
     {

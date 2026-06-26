@@ -42,8 +42,12 @@ public static class BagScanner
 {
     public const int DefaultMaxItemId = 2000;
     public const int DefaultMaxQuantity = 999;
-    public const int MaxRunSlots = 80;
+    public const int MaxRunSlots = 253;
     public const uint SaveBlockPointerAddress = 0x0300524C;
+    private const int MachineTmStartItem = 592;
+    private const int MachineTmCount = 246;
+    private const int MachineHmStartItem = 838;
+    private const int MachineHmCount = 8;
 
     public static readonly IReadOnlyList<BagPocketDefinition> KnownPockets =
     [
@@ -53,7 +57,7 @@ public static class BagScanner
         new(4, "战斗道具", 0x29E0, 0x78, true, 0x3502),
         new(5, "树果", 0x27D0, 0x78, true, 0x5B67),
         new(6, "宝物", 0x2BF0, 0x78, true, 0xB01B),
-        new(7, "招式机器/秘传机器", 0x23A0, 0x80, true, 0xFC51),
+        new(7, "招式机器/秘传机器", 0x23A0, 253, true, 0xFC51),
         new(8, "重要物品", 0x2268, 0x78, true, 0x5145),
     ];
 
@@ -65,7 +69,7 @@ public static class BagScanner
         [4] = 0x78,
         [5] = 0x78,
         [6] = 0x78,
-        [7] = 0x80,
+        [7] = 253,
         [8] = 0x78,
     };
 
@@ -568,11 +572,15 @@ public static class BagScanner
             2 => item is >= 28 and <= 48 or 921,
             3 => item is >= 1 and <= 27,
             5 => item is >= 512 and <= 591,
-            7 => item is >= 592 and <= 767,
+            7 => IsMachinePocketItem(item),
             8 => item >= 0x300,
             _ => item <= 0x400,
         };
     }
+
+    private static bool IsMachinePocketItem(ushort item)
+        => item is >= MachineTmStartItem and < MachineTmStartItem + MachineTmCount ||
+           item is >= MachineHmStartItem and < MachineHmStartItem + MachineHmCount;
 
     private static BagSlot? ParseSlot(ReadOnlySpan<byte> data, int offset, int maxItemId, int maxQuantity)
     {
