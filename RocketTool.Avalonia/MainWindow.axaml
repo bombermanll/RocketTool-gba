@@ -155,6 +155,12 @@
                                                 <TextBlock x:Name="PartyOtIdText" Grid.Row="1" Grid.Column="2" Text="未选择" Foreground="#102E4A" VerticalAlignment="Center" />
                                                 <TextBlock Grid.Row="2" Grid.ColumnSpan="3" Text="提示：如果修改训练家名字，现有宝可梦的初训家不一致时可能会不听话。" Foreground="#B3261E" FontSize="12" TextWrapping="Wrap" />
                                             </Grid>
+                                            <Grid x:Name="EggHatchPanel" ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="6" IsVisible="False">
+                                                <TextBlock Text="蛋孵化所需步数" Classes="label" />
+                                                <TextBox x:Name="EggHatchStepsBox" Grid.Row="1" MinWidth="120" />
+                                                <Button x:Name="EggHatchApplyButton" Grid.Row="1" Grid.Column="1" Content="设置孵化步数" Click="OnEggHatchApplyClicked" Classes="primary" />
+                                                <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Text="只在选中蛋时可用；最小值为 1，设置后请回游戏走路确认触发。" Foreground="#6C6255" FontSize="12" TextWrapping="Wrap" />
+                                            </Grid>
                                             <TextBlock x:Name="BasicNameText" Text="" Foreground="#102E4A" TextWrapping="Wrap" IsVisible="False" />
                                         </StackPanel>
                                     </Border>
@@ -338,6 +344,11 @@
                                 <StackPanel Spacing="16" Margin="0,0,0,96" MaxWidth="{Binding #BagRightScroll.Bounds.Width}">
                                     <TextBlock Text="背包槽编辑" FontSize="24" FontWeight="Bold" Foreground="#102E4A" />
                                     <TextBlock Text="这里直接改内存中的背包格子。选中左侧口袋槽位后编辑；数量会按原修改器的口袋密钥编码写回。" Foreground="#6C6255" TextWrapping="Wrap" />
+                                    <WrapPanel HorizontalAlignment="Right">
+                                        <Button x:Name="BagGiveAllCurrentPocketButton" Content="获取当前分类全部" Margin="0,0,8,0" Click="OnBagGiveAllCurrentPocketClicked" />
+                                        <Button x:Name="BagGiveAllTmsButton" Content="获取全部技能机" Margin="0,0,8,0" Click="OnBagGiveAllTmsClicked" />
+                                        <Button x:Name="BagGiveAllHmsButton" Content="获取全部秘传机" Margin="0,0,8,0" Click="OnBagGiveAllHmsClicked" />
+                                    </WrapPanel>
                                     <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
                                         <StackPanel Spacing="10">
                                             <Grid ColumnDefinitions="*,96" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="8">
@@ -522,6 +533,12 @@
                                                 <Button Grid.Row="1" Grid.Column="1" Content="同步" Click="OnBoxOtNameSyncClicked" />
                                                 <TextBlock x:Name="BoxOtIdText" Grid.Row="1" Grid.Column="2" Text="未选择" Foreground="#102E4A" VerticalAlignment="Center" />
                                                 <TextBlock Grid.Row="2" Grid.ColumnSpan="3" Text="提示：如果修改训练家名字，现有宝可梦的初训家不一致时可能会不听话。" Foreground="#B3261E" FontSize="12" TextWrapping="Wrap" />
+                                            </Grid>
+                                            <Grid x:Name="BoxEggHatchPanel" ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="6" IsVisible="False">
+                                                <TextBlock Text="蛋孵化所需步数" Classes="label" />
+                                                <TextBox x:Name="BoxEggHatchStepsBox" Grid.Row="1" MinWidth="120" />
+                                                <Button x:Name="BoxEggHatchApplyButton" Grid.Row="1" Grid.Column="1" Content="设置孵化步数" Click="OnBoxEggHatchApplyClicked" Classes="primary" />
+                                                <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Text="只在选中蛋时可用；最小值为 1，设置后请回游戏走路确认触发。" Foreground="#6C6255" FontSize="12" TextWrapping="Wrap" />
                                             </Grid>
                                             <TextBlock Text="箱子数据不保存当前HP、状态和直接等级；等级由经验决定。" Foreground="#6C6255" TextWrapping="Wrap" />
                                             <TextBlock x:Name="BoxNameText" Text="选择箱子槽后显示。" Foreground="#102E4A" TextWrapping="Wrap" />

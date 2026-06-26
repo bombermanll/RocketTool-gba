@@ -116,9 +116,11 @@ public partial class MainWindow : Window
     private const int MachineHmStartItem = 838;
     private const int MachineHmCount = 8;
     private const int MachineHmMoveStartIndex = 246;
+    private const int MachinePocket = 7;
     private const int MaxPokemonLevel = 150;
     private const int DexImportLevel = 5;
     private const ushort MaxBagWriteQuantity = 255;
+    private const ushort BagBatchQuantity = 240;
     private const int MaxTrainerMoney = 99999999;
     private const uint SaveBlock1PointerAddress = 0x0300524C;
     private const uint SaveBlock2PointerAddress = 0x03005250;
@@ -311,6 +313,7 @@ public partial class MainWindow : Window
         FitComboToContent(BoxGenderBox, _genderChoices);
         BagPocketTabs.ItemsSource = _bagPocketChoices;
         BagPocketTabs.SelectedIndex = 0;
+        UpdateBagBatchButtons();
         TeleportGroupBox.ItemsSource = _mapGroupChoices;
         TeleportGroupBox.SelectedIndex = _mapGroupChoices.Length > 0 ? 0 : -1;
         RefreshTeleportMaps();
@@ -389,7 +392,9 @@ public partial class MainWindow : Window
                      FriendshipBox, LevelBox,
                      Pp1Box, Pp2Box, Pp3Box, Pp4Box,
                      EvHpBox, EvAtkBox, EvDefBox, EvSpeBox, EvSpaBox, EvSpdBox,
+                     EggHatchStepsBox,
                      BoxFriendshipBox,
+                     BoxEggHatchStepsBox,
                      BoxPp1Box, BoxPp2Box, BoxPp3Box, BoxPp4Box,
                      BoxEvHpBox, BoxEvAtkBox, BoxEvDefBox, BoxEvSpeBox, BoxEvSpaBox, BoxEvSpdBox,
                      BagQuantityBox,
@@ -614,6 +619,7 @@ public partial class MainWindow : Window
             BoxNameText.Text = "存档中没有识别到箱子宝可梦。";
             SetPokemonSprite(BoxDetailSpriteImage, 0);
             UpdateBoxHeaderInfo(0, null);
+            UpdateBoxEggHatchEditor(null);
         }
 
         ConnectionStatusText.Text = $"mGBA已断开；已读取存档：{save.FileName}";
@@ -796,6 +802,30 @@ public partial class MainWindow : Window
                 mon.SetUnencrypted(maxHp: maxHp);
             WriteMon(bridge, addr, mon);
             SetWriteNotice($"队伍槽位 {row.Slot} 基础信息写入成功：种类/道具/经验/亲密度/等级/性格/特性/闪光/状态已更新。");
+        });
+        await RefreshPartyAndBoxAfterWriteAsync(row.Slot);
+    }
+
+    private async void OnEggHatchApplyClicked(object? sender, RoutedEventArgs e)
+    {
+        if (SelectedRow() is not { } row) return;
+        await RunUiTask("设置孵化步数", () =>
+        {
+            var hatchCounter = ParseByteOrNull(EggHatchStepsBox.Text)
+                ?? throw new InvalidOperationException("缺少孵化所需步数。");
+            if (hatchCounter < 1)
+                throw new InvalidOperationException("孵化所需步数最小为 1。");
+
+            using var bridge = ConnectBridge();
+            var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
+            var (addr, mon) = ReadSelectedLiveMon(bridge, baseAddr, row);
+            var info = mon.GetInfo();
+            if (!IsEgg(info))
+                throw new InvalidOperationException("当前选中的不是蛋，不能写入孵化步数。");
+
+            mon.SetGrowth(friendship: hatchCounter);
+            WriteMon(bridge, addr, mon);
+            SetWriteNotice($"队伍槽位 {row.Slot} 的蛋孵化步数已设置为 {hatchCounter}。请回游戏走路确认后手动保存。");
         });
         await RefreshPartyAndBoxAfterWriteAsync(row.Slot);
     }
@@ -1326,6 +1356,155 @@ public partial class MainWindow : Window
         });
     }
 
+    private async void OnBagGiveAllCurrentPocketClicked(object? sender, RoutedEventArgs e)
+    {
+        var pocket = SelectedChoiceId(BagPocketTabs) ?? 0;
+        if (pocket <= 0)
+            pocket = CurrentBagEditPocket();
+        if (pocket is < 1 or > 8)
+        {
+            ShowToast("请先选择一个具体背包分类。", success: false);
+            return;
+        }
+
+        var items = BagItemChoicesForPocket(pocket)
+            .Where(choice => choice.Id > 0 && PocketOfItem(choice.Id) == pocket)
+            .Select(choice => (ushort)choice.Id)
+            .Distinct()
+            .OrderBy(id => id)
+            .ToArray();
+        if (items.Length == 0)
+        {
+            ShowToast("当前分类没有可写入的道具。", success: false);
+            return;
+        }
+
+        var label = $"获取全部{PocketNameZh(pocket)}";
+        if (!await ConfirmBagPocketBatchAsync(label, pocket, items.Length)) return;
+        if (pocket == MachinePocket)
+            await GiveBagMachinesAsync(label, items);
+        else
+            await GiveBagPocketItemsAsync(label, pocket, items);
+    }
+
+    private async void OnBagGiveAllTmsClicked(object? sender, RoutedEventArgs e)
+    {
+        var items = Enumerable.Range(MachineTmStartItem, MachineTmCount).Select(i => (ushort)i).ToArray();
+        if (!await ConfirmBagMachineBatchAsync("获取全部技能机", items.Length)) return;
+        await GiveBagMachinesAsync("获取全部技能机", items);
+    }
+
+    private async void OnBagGiveAllHmsClicked(object? sender, RoutedEventArgs e)
+    {
+        var items = Enumerable.Range(MachineHmStartItem, MachineHmCount).Select(i => (ushort)i).ToArray();
+        if (!await ConfirmBagMachineBatchAsync("获取全部秘传机", items.Length)) return;
+        await GiveBagMachinesAsync("获取全部秘传机", items);
+    }
+
+    private async Task GiveBagMachinesAsync(string label, IReadOnlyList<ushort> items)
+    {
+        await RunUiTask(label, () =>
+        {
+            using var bridge = ConnectBridge();
+            _bagBase = BagScanner.LocateSaveBlockBase(bridge);
+            var ewram = PartyScanner.ReadEwram(bridge);
+            var definition = BagScanner.DefinitionForPocket(MachinePocket)
+                             ?? throw new InvalidOperationException("缺少招式机器/秘传机器口袋定义。");
+            var startAddress = _bagBase.Value + definition.Offset;
+            var startOffset = checked((int)(startAddress - PartyScanner.EwramBase));
+            var endOffset = startOffset + definition.SlotCount * 4;
+            if (startOffset < 0 || endOffset > ewram.Length)
+                throw new InvalidOperationException("招式机器/秘传机器口袋地址无效。请先读取或校准背包。");
+
+            var quantityKey = BagScanner.InferQuantityKey(ewram);
+            var machines = ReadMachinePocketQuantities(ewram, startOffset, definition.SlotCount, quantityKey);
+            var existingBefore = items.Count(machines.ContainsKey);
+            var skipped = 0;
+            foreach (var item in items)
+            {
+                if (MachineMoveName(item) is null)
+                {
+                    skipped++;
+                    continue;
+                }
+
+                machines[item] = BagBatchQuantity;
+            }
+
+            if (machines.Count > definition.SlotCount)
+                throw new InvalidOperationException($"机器口袋容量不足：需要 {machines.Count} 格，容量 {definition.SlotCount} 格。");
+
+            var rewritten = EncodeMachinePocket(machines, definition.SlotCount, quantityKey);
+            bridge.WriteRangeVerified(startAddress, rewritten);
+            var added = Math.Max(0, items.Count - existingBefore - skipped);
+
+            LoadBagRows(bridge);
+            BagPocketTabs.SelectedItem = _bagPocketChoices.FirstOrDefault(choice => choice.Id == MachinePocket) ?? BagPocketTabs.SelectedItem;
+            if (added > 0)
+                BagList.SelectedItem = _bagRows.FirstOrDefault(row => items.Contains(row.ItemId)) ?? BagList.SelectedItem;
+            var message = $"{label}完成：新增 {added} 个，已有 {existingBefore} 个，跳过 {skipped} 个。请回游戏确认后手动保存。";
+            SetWriteNotice(message);
+        });
+    }
+
+    private async Task GiveBagPocketItemsAsync(string label, int pocket, IReadOnlyList<ushort> items)
+    {
+        await RunUiTask(label, () =>
+        {
+            using var bridge = ConnectBridge();
+            _bagBase = TryLocateBagBase(bridge);
+            var ewram = PartyScanner.ReadEwram(bridge);
+            var quantityKey = BagScanner.InferQuantityKey(ewram);
+            var run = BagScanner.FindLivePockets(ewram, _bagBase, PocketOfItem, MaxBagWriteQuantity)
+                .FirstOrDefault(candidate => candidate.Pocket == pocket)
+                ?? throw new InvalidOperationException($"当前{PocketNameZh(pocket)}尚未定位。请先读取背包，或在游戏内至少获得该分类一个道具后再试。");
+
+            var startOffset = checked((int)(run.StartAddress - PartyScanner.EwramBase));
+            var endOffset = Math.Min(ewram.Length, startOffset + BagBatchCapacity(pocket) * 4);
+            var existing = new Dictionary<ushort, int>();
+            var emptyOffsets = new List<int>();
+            for (var offset = startOffset; offset <= endOffset - 4; offset += 4)
+            {
+                var item = ReadU16(ewram, offset);
+                var rawQuantity = ReadU16(ewram, offset + 2);
+                if (item == 0 && (rawQuantity == 0 || rawQuantity == quantityKey))
+                {
+                    emptyOffsets.Add(offset);
+                    continue;
+                }
+
+                if (items.Contains(item) && !existing.ContainsKey(item))
+                    existing[item] = offset;
+            }
+
+            var missing = items.Where(item => !existing.ContainsKey(item)).ToArray();
+            if (missing.Length > emptyOffsets.Count)
+                throw new InvalidOperationException($"{PocketNameZh(pocket)}容量不足：缺少 {missing.Length} 个道具，但只找到 {emptyOffsets.Count} 个空槽。未写入。");
+
+            var updated = 0;
+            foreach (var (item, offset) in existing)
+            {
+                var bytes = EncodeBatchBagSlot(pocket, item, quantityKey);
+                bridge.WriteRangeVerified(PartyScanner.EwramBase + (uint)offset, bytes);
+                updated++;
+            }
+
+            var added = 0;
+            for (var i = 0; i < missing.Length; i++)
+            {
+                var offset = emptyOffsets[i];
+                var bytes = EncodeBatchBagSlot(pocket, missing[i], quantityKey);
+                bridge.WriteRangeVerified(PartyScanner.EwramBase + (uint)offset, bytes);
+                added++;
+            }
+
+            LoadBagRows(bridge);
+            BagPocketTabs.SelectedItem = _bagPocketChoices.FirstOrDefault(choice => choice.Id == pocket) ?? BagPocketTabs.SelectedItem;
+            BagList.SelectedItem = _bagRows.FirstOrDefault(row => items.Contains(row.ItemId)) ?? BagList.SelectedItem;
+            SetWriteNotice($"{label}完成：新增 {added} 个，更新数量 {updated} 个，数量设置为 {(pocket == 8 ? 1 : BagBatchQuantity)}。请回游戏确认后手动保存。");
+        });
+    }
+
     private async void OnBoxScanClicked(object? sender, RoutedEventArgs e)
     {
         await RunUiTask("读取箱子", () =>
@@ -1350,6 +1529,7 @@ public partial class MainWindow : Window
         BoxShinyBox.IsChecked = row.Mon.IsShiny;
         BoxExpBox.Text = info.Exp.ToString();
         BoxFriendshipBox.Text = info.Friendship.ToString();
+        UpdateBoxEggHatchEditor(info);
         RefreshBoxAbilityChoices(info.Species, info.Ivs["ability"]);
         SetChoice(BoxMove1Box, _moveChoices, info.Moves[0]);
         SetChoice(BoxMove2Box, _moveChoices, info.Moves[1]);
@@ -1442,6 +1622,36 @@ public partial class MainWindow : Window
                     ? $"箱子槽写入成功：{SpeciesName(species)}。警告：努力值总和已超过限制，可能发生未知错误或坏档。"
                     : $"箱子槽写入成功：{SpeciesName(species)}。",
                 success: evTotal <= 510);
+            LoadBoxRows(bridge);
+            RefreshPartyRowsIfPossible(bridge);
+            BoxList.SelectedItem = _boxRows.FirstOrDefault(r => r.Address == row.Address) ?? BoxList.SelectedItem;
+        });
+    }
+
+    private async void OnBoxEggHatchApplyClicked(object? sender, RoutedEventArgs e)
+    {
+        if (BoxList.SelectedItem is not BoxSlotRow row)
+        {
+            ShowToast("请先选择一个箱子槽。", success: false);
+            return;
+        }
+
+        await RunUiTask("设置箱子蛋孵化步数", () =>
+        {
+            var hatchCounter = ParseByteOrNull(BoxEggHatchStepsBox.Text)
+                ?? throw new InvalidOperationException("缺少孵化所需步数。");
+            if (hatchCounter < 1)
+                throw new InvalidOperationException("孵化所需步数最小为 1。");
+
+            using var bridge = ConnectBridge();
+            var mon = ReadSelectedBoxMon(bridge, row);
+            var info = mon.GetInfo();
+            if (!IsEgg(info))
+                throw new InvalidOperationException("当前选中的不是蛋，不能写入孵化步数。");
+
+            mon.SetGrowth(friendship: hatchCounter);
+            bridge.WriteRangeVerified(row.Address, mon.Raw.ToArray());
+            SetWriteNotice($"箱子槽 {row.Slot} 的蛋孵化步数已设置为 {hatchCounter}。请回游戏确认后手动保存。");
             LoadBoxRows(bridge);
             RefreshPartyRowsIfPossible(bridge);
             BoxList.SelectedItem = _boxRows.FirstOrDefault(r => r.Address == row.Address) ?? BoxList.SelectedItem;
@@ -2962,6 +3172,110 @@ public partial class MainWindow : Window
         return confirmed;
     }
 
+    private async Task<bool> ConfirmBagMachineBatchAsync(string title, int count)
+    {
+        var dialog = new Window
+        {
+            Title = title,
+            Width = 560,
+            Height = 250,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner
+        };
+        var root = new StackPanel { Margin = new Thickness(18), Spacing = 14 };
+        root.Children.Add(new TextBlock
+        {
+            Text = $"即将向招式机器/秘传机器口袋补齐 {count} 个候选道具。",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = new SolidColorBrush(Color.FromRgb(150, 43, 43)),
+            FontWeight = FontWeight.SemiBold
+        });
+        root.Children.Add(new TextBlock
+        {
+            Text = "已有机器会跳过，不会叠加数量。写入前建议先保存 mGBA 即时存档；写入后需要在游戏中手动存档才会保留。",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = new SolidColorBrush(Color.FromRgb(108, 98, 85))
+        });
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 10
+        };
+        var cancel = new Button { Content = "取消" };
+        var ok = new Button { Content = "确认写入", Classes = { "primary" } };
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(ok);
+        root.Children.Add(buttons);
+        dialog.Content = root;
+
+        var confirmed = false;
+        cancel.Click += (_, _) => dialog.Close();
+        ok.Click += (_, _) =>
+        {
+            confirmed = true;
+            dialog.Close();
+        };
+        await dialog.ShowDialog(this);
+        if (!confirmed)
+            ShowToast("已取消写入。", success: false);
+        return confirmed;
+    }
+
+    private async Task<bool> ConfirmBagPocketBatchAsync(string title, int pocket, int count)
+    {
+        var isKeyItems = pocket == 8;
+        var dialog = new Window
+        {
+            Title = title,
+            Width = 600,
+            Height = isKeyItems ? 310 : 260,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner
+        };
+        var root = new StackPanel { Margin = new Thickness(18), Spacing = 14 };
+        root.Children.Add(new TextBlock
+        {
+            Text = $"即将向{PocketNameZh(pocket)}补齐 {count} 个候选道具。",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = new SolidColorBrush(Color.FromRgb(150, 43, 43)),
+            FontWeight = FontWeight.SemiBold
+        });
+        root.Children.Add(new TextBlock
+        {
+            Text = isKeyItems
+                ? "重要物品会直接影响剧情标记和流程状态，可能导致剧情卡住、NPC 不触发或进程无法继续，不建议使用。继续前务必保存 mGBA 即时存档。"
+                : $"已有道具会把数量改为 {BagBatchQuantity}，缺失道具会写入空槽。写入后需要在游戏中手动存档才会保留。",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = new SolidColorBrush(isKeyItems ? Color.FromRgb(150, 43, 43) : Color.FromRgb(108, 98, 85)),
+            FontWeight = isKeyItems ? FontWeight.SemiBold : FontWeight.Normal
+        });
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 10
+        };
+        var cancel = new Button { Content = "取消" };
+        var ok = new Button { Content = isKeyItems ? "确认风险并写入" : "确认写入", Classes = { "primary" } };
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(ok);
+        root.Children.Add(buttons);
+        dialog.Content = root;
+
+        var confirmed = false;
+        cancel.Click += (_, _) => dialog.Close();
+        ok.Click += (_, _) =>
+        {
+            confirmed = true;
+            dialog.Close();
+        };
+        await dialog.ShowDialog(this);
+        if (!confirmed)
+            ShowToast("已取消写入。", success: false);
+        return confirmed;
+    }
+
     private async Task<bool> ConfirmBoxDeleteAsync(BoxSlotRow row)
     {
         var dialog = new Window
@@ -3078,6 +3392,7 @@ public partial class MainWindow : Window
             ShowToast($"{label}失败：{ex.Message}", success: false);
             if (label.Contains("写入", StringComparison.Ordinal) ||
                 label.Contains("添加", StringComparison.Ordinal) ||
+                label.Contains("获取", StringComparison.Ordinal) ||
                 label.Contains("恢复", StringComparison.Ordinal) ||
                 label.Contains("传送", StringComparison.Ordinal))
             {
@@ -3153,6 +3468,7 @@ public partial class MainWindow : Window
             RefreshAbilityChoices(info.Species, info.Ivs["ability"]);
             ExpBox.Text = info.Exp.ToString();
             FriendshipBox.Text = info.Friendship.ToString();
+            UpdateEggHatchEditor(info);
             LevelBox.Text = info.Level.ToString();
             MaxHpBox.Text = info.MaxHp.ToString();
             SetChoice(StatusBox, _statusChoices, (int)NormalizeStatus(info.Status));
@@ -3222,6 +3538,7 @@ public partial class MainWindow : Window
             UpdatePartyHeaderInfo(0, null);
             PartyOtNameBox.Text = string.Empty;
             PartyOtIdText.Text = "未选择";
+            UpdateEggHatchEditor(null);
         }
         finally
         {
@@ -3236,11 +3553,32 @@ public partial class MainWindow : Window
     private IEnumerable<TextBox> EditorBoxes()
     {
         yield return ExpBox; yield return FriendshipBox;
+        yield return EggHatchStepsBox;
         yield return LevelBox; yield return MaxHpBox;
         yield return Pp1Box; yield return Pp2Box; yield return Pp3Box; yield return Pp4Box;
         yield return EvHpBox; yield return EvAtkBox; yield return EvDefBox; yield return EvSpeBox; yield return EvSpaBox; yield return EvSpdBox;
         yield return IvHpBox; yield return IvAtkBox; yield return IvDefBox; yield return IvSpeBox; yield return IvSpaBox; yield return IvSpdBox;
     }
+
+    private void UpdateEggHatchEditor(PartyMonInfo? info)
+    {
+        var isEgg = info is not null && IsEgg(info);
+        EggHatchPanel.IsVisible = isEgg;
+        EggHatchStepsBox.Text = isEgg ? Math.Max(1, (int)info!.Friendship).ToString() : string.Empty;
+    }
+
+    private void UpdateBoxEggHatchEditor(BoxMonInfo? info)
+    {
+        var isEgg = info is not null && IsEgg(info);
+        BoxEggHatchPanel.IsVisible = isEgg;
+        BoxEggHatchStepsBox.Text = isEgg ? Math.Max(1, (int)info!.Friendship).ToString() : string.Empty;
+    }
+
+    private static bool IsEgg(PartyMonInfo info)
+        => info.Ivs.TryGetValue("egg", out var egg) && egg == 1;
+
+    private static bool IsEgg(BoxMonInfo info)
+        => info.Ivs.TryGetValue("egg", out var egg) && egg == 1;
 
     private PartySlotRow? SelectedRow() => PartyList.SelectedItem as PartySlotRow;
 
@@ -3337,7 +3675,11 @@ public partial class MainWindow : Window
 
         RefreshBoxGridGroups();
         if (_boxRows.Count > 0) BoxList.SelectedIndex = 0;
-        else UpdateBoxHeaderInfo(0, null);
+        else
+        {
+            UpdateBoxHeaderInfo(0, null);
+            UpdateBoxEggHatchEditor(null);
+        }
         Log($"已定位箱子存储：起始 0x{storage.StartAddress:X8}，非空 {storage.NonEmptyCount}/{BoxScanner.TotalSlots} 槽。");
     }
 
@@ -3363,7 +3705,11 @@ public partial class MainWindow : Window
 
         RefreshBoxGridGroups();
         if (_boxRows.Count > 0) BoxList.SelectedIndex = 0;
-        else UpdateBoxHeaderInfo(0, null);
+        else
+        {
+            UpdateBoxHeaderInfo(0, null);
+            UpdateBoxEggHatchEditor(null);
+        }
         Log($"只定位到连续箱子候选：起始 0x{run.StartAddress:X8}，连续非空 {_boxRows.Count} 槽；箱号可能不完整。");
     }
 
@@ -3396,6 +3742,7 @@ public partial class MainWindow : Window
     {
         if (_bagRows is null || BagPocketTabs is null || BagItemBox is null || _itemChoices is null) return;
         var selectedPocket = SelectedChoiceId(BagPocketTabs) ?? 0;
+        UpdateBagBatchButtons(selectedPocket);
         var rows = selectedPocket == 0
             ? _allBagRows
             : _allBagRows.Where(row => row.Pocket == selectedPocket);
@@ -3407,6 +3754,17 @@ public partial class MainWindow : Window
         else
             SetBagItemChoicesForPocket(selectedPocket);
         UpdateBagNameText();
+    }
+
+    private void UpdateBagBatchButtons(int? selectedPocket = null)
+    {
+        if (BagGiveAllCurrentPocketButton is null || BagGiveAllTmsButton is null || BagGiveAllHmsButton is null) return;
+        var pocket = selectedPocket ?? SelectedChoiceId(BagPocketTabs) ?? 0;
+        var isConcretePocket = pocket is >= 1 and <= 8;
+        var isMachinePocket = pocket == MachinePocket;
+        BagGiveAllCurrentPocketButton.IsVisible = isConcretePocket && !isMachinePocket;
+        BagGiveAllTmsButton.IsVisible = isMachinePocket;
+        BagGiveAllHmsButton.IsVisible = isMachinePocket;
     }
 
     private void HookNameRefresh()
@@ -4945,6 +5303,90 @@ public partial class MainWindow : Window
         }
         _bagBase = liveBase;
     }
+
+    private static bool BagMachineExists(ReadOnlySpan<byte> ewram, uint saveBlockBase, ushort item)
+    {
+        var definition = BagScanner.DefinitionForPocket(MachinePocket)
+                         ?? throw new InvalidOperationException("缺少招式机器/秘传机器口袋定义。");
+        var start = checked((int)(saveBlockBase + definition.Offset - PartyScanner.EwramBase));
+        var end = start + definition.SlotCount * 4;
+        if (start < 0 || end > ewram.Length)
+            throw new InvalidOperationException("招式机器/秘传机器口袋地址无效。请先读取或校准背包。");
+
+        for (var offset = start; offset <= end - 4; offset += 4)
+        {
+            if (ReadU16(ewram, offset) == item)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static Dictionary<ushort, ushort> ReadMachinePocketQuantities(
+        ReadOnlySpan<byte> ewram,
+        int startOffset,
+        int slotCount,
+        ushort quantityKey)
+    {
+        var machines = new Dictionary<ushort, ushort>();
+        for (var i = 0; i < slotCount; i++)
+        {
+            var offset = startOffset + i * 4;
+            var item = ReadU16(ewram, offset);
+            if (!IsBagMachineItem(item)) continue;
+            var rawQuantity = ReadU16(ewram, offset + 2);
+            machines[item] = DecodeMachineQuantity(rawQuantity, quantityKey);
+        }
+
+        return machines;
+    }
+
+    private static byte[] EncodeMachinePocket(IReadOnlyDictionary<ushort, ushort> machines, int slotCount, ushort quantityKey)
+    {
+        var bytes = new byte[slotCount * 4];
+        var index = 0;
+        foreach (var (item, quantity) in machines.OrderBy(kv => kv.Key))
+        {
+            var safeQuantity = quantity;
+            if (safeQuantity == 0) safeQuantity = 1;
+            if (safeQuantity > MaxBagWriteQuantity) safeQuantity = MaxBagWriteQuantity;
+            var slot = BagScanner.EncodeSlot(item, safeQuantity, quantityKey, quantityXor: true);
+            slot.CopyTo(bytes.AsSpan(index * 4, 4));
+            index++;
+        }
+
+        return bytes;
+    }
+
+    private static ushort DecodeMachineQuantity(ushort rawQuantity, ushort quantityKey)
+    {
+        if (quantityKey != 0)
+        {
+            var decoded = (ushort)(rawQuantity ^ quantityKey);
+            if (decoded is > 0 and <= MaxBagWriteQuantity)
+                return decoded;
+        }
+
+        return rawQuantity is > 0 and <= MaxBagWriteQuantity ? rawQuantity : (ushort)1;
+    }
+
+    private static int BagBatchCapacity(int pocket) => pocket switch
+    {
+        1 => 255,
+        2 => 67,
+        3 => 16,
+        4 => 130,
+        5 => 68,
+        6 => 130,
+        7 => 254,
+        8 => 64,
+        _ => BagScanner.MaxRunSlots
+    };
+
+    private static byte[] EncodeBatchBagSlot(int pocket, ushort item, ushort quantityKey)
+        => pocket == 8
+            ? BagScanner.EncodeSlot(item, 0, quantityKey, quantityXor: false)
+            : BagScanner.EncodeSlot(item, BagBatchQuantity, quantityKey, quantityXor: true);
 
     private BoxPokemon ReadSelectedBoxMon(MgbaBridgeClient bridge, BoxSlotRow row)
     {

@@ -42,7 +42,7 @@ public static class BagScanner
 {
     public const int DefaultMaxItemId = 2000;
     public const int DefaultMaxQuantity = 999;
-    public const int MaxRunSlots = 253;
+    public const int MaxRunSlots = 254;
     public const uint SaveBlockPointerAddress = 0x0300524C;
     private const int MachineTmStartItem = 592;
     private const int MachineTmCount = 246;
@@ -57,7 +57,7 @@ public static class BagScanner
         new(4, "战斗道具", 0x29E0, 0x78, true, 0x3502),
         new(5, "树果", 0x27D0, 0x78, true, 0x5B67),
         new(6, "宝物", 0x2BF0, 0x78, true, 0xB01B),
-        new(7, "招式机器/秘传机器", 0x23A0, 253, true, 0xFC51),
+        new(7, "招式机器/秘传机器", 0x23A0, 254, true, 0xFC51),
         new(8, "重要物品", 0x2268, 0x78, true, 0x5145),
     ];
 
@@ -69,7 +69,7 @@ public static class BagScanner
         [4] = 0x78,
         [5] = 0x78,
         [6] = 0x78,
-        [7] = 253,
+        [7] = 254,
         [8] = 0x78,
     };
 
@@ -368,10 +368,12 @@ public static class BagScanner
         }
 
         if (item > DefaultMaxItemId) return null;
-        var quantity = DecodeQuantity(rawQuantity, quantityKey, maxQuantity);
-        if (quantity is null or 0) return null;
         var pocket = itemPocket(item);
         if (pocket is < 1 or > 8) return null;
+        if (pocket == 8 && rawQuantity == 0)
+            return new BagSlot(address, item, 1, 18, $"自动定位；重要物品无数量");
+        var quantity = DecodeQuantity(rawQuantity, quantityKey, maxQuantity);
+        if (quantity is null or 0) return null;
         var score = 8;
         if (rawQuantity == (ushort)(quantity.Value ^ quantityKey)) score += 8;
         return new BagSlot(address, item, quantity.Value, score, $"自动定位；数量密钥 0x{quantityKey:X4}");
