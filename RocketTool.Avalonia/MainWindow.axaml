@@ -27,10 +27,10 @@
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
                 <StackPanel>
                     <TextBlock x:Name="AppTitleText" Text="火箭队修改工具" FontSize="34" FontWeight="Bold" Foreground="#F7F2E8" />
-                    <TextBlock Text="mGBA 实时队伍/背包编辑" Foreground="#F7F2E8" Opacity="0.82" />
+                    <TextBlock Text="mGBA 实时编辑 / GBA 存档编辑" Foreground="#F7F2E8" Opacity="0.82" />
                 </StackPanel>
                 <Border Classes="card" Grid.Column="1" MinWidth="360">
-                    <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="6">
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="6">
                         <TextBox x:Name="HostBox" Text="127.0.0.1" IsVisible="False" />
                         <TextBox x:Name="PortBox" Text="8765" IsVisible="False" />
                         <TextBox x:Name="BaseBox" IsVisible="False" />
@@ -38,7 +38,8 @@
                         <TextBlock x:Name="ConnectionStatusText" Text="尚未连接 mGBA bridge" VerticalAlignment="Center" Foreground="#2B2016" />
                         <Button x:Name="ScanButton" Grid.Column="1" Content="连接 mGBA" Click="OnScanClicked" Classes="primary" />
                         <Button x:Name="LoadSaveButton" Grid.Column="2" Content="读取存档" Click="OnLoadSaveClicked" />
-                        <TextBlock x:Name="LastWriteText" Grid.Row="1" Grid.ColumnSpan="3" Text="最近写入：暂无" Foreground="#6C6255" TextWrapping="Wrap" />
+                        <Button x:Name="ExportSaveButton" Grid.Column="3" Content="导出修改后存档" Click="OnExportSaveClicked" Classes="primary" IsVisible="False" IsEnabled="False" />
+                        <TextBlock x:Name="LastWriteText" Grid.Row="1" Grid.ColumnSpan="4" Text="最近写入：暂无" Foreground="#6C6255" TextWrapping="Wrap" />
                     </Grid>
                 </Border>
             </Grid>
@@ -151,14 +152,14 @@
                                                 <TextBlock Text="初训家名字" Classes="label" />
                                                 <TextBlock Text="初训家 ID" Classes="label" Grid.Column="2" />
                                                 <TextBox x:Name="PartyOtNameBox" Grid.Row="1" />
-                                                <Button Grid.Row="1" Grid.Column="1" Content="同步" Click="OnPartyOtNameSyncClicked" />
+                                                <Button x:Name="PartyOtSyncButton" Grid.Row="1" Grid.Column="1" Content="同步" Click="OnPartyOtNameSyncClicked" />
                                                 <TextBlock x:Name="PartyOtIdText" Grid.Row="1" Grid.Column="2" Text="未选择" Foreground="#102E4A" VerticalAlignment="Center" />
                                                 <TextBlock Grid.Row="2" Grid.ColumnSpan="3" Text="提示：如果修改训练家名字，现有宝可梦的初训家不一致时可能会不听话。" Foreground="#B3261E" FontSize="12" TextWrapping="Wrap" />
                                             </Grid>
                                             <Grid x:Name="EggHatchPanel" RowDefinitions="Auto,Auto,Auto" RowSpacing="6" IsVisible="False">
-                                                <TextBlock Text="蛋孵化所需步数" Classes="label" />
+                                                <TextBlock Text="剩余孵化周期" Classes="label" />
                                                 <TextBox x:Name="EggHatchStepsBox" Grid.Row="1" MinWidth="120" />
-                                                <TextBlock Grid.Row="2" Text="只在选中蛋时可用；最小值为 1，点击上方写入按钮后生效。" Foreground="#6C6255" FontSize="12" TextWrapping="Wrap" />
+                                                <TextBlock Grid.Row="2" Text="范围 0..255。游戏约每 256 步检查一次；0 最多约 256 步孵化，1 最多约 512 步。" Foreground="#6C6255" FontSize="12" TextWrapping="Wrap" />
                                             </Grid>
                                             <TextBlock x:Name="BasicNameText" Text="" Foreground="#102E4A" TextWrapping="Wrap" IsVisible="False" />
                                         </StackPanel>
@@ -258,7 +259,7 @@
                                     <TextBlock Text="训练家信息" FontSize="24" FontWeight="Bold" Foreground="#102E4A" VerticalAlignment="Center" />
                                     <Button x:Name="TrainerReadButton" Grid.Column="1" Content="读取训练家" Click="OnTrainerReadClicked" Classes="primary" />
                                 </Grid>
-                                <TextBlock x:Name="TrainerStatusText" Text="请连接 mGBA 后读取。存档只读模式下暂不开放写入。" Foreground="#6C6255" TextWrapping="Wrap" />
+                                <TextBlock x:Name="TrainerStatusText" Text="请连接 mGBA 后读取。" Foreground="#6C6255" TextWrapping="Wrap" />
 
                                 <Grid ColumnDefinitions="*,*" ColumnSpacing="14">
                                     <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
@@ -327,22 +328,47 @@
                                             </TabControl.ContentTemplate>
                                         </TabControl>
                                     </StackPanel>
-                                    <ListBox x:Name="BagList" Grid.Row="3" Classes="compactList" SelectionChanged="OnBagSelectionChanged">
-                                        <ListBox.ItemTemplate>
-                                            <DataTemplate>
-                                                <Border Padding="6,2" Margin="0" CornerRadius="7" Background="#FFF9EE">
-                                                    <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold" Foreground="#102E4A" />
-                                                </Border>
-                                            </DataTemplate>
-                                        </ListBox.ItemTemplate>
-                                    </ListBox>
+                                    <Grid Grid.Row="3">
+                                        <ListBox x:Name="BagList" Classes="compactList" SelectionChanged="OnBagSelectionChanged">
+                                            <ListBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Padding="6,2" Margin="0" CornerRadius="7" Background="#FFF9EE">
+                                                        <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold" Foreground="#102E4A" />
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ListBox.ItemTemplate>
+                                        </ListBox>
+                                        <ListBox x:Name="SaveBagList" Classes="compactList" IsVisible="False" SelectionChanged="OnSaveBagSelectionChanged">
+                                            <ListBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Padding="5,4" Margin="0" CornerRadius="7" Background="#FFF9EE">
+                                                        <Grid ColumnDefinitions="34,*,72" ColumnSpacing="6">
+                                                            <TextBlock Text="{Binding SlotLabel}" VerticalAlignment="Center" HorizontalAlignment="Center" FontSize="11" FontWeight="SemiBold" Foreground="#6C6255" />
+                                                            <local:SearchableChoiceBox Grid.Column="1"
+                                                                                       ItemsSource="{Binding ItemChoices, Mode=OneTime}"
+                                                                                       SelectedItem="{Binding SelectedItem, Mode=OneTime}"
+                                                                                       PlaceholderText="选择道具"
+                                                                                       SelectionChanged="OnSaveBagInlineItemChanged" />
+                                                            <TextBox Grid.Column="2"
+                                                                     Text="{Binding QuantityText, Mode=OneTime}"
+                                                                     IsEnabled="{Binding IsQuantityEditable}"
+                                                                     HorizontalContentAlignment="Center"
+                                                                     VerticalContentAlignment="Center"
+                                                                     LostFocus="OnSaveBagInlineQuantityLostFocus"
+                                                                     KeyDown="OnSaveBagInlineQuantityKeyDown" />
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ListBox.ItemTemplate>
+                                        </ListBox>
+                                    </Grid>
                                 </Grid>
                             </Border>
 
                             <ScrollViewer x:Name="BagRightScroll" Grid.Column="1" Padding="20,20,20,56" HorizontalScrollBarVisibility="Disabled">
                                 <StackPanel Spacing="16" Margin="0,0,0,96" MaxWidth="{Binding #BagRightScroll.Bounds.Width}">
-                                    <TextBlock Text="背包槽编辑" FontSize="24" FontWeight="Bold" Foreground="#102E4A" />
-                                    <TextBlock Text="这里直接改内存中的背包格子。选中左侧口袋槽位后编辑；数量会按原修改器的口袋密钥编码写回。" Foreground="#6C6255" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="BagEditorTitleText" Text="背包槽编辑" FontSize="24" FontWeight="Bold" Foreground="#102E4A" />
+                                    <TextBlock x:Name="BagEditorDescriptionText" Text="选中左侧口袋槽位后编辑。实时模式直接写入内存；存档模式修改待导出副本，并在导出后重新校验。" Foreground="#6C6255" TextWrapping="Wrap" />
                                     <WrapPanel HorizontalAlignment="Right">
                                         <Button x:Name="BagGiveAllCurrentPocketButton" Content="获取当前分类全部" Margin="0,0,8,0" Click="OnBagGiveAllCurrentPocketClicked" />
                                         <Button x:Name="BagGiveAllTmsButton" Content="获取全部技能机" Margin="0,0,8,0" Click="OnBagGiveAllTmsClicked" />
@@ -361,7 +387,7 @@
                                                 <TextBlock x:Name="BagAddressBox" Grid.Row="5" Grid.ColumnSpan="2" Text="未选择" Foreground="#6C6255" TextWrapping="Wrap" />
                                             </Grid>
                                             <Grid RowDefinitions="Auto,Auto" RowSpacing="8">
-                                                <TextBlock Text="写入会直接生效，建议先保存 mGBA 即时存档。" Foreground="#6C6255" TextWrapping="Wrap" />
+                                                <TextBlock Text="实时模式写入会直接生效；存档模式不会覆盖原文件。" Foreground="#6C6255" TextWrapping="Wrap" />
                                                 <WrapPanel Grid.Row="1" HorizontalAlignment="Right">
                                                     <Button x:Name="BagAddButton" Content="添加到当前背包" Margin="0,0,8,0" Click="OnBagAddClicked" />
                                                     <Button x:Name="BagApplyButton" Content="覆盖当前道具" Click="OnBagApplyClicked" Classes="primary" />
@@ -501,7 +527,7 @@
 
                                 <ScrollViewer Grid.Row="1" Padding="20,0,36,56" HorizontalScrollBarVisibility="Disabled">
                                 <StackPanel Spacing="14" Margin="0,0,0,96">
-                                    <TextBlock Text="先只定位并编辑非空箱子宝可梦。写入会重算校验并重新加密，建议先保存 mGBA 即时存档。" Foreground="#6C6255" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="BoxModeHintText" Text="先只定位并编辑非空箱子宝可梦。写入会重算校验并重新加密，建议先保存 mGBA 即时存档。" Foreground="#6C6255" TextWrapping="Wrap" />
                                     <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
                                         <StackPanel Spacing="10">
                                             <TextBlock Text="基础信息" FontWeight="SemiBold" Foreground="#102E4A" />
@@ -531,14 +557,14 @@
                                                 <TextBlock Text="初训家名字" Classes="label" />
                                                 <TextBlock Text="初训家 ID" Classes="label" Grid.Column="2" />
                                                 <TextBox x:Name="BoxOtNameBox" Grid.Row="1" />
-                                                <Button Grid.Row="1" Grid.Column="1" Content="同步" Click="OnBoxOtNameSyncClicked" />
+                                                <Button x:Name="BoxOtSyncButton" Grid.Row="1" Grid.Column="1" Content="同步" Click="OnBoxOtNameSyncClicked" />
                                                 <TextBlock x:Name="BoxOtIdText" Grid.Row="1" Grid.Column="2" Text="未选择" Foreground="#102E4A" VerticalAlignment="Center" />
                                                 <TextBlock Grid.Row="2" Grid.ColumnSpan="3" Text="提示：如果修改训练家名字，现有宝可梦的初训家不一致时可能会不听话。" Foreground="#B3261E" FontSize="12" TextWrapping="Wrap" />
                                             </Grid>
                                             <Grid x:Name="BoxEggHatchPanel" RowDefinitions="Auto,Auto,Auto" RowSpacing="6" IsVisible="False">
-                                                <TextBlock Text="蛋孵化所需步数" Classes="label" />
+                                                <TextBlock Text="剩余孵化周期" Classes="label" />
                                                 <TextBox x:Name="BoxEggHatchStepsBox" Grid.Row="1" MinWidth="120" />
-                                                <TextBlock Grid.Row="2" Text="只在选中蛋时可用；最小值为 1，点击上方写入按钮后生效。" Foreground="#6C6255" FontSize="12" TextWrapping="Wrap" />
+                                                <TextBlock Grid.Row="2" Text="范围 0..255。放入队伍后游戏约每 256 步检查一次；0 最多约 256 步孵化。" Foreground="#6C6255" FontSize="12" TextWrapping="Wrap" />
                                             </Grid>
                                             <TextBlock Text="箱子数据不保存当前HP、状态和直接等级；等级由经验决定。" Foreground="#6C6255" TextWrapping="Wrap" />
                                             <TextBlock x:Name="BoxNameText" Text="选择箱子槽后显示。" Foreground="#102E4A" TextWrapping="Wrap" />

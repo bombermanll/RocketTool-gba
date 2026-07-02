@@ -299,8 +299,10 @@ public sealed class PartyPokemon
 
     private static void WriteExp(Span<byte> growth, uint exp)
     {
+        if (exp > GrowthExpMask)
+            throw new ArgumentOutOfRangeException(nameof(exp), $"experience must be 0..{GrowthExpMask}");
         var preserved = ReadU32(growth, 4) & ~GrowthExpMask;
-        WriteU32(growth, 4, preserved | (exp & GrowthExpMask));
+        WriteU32(growth, 4, preserved | exp);
     }
 
     private static int NatureFromPid(uint pid) => (int)(pid % 25);

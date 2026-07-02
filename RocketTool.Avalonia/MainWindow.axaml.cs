@@ -27,10 +27,20 @@ public sealed record BagSlotRow(
     ushort ItemId,
     ushort Quantity,
     int Pocket,
+    int SlotInPocket,
     ushort QuantityKey,
     bool QuantityXor,
     string Title,
     string Detail);
+public sealed record SaveBagEditableRow(
+    BagSlotRow Row,
+    IReadOnlyList<ChoiceRow> ItemChoices,
+    ChoiceRow? SelectedItem,
+    string QuantityText)
+{
+    public string SlotLabel => Row.SlotInPocket > 0 ? Row.SlotInPocket.ToString("00") : "--";
+    public bool IsQuantityEditable => Row.Pocket != 8;
+}
 public sealed record BagCalibrationRequest(int Pocket, ushort ItemId, ushort Quantity);
 public sealed record BoxSlotRow(int Slot, uint Address, BoxPokemon Mon, BoxMonInfo Info, string Title, string Detail, Bitmap? Sprite);
 public sealed record BoxGridCell(int SlotInBox, BoxSlotRow? Row, Bitmap? Sprite, string Title, bool HasPokemon);
@@ -75,7 +85,7 @@ public sealed record TrainerInfo(uint SaveBlock2Address, byte[] NameBytes, strin
 public enum DataSourceMode
 {
     Live,
-    SaveReadOnly
+    SaveFile
 }
 
 public partial class MainWindow : Window
@@ -117,7 +127,7 @@ public partial class MainWindow : Window
     private const int MachineHmCount = 8;
     private const int MachineHmMoveStartIndex = 246;
     private const int MachinePocket = 7;
-    private const int MaxPokemonLevel = 150;
+    private const int MaxPokemonLevel = PokemonExperienceTable.MaxLevel;
     private const int DexImportLevel = 5;
     private const ushort MaxBagWriteQuantity = 255;
     private const ushort BagBatchQuantity = 240;
@@ -136,6 +146,7 @@ public partial class MainWindow : Window
 
     private readonly ObservableCollection<PartySlotRow> _partyRows = [];
     private readonly ObservableCollection<BagSlotRow> _bagRows = [];
+    private readonly ObservableCollection<SaveBagEditableRow> _saveBagRows = [];
     private readonly ObservableCollection<BoxSlotRow> _boxRows = [];
     private readonly ObservableCollection<BoxGridGroup> _boxGridGroups = [];
     private readonly ObservableCollection<DexSpeciesRow> _dexRows = [];
@@ -166,6 +177,7 @@ public partial class MainWindow : Window
     private readonly ChoiceRow[] _mapGroupChoices;
     private IReadOnlyList<ChoiceRow> _bagItemChoices = [];
     private readonly ModifierDatabase _db;
+    private readonly PokemonExperienceTable _experienceTable;
     private Dictionary<char, byte[]>? _gameTextEncodeMap;
     private Dictionary<ushort, string>? _gameTextDecodeMap;
     private uint? _partyBase;
@@ -173,6 +185,7 @@ public partial class MainWindow : Window
     private uint? _bagBase;
     private DataSourceMode _dataSourceMode = DataSourceMode.Live;
     private string? _loadedSavePath;
+    private Gen3SaveDocument? _loadedSave;
     private bool _boxGridShowAllBoxes;
     private int? _abilitySpecies;
     private int? _boxAbilitySpecies;
@@ -193,6 +206,7 @@ public partial class MainWindow : Window
         ApplyWindowIcon();
         ApplyWindowTitle();
         _db = new ModifierDatabase(Path.Combine(RootDir(), "modifier_db"), typeof(MainWindow).Assembly);
+        _experienceTable = new PokemonExperienceTable(_db);
         _mapDatabase = new MapDatabase(_db);
         _mapGroupChoices = _mapDatabase.Groups()
             .Select(g => new ChoiceRow(g.Key, MapGroupChoiceText(g.Key, g)))
@@ -268,6 +282,7 @@ public partial class MainWindow : Window
         ];
         PartyList.ItemsSource = _partyRows;
         BagList.ItemsSource = _bagRows;
+        SaveBagList.ItemsSource = _saveBagRows;
         BoxList.ItemsSource = _boxRows;
         BoxGridGroupsView.ItemsSource = _boxGridGroups;
         DexSpeciesList.ItemsSource = _dexRows;
@@ -343,24 +358,41 @@ public partial class MainWindow : Window
         BagTab.IsVisible = true;
         BoxReadButton.IsVisible = live;
         ExperimentTab.IsVisible = live;
+        TrainerTab.IsVisible = live;
+        ExportSaveButton.IsVisible = !live;
+        ExportSaveButton.IsEnabled = !live && _loadedSave is { CanWrite: true, HasChanges: true };
 
         PartyDeleteButton.IsVisible = live;
-        PartyApplyButton.IsVisible = live;
+        PartyApplyButton.IsVisible = live || _loadedSave?.CanWrite == true;
         BoxDeleteButton.IsVisible = live;
-        BoxApplyButton.IsVisible = live;
+        BoxApplyButton.IsVisible = live || _loadedSave?.CanWrite == true;
+        PartyOtSyncButton.IsVisible = live;
+        BoxOtSyncButton.IsVisible = live;
         BagReadButton.IsVisible = live;
         BagSnapshotButton.IsVisible = live;
-        BagAddButton.IsVisible = live;
+        BagAddButton.IsVisible = live || _loadedSave?.CanWrite == true;
         BagApplyButton.IsVisible = live;
+        BagList.IsVisible = live;
+        SaveBagList.IsVisible = !live;
+        BagEditorTitleText.Text = live ? "背包槽编辑" : "添加道具与详情";
+        BagEditorDescriptionText.Text = live
+            ? "选中左侧口袋槽位后编辑，再明确写入 mGBA 内存。"
+            : "左侧可直接修改现有道具；选择完成或数量输入失焦/回车后自动更新待导出副本。右侧用于添加道具和查看详情。";
+        BagAddButton.Content = live ? "添加到当前背包" : "添加到当前分类";
         DexImportPartyButton.IsVisible = live;
         DexImportBoxButton.IsVisible = live;
         DexImportPartyButton.IsEnabled = live;
         DexImportBoxButton.IsEnabled = live;
         BagModeHintText.Text = live
             ? "请先对比下方道具列表是否和游戏中一致；如不一致，请先校准背包。"
-            : "存档模式保留背包编辑页；当前只做只读结构探测，写回存档前需要先确认本改版背包结构。";
+            : _loadedSave?.CanWrite == true
+                ? "背包修改只保存在待导出副本中；重要物品可能影响流程，请谨慎修改。"
+                : $"当前存档背包只读：{_loadedSave?.WriteBlockReason}";
+        BoxModeHintText.Text = live
+            ? "先只定位并编辑非空箱子宝可梦。写入会重算校验并重新加密，建议先保存 mGBA 即时存档。"
+            : "修改只保存在待导出副本中，不会覆盖原存档；完成后点击顶部“导出修改后存档”。";
 
-        if (!live && MainTabs.SelectedItem == ExperimentTab)
+        if (!live && (MainTabs.SelectedItem == ExperimentTab || MainTabs.SelectedItem == TrainerTab))
             MainTabs.SelectedItem = PartyTab;
     }
 
@@ -415,6 +447,7 @@ public partial class MainWindow : Window
     {
         SetDataSourceMode(DataSourceMode.Live);
         _loadedSavePath = null;
+        _loadedSave = null;
         await RunUiTask("连接 mGBA", () =>
         {
             using var bridge = ConnectBridge();
@@ -447,6 +480,57 @@ public partial class MainWindow : Window
         }
 
         await RunUiTask("读取存档", () => LoadSaveFile(path));
+    }
+
+    private async void OnExportSaveClicked(object? sender, RoutedEventArgs e)
+    {
+        if (_loadedSave is not { } document)
+        {
+            ShowToast("请先读取一个存档。", success: false);
+            return;
+        }
+        if (!document.CanWrite)
+        {
+            ShowToast(document.WriteBlockReason ?? "当前存档不能安全写回。", success: false);
+            return;
+        }
+        if (!document.HasChanges)
+        {
+            ShowToast("当前存档没有待导出的修改。", success: false);
+            return;
+        }
+
+        var extension = Path.GetExtension(document.SourcePath);
+        if (!string.Equals(extension, ".srm", StringComparison.OrdinalIgnoreCase))
+            extension = ".sav";
+        var sourceName = Path.GetFileNameWithoutExtension(document.SourcePath);
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "导出修改后的 GBA 存档",
+            SuggestedFileName = $"{sourceName}.modified{extension}",
+            DefaultExtension = extension.TrimStart('.'),
+            FileTypeChoices =
+            [
+                new FilePickerFileType("GBA 存档") { Patterns = ["*.sav", "*.srm"] },
+                FilePickerFileTypes.All
+            ]
+        });
+        if (file is null) return;
+        var outputPath = file.Path.LocalPath;
+        if (string.IsNullOrWhiteSpace(outputPath))
+        {
+            ShowToast("无法读取导出路径。", success: false);
+            return;
+        }
+
+        await RunUiTask("导出存档", () =>
+        {
+            var verified = document.SaveAs(outputPath);
+            ConnectionStatusText.Text = $"存档导出成功：{Path.GetFileName(outputPath)}";
+            SetWriteNotice(
+                $"已导出并重新校验：{Path.GetFileName(outputPath)}；队伍修改 {document.ModifiedPartyCount} 只，背包修改 {document.ModifiedBagCount} 格，箱子修改 {document.ModifiedBoxCount} 只，section {verified.ValidSectionCount}/14。",
+                success: true);
+        });
     }
 
     private async void OnReloadPartyClicked(object? sender, RoutedEventArgs e) => await ReloadPartyAsync();
@@ -560,9 +644,10 @@ public partial class MainWindow : Window
 
     private void LoadSaveFile(string path)
     {
-        var save = Gen3SaveReader.Read(path);
-        SetDataSourceMode(DataSourceMode.SaveReadOnly);
+        _loadedSave = Gen3SaveReader.Open(path);
+        var save = _loadedSave.Snapshot;
         _loadedSavePath = path;
+        SetDataSourceMode(DataSourceMode.SaveFile);
         _partyBase = null;
         _boxBase = null;
         _bagBase = null;
@@ -570,7 +655,7 @@ public partial class MainWindow : Window
 
         _partyRows.Clear();
         for (var i = 0; i < save.Party.Count; i++)
-            _partyRows.Add(ToRow(i + 1, (uint)i, save.Party[i]));
+            _partyRows.Add(ToRow(i + 1, (uint)_loadedSave.PartySaveOffset(i + 1), save.Party[i]));
         PartyList.SelectedIndex = _partyRows.Count > 0 ? 0 : -1;
         if (_partyRows.Count == 0)
         {
@@ -578,29 +663,7 @@ public partial class MainWindow : Window
             ClearEditor();
         }
 
-        _bagRows.Clear();
-        _allBagRows.Clear();
-        foreach (var entry in save.Bag)
-        {
-            var definition = new BagPocketDefinition(
-                entry.Pocket,
-                PocketNameZh(entry.Pocket is >= 1 and <= 8 ? entry.Pocket : PocketOfItem(entry.ItemId)),
-                0,
-                0,
-                entry.QuantityXor,
-                entry.QuantityKey);
-            _allBagRows.Add(ToBagRow(
-                (uint)entry.SaveOffset,
-                entry.ItemId,
-                entry.Quantity,
-                entry.Note,
-                entry.Pocket is >= 1 and <= 8 ? entry.Pocket : null,
-                entry.SlotInPocket,
-                definition));
-        }
-        ApplyBagPocketFilter();
-        BagList.SelectedIndex = -1;
-        if (_bagRows.Count > 0) BagList.SelectedIndex = 0;
+        LoadSaveBagRows(save.Bag);
 
         _boxRows.Clear();
         foreach (var entry in save.Boxes)
@@ -608,7 +671,7 @@ public partial class MainWindow : Window
             var info = entry.Mon.GetInfo();
             var title = BoxDisplayTitle(entry.BoxNumber, entry.SlotInBox, entry.Mon, info);
             if (HasSummaryAllStatsIncreaseNatureCode(info.GameNatureCode)) title += " / 性格代码异常";
-            _boxRows.Add(new BoxSlotRow(entry.GlobalSlot, (uint)entry.SaveOffset, entry.Mon, info, title, "存档只读", BoxDisplaySprite(info)));
+            _boxRows.Add(new BoxSlotRow(entry.GlobalSlot, (uint)entry.SaveOffset, entry.Mon, info, title, "存档待导出副本", BoxDisplaySprite(info)));
         }
 
         _boxGridShowAllBoxes = true;
@@ -623,11 +686,15 @@ public partial class MainWindow : Window
         }
 
         ConnectionStatusText.Text = $"mGBA已断开；已读取存档：{save.FileName}";
-        LastWriteText.Text = "当前来源：存档只读预览；实时读取、实验功能和写回文件暂不开放。";
+        LastWriteText.Text = _loadedSave.CanWrite
+            ? "当前来源：存档编辑副本；队伍、背包和箱子可修改，原文件不会被覆盖。"
+            : $"当前来源：存档只读预览；{_loadedSave.WriteBlockReason}";
         Log($"已读取存档：{save.FileName}，大小 {save.FileSize} 字节，使用副本 {save.SaveSlot}，save index {save.SaveIndex}，有效 section {save.ValidSectionCount}/14。");
         Log($"存档内容：队伍 {save.Party.Count} 只，背包可显示 {save.Bag.Count} 格，箱子非空 {save.Boxes.Count} 格。支持 .sav/.srm 原始电池存档。");
         foreach (var warning in save.Warnings)
             Log("存档提示：" + warning);
+        if (!_loadedSave.CanWrite)
+            Log("存档写回已禁用：" + _loadedSave.WriteBlockReason);
     }
 
     private static int? ReadLivePartyCount(MgbaBridgeClient bridge, uint baseAddr)
@@ -781,6 +848,7 @@ public partial class MainWindow : Window
             var before = mon.GetInfo();
             var originalOtName = PokemonOtName(mon.Raw);
             var species = ParseSpeciesOrNull(SpeciesBox);
+            var experience = ResolvePartyExperience(before, species);
             SyncNicknameForSpeciesChange(mon, species);
             ApplyEditedOtName(mon, PartyOtNameBox.Text, originalOtName);
             var nature = SelectedChoiceId(NatureBox);
@@ -789,14 +857,14 @@ public partial class MainWindow : Window
             ApplyGenderChoice(mon, species ?? before.Species);
             var abilitySlot = SelectedAbilitySlot();
             if (abilitySlot is not null) mon.SetAbilitySlot(abilitySlot.Value);
-            mon.SetGrowth(species, ParseItemOrNull(ItemBox), ParseUIntOrNull(ExpBox.Text), ParsePartyFriendshipOrHatchCounter(before), null);
-            var level = ParseByteOrNull(LevelBox.Text);
+            mon.SetGrowth(species, ParseItemOrNull(ItemBox), experience.Exp, ParsePartyFriendshipOrHatchCounter(before), null);
+            var level = experience.Level;
             var maxHp = ParseUShortOrNull(MaxHpBox.Text);
-            mon.SetUnencrypted(null, null, SelectedStatus(), level);
+            mon.SetUnencrypted(null, null, SelectedStatus(), experience.Level);
             var shouldRecalculateStats =
                 species is not null && species.Value != before.Species ||
                 nature is not null && (nature.Value != before.Nature || before.GameNatureCode != NatureCodeUsePid) ||
-                level is not null && level.Value != before.Level;
+                level != before.Level;
             if (shouldRecalculateStats) RecalculateLiveStats(mon);
             if (!shouldRecalculateStats || maxHp is not null && maxHp.Value != before.MaxHp)
                 mon.SetUnencrypted(maxHp: maxHp);
@@ -811,43 +879,35 @@ public partial class MainWindow : Window
         if (SelectedRow() is not { } row) return;
         if (!TryReadCurrentEvTotal("写入当前精灵", out var pendingEvTotal)) return;
         if (!await ConfirmHighEvTotalAsync(pendingEvTotal)) return;
+
+        if (_dataSourceMode == DataSourceMode.SaveFile)
+        {
+            await RunUiTask("更新存档队伍", () =>
+            {
+                var document = _loadedSave ?? throw new InvalidOperationException("当前没有已读取的存档。");
+                var mon = new PartyPokemon(row.Mon.Raw);
+                var evTotal = ApplyPartyEditor(mon);
+                document.ReplacePartyPokemon(row.Slot, mon);
+                var updated = ToRow(row.Slot, row.Address, mon);
+                var index = _partyRows.IndexOf(row);
+                if (index >= 0) _partyRows[index] = updated;
+                PartyList.SelectedItem = updated;
+                ExportSaveButton.IsEnabled = true;
+                SetWriteNotice(
+                    evTotal > 510
+                        ? $"存档队伍槽位 {row.Slot} 已更新，等待导出。警告：努力值总和已超过限制。"
+                        : $"存档队伍槽位 {row.Slot} 已更新，等待导出。",
+                    success: evTotal <= 510);
+            });
+            return;
+        }
+
         await RunUiTask("写入当前精灵", () =>
         {
-            var ivs = BuildIntStats(IvHpBox, IvAtkBox, IvDefBox, IvSpeBox, IvSpaBox, IvSpdBox);
-            foreach (var value in ivs.Values)
-            {
-                if (value is < 0 or > 31) throw new InvalidOperationException("个体值必须在 0..31 之间。");
-            }
-
-            var evs = BuildByteStats(EvHpBox, EvAtkBox, EvDefBox, EvSpeBox, EvSpaBox, EvSpdBox);
-            var evTotal = evs.Values.Sum(x => x);
-
             using var bridge = ConnectBridge();
             var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
             var (addr, mon) = ReadSelectedLiveMon(bridge, baseAddr, row);
-            var before = mon.GetInfo();
-            var originalOtName = PokemonOtName(mon.Raw);
-            var species = ParseSpeciesOrNull(SpeciesBox);
-            SyncNicknameForSpeciesChange(mon, species);
-            ApplyEditedOtName(mon, PartyOtNameBox.Text, originalOtName);
-
-            if (SelectedChoiceId(NatureBox) is { } nature) mon.SetNature(nature);
-            mon.SetShiny(ShinyBox.IsChecked == true);
-            ApplyGenderChoice(mon, species ?? before.Species);
-            if (SelectedAbilitySlot() is { } abilitySlot) mon.SetAbilitySlot(abilitySlot);
-            mon.SetGrowth(
-                species,
-                ParseItemOrNull(ItemBox),
-                ParseUIntOrNull(ExpBox.Text),
-                ParsePartyFriendshipOrHatchCounter(before),
-                BuildPpBonuses(PpUp1Box, PpUp2Box, PpUp3Box, PpUp4Box));
-            mon.SetUnencrypted(null, ParseUShortOrNull(MaxHpBox.Text), SelectedStatus(), ParseByteOrNull(LevelBox.Text));
-            mon.SetMoves(
-                [ParseMoveOrNull(Move1Box), ParseMoveOrNull(Move2Box), ParseMoveOrNull(Move3Box), ParseMoveOrNull(Move4Box)],
-                [ParseByteOrNull(Pp1Box.Text), ParseByteOrNull(Pp2Box.Text), ParseByteOrNull(Pp3Box.Text), ParseByteOrNull(Pp4Box.Text)]);
-            mon.SetIvs(ivs);
-            mon.SetEvs(evs);
-            RecalculateLiveStats(mon);
+            var evTotal = ApplyPartyEditor(mon);
             WriteMon(bridge, addr, mon);
             SetWriteNotice(
                 evTotal > 510
@@ -856,6 +916,42 @@ public partial class MainWindow : Window
                 success: evTotal <= 510);
         });
         await RefreshPartyAndBoxAfterWriteAsync(row.Slot);
+    }
+
+    private int ApplyPartyEditor(PartyPokemon mon)
+    {
+        var ivs = BuildIntStats(IvHpBox, IvAtkBox, IvDefBox, IvSpeBox, IvSpaBox, IvSpdBox);
+        foreach (var value in ivs.Values)
+        {
+            if (value is < 0 or > 31) throw new InvalidOperationException("个体值必须在 0..31 之间。");
+        }
+
+        var evs = BuildByteStats(EvHpBox, EvAtkBox, EvDefBox, EvSpeBox, EvSpaBox, EvSpdBox);
+        var before = mon.GetInfo();
+        var originalOtName = PokemonOtName(mon.Raw);
+        var species = ParseSpeciesOrNull(SpeciesBox);
+        var experience = ResolvePartyExperience(before, species);
+        SyncNicknameForSpeciesChange(mon, species);
+        ApplyEditedOtName(mon, PartyOtNameBox.Text, originalOtName);
+
+        if (SelectedChoiceId(NatureBox) is { } nature) mon.SetNature(nature);
+        mon.SetShiny(ShinyBox.IsChecked == true);
+        ApplyGenderChoice(mon, species ?? before.Species);
+        if (SelectedAbilitySlot() is { } abilitySlot) mon.SetAbilitySlot(abilitySlot);
+        mon.SetGrowth(
+            species,
+            ParseItemOrNull(ItemBox),
+            experience.Exp,
+            ParsePartyFriendshipOrHatchCounter(before),
+            BuildPpBonuses(PpUp1Box, PpUp2Box, PpUp3Box, PpUp4Box));
+        mon.SetUnencrypted(null, ParseUShortOrNull(MaxHpBox.Text), SelectedStatus(), experience.Level);
+        mon.SetMoves(
+            [ParseMoveOrNull(Move1Box), ParseMoveOrNull(Move2Box), ParseMoveOrNull(Move3Box), ParseMoveOrNull(Move4Box)],
+            [ParseByteOrNull(Pp1Box.Text), ParseByteOrNull(Pp2Box.Text), ParseByteOrNull(Pp3Box.Text), ParseByteOrNull(Pp4Box.Text)]);
+        mon.SetIvs(ivs);
+        mon.SetEvs(evs);
+        RecalculateLiveStats(mon);
+        return evs.Values.Sum(x => x);
     }
 
     private async void OnPartyDeleteClicked(object? sender, RoutedEventArgs e)
@@ -1257,10 +1353,102 @@ public partial class MainWindow : Window
     private void OnBagSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (BagList.SelectedItem is not BagSlotRow row) return;
+        ShowBagRowDetails(row);
+    }
+
+    private void OnSaveBagSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (SaveBagList.SelectedItem is not SaveBagEditableRow editable) return;
+        ShowBagRowDetails(editable.Row);
+    }
+
+    private void ShowBagRowDetails(BagSlotRow row)
+    {
         BagAddressBox.Text = $"0x{row.Address:X8}";
         SetBagItemChoicesForPocket(row.Pocket, row.ItemId);
         BagQuantityBox.Text = row.Quantity.ToString();
         UpdateBagNameText();
+    }
+
+    private async void OnSaveBagInlineItemChanged(object? sender, EventArgs e)
+    {
+        if (_dataSourceMode != DataSourceMode.SaveFile ||
+            sender is not SearchableChoiceBox box ||
+            box.DataContext is not SaveBagEditableRow editable ||
+            box.SelectedItem is not ChoiceRow choice ||
+            choice.Id == editable.Row.ItemId)
+            return;
+
+        var loaded = _loadedSave;
+        if (choice.Id != 0 && loaded?.CurrentBag.Any(entry =>
+                entry.SaveOffset != editable.Row.Address &&
+                entry.Pocket == editable.Row.Pocket &&
+                entry.ItemId == choice.Id) == true)
+        {
+            ShowToast($"{ItemName(choice.Id)}已存在于当前分类，不能产生重复格。", success: false);
+            RefreshSaveBagEditableRows(editable.Row.Address);
+            return;
+        }
+
+        await RunUiTask("修改存档背包道具", () =>
+        {
+            var document = loaded ?? throw new InvalidOperationException("请先读取存档。");
+            var item = checked((ushort)choice.Id);
+            var quantity = item == 0 ? (ushort)0 : editable.Row.Pocket == 8 ? (ushort)1 : editable.Row.Quantity;
+            var updated = document.ReplaceBagEntry(checked((int)editable.Row.Address), item, quantity);
+            LoadSaveBagRows(document.CurrentBag, updated?.SaveOffset);
+            ExportSaveButton.IsEnabled = document.HasChanges;
+            SetWriteNotice(item == 0
+                ? $"{PocketNameZh(editable.Row.Pocket)}第 {editable.Row.SlotInPocket} 格已清空，等待导出。"
+                : $"{PocketNameZh(editable.Row.Pocket)}第 {editable.Row.SlotInPocket} 格已改为 {ItemName(item)}，等待导出。");
+        });
+    }
+
+    private async void OnSaveBagInlineQuantityLostFocus(object? sender, RoutedEventArgs e)
+    {
+        if (sender is TextBox box)
+            await CommitSaveBagInlineQuantityAsync(box);
+    }
+
+    private async void OnSaveBagInlineQuantityKeyDown(object? sender, global::Avalonia.Input.KeyEventArgs e)
+    {
+        if (e.Key != global::Avalonia.Input.Key.Enter || sender is not TextBox box) return;
+        e.Handled = true;
+        await CommitSaveBagInlineQuantityAsync(box);
+    }
+
+    private async Task CommitSaveBagInlineQuantityAsync(TextBox box)
+    {
+        if (_dataSourceMode != DataSourceMode.SaveFile || box.DataContext is not SaveBagEditableRow editable)
+            return;
+        if (editable.Row.Pocket == 8)
+        {
+            box.Text = "1";
+            return;
+        }
+        if (!ushort.TryParse(box.Text?.Trim(), out var quantity) || quantity is < 1 or > MaxBagWriteQuantity)
+        {
+            box.Text = editable.Row.Quantity.ToString();
+            ShowToast($"数量必须在 1..{MaxBagWriteQuantity} 之间。", success: false);
+            return;
+        }
+
+        var document = _loadedSave;
+        var current = document?.CurrentBag.FirstOrDefault(entry => entry.SaveOffset == editable.Row.Address);
+        if (document is null || current is null)
+        {
+            ShowToast("背包槽已经变化，请重新读取存档。", success: false);
+            return;
+        }
+        if (current.Quantity == quantity) return;
+
+        await RunUiTask("修改存档背包数量", () =>
+        {
+            document.ReplaceBagEntry(current.SaveOffset, current.ItemId, quantity);
+            LoadSaveBagRows(document.CurrentBag, current.SaveOffset);
+            ExportSaveButton.IsEnabled = document.HasChanges;
+            SetWriteNotice($"{PocketNameZh(current.Pocket)}第 {current.SlotInPocket} 格数量已改为 {quantity}，等待导出。");
+        });
     }
 
     private async void OnBagReadClicked(object? sender, RoutedEventArgs e)
@@ -1288,6 +1476,23 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (_dataSourceMode == DataSourceMode.SaveFile)
+        {
+            await RunUiTask("修改存档背包槽", () =>
+            {
+                var document = _loadedSave ?? throw new InvalidOperationException("请先读取存档。");
+                var item = ParseBagItemRequired(row.Pocket, allowEmpty: true);
+                var qty = ParseBagQuantityRequired(item, allowZero: item == 0);
+                var updated = document.ReplaceBagEntry(checked((int)row.Address), item, qty);
+                LoadSaveBagRows(document.CurrentBag, updated?.SaveOffset);
+                ExportSaveButton.IsEnabled = document.HasChanges;
+                SetWriteNotice(item == 0
+                    ? $"存档背包槽 0x{row.Address:X} 已清空，等待导出。"
+                    : $"存档背包槽已更新为 {ItemName(item)} x{(row.Pocket == 8 ? 1 : qty)}，等待导出。");
+            });
+            return;
+        }
+
         await RunUiTask("写入背包槽", () =>
         {
             using var bridge = ConnectBridge();
@@ -1312,6 +1517,26 @@ public partial class MainWindow : Window
 
     private async void OnBagAddClicked(object? sender, RoutedEventArgs e)
     {
+        if (_dataSourceMode == DataSourceMode.SaveFile)
+        {
+            await RunUiTask("添加存档背包道具", () =>
+            {
+                var document = _loadedSave ?? throw new InvalidOperationException("请先读取存档。");
+                var selectedPocket = SelectedChoiceId(BagPocketTabs) ?? 0;
+                if (selectedPocket <= 0)
+                    selectedPocket = CurrentBagEditPocket();
+                if (selectedPocket is < 1 or > 8)
+                    throw new InvalidOperationException("请先切换到具体背包分类。");
+                var item = ParseBagItemRequired(selectedPocket, allowEmpty: false);
+                var qty = ParseBagQuantityRequired(item, allowZero: false);
+                var added = document.AddBagItem(selectedPocket, item, qty);
+                LoadSaveBagRows(document.CurrentBag, added.SaveOffset);
+                ExportSaveButton.IsEnabled = document.HasChanges;
+                SetWriteNotice($"存档背包已添加 {ItemName(item)} x{(selectedPocket == 8 ? 1 : qty)}，等待导出。");
+            });
+            return;
+        }
+
         await RunUiTask("添加背包道具", () =>
         {
             using var bridge = ConnectBridge();
@@ -1379,6 +1604,23 @@ public partial class MainWindow : Window
 
     private async Task GiveBagMachinesAsync(string label, IReadOnlyList<ushort> items)
     {
+        if (_dataSourceMode == DataSourceMode.SaveFile)
+        {
+            await RunUiTask(label, () =>
+            {
+                var document = _loadedSave ?? throw new InvalidOperationException("请先读取存档。");
+                var writableItems = items.Where(item => MachineMoveName(item) is not null).ToArray();
+                var skipped = items.Count - writableItems.Length;
+                var result = document.SetBagItems(MachinePocket, writableItems, BagBatchQuantity);
+                LoadSaveBagRows(document.CurrentBag);
+                BagPocketTabs.SelectedItem = _bagPocketChoices.FirstOrDefault(choice => choice.Id == MachinePocket) ?? BagPocketTabs.SelectedItem;
+                SelectSaveBagRow(_bagRows.FirstOrDefault(row => writableItems.Contains(row.ItemId))?.Address);
+                ExportSaveButton.IsEnabled = document.HasChanges;
+                SetWriteNotice($"{label}已写入存档副本：新增 {result.Added} 个，更新 {result.Updated} 个，跳过 {skipped} 个，等待导出。");
+            });
+            return;
+        }
+
         await RunUiTask(label, () =>
         {
             using var bridge = ConnectBridge();
@@ -1425,6 +1667,21 @@ public partial class MainWindow : Window
 
     private async Task GiveBagPocketItemsAsync(string label, int pocket, IReadOnlyList<ushort> items)
     {
+        if (_dataSourceMode == DataSourceMode.SaveFile)
+        {
+            await RunUiTask(label, () =>
+            {
+                var document = _loadedSave ?? throw new InvalidOperationException("请先读取存档。");
+                var result = document.SetBagItems(pocket, items, pocket == 8 ? (ushort)1 : BagBatchQuantity);
+                LoadSaveBagRows(document.CurrentBag);
+                BagPocketTabs.SelectedItem = _bagPocketChoices.FirstOrDefault(choice => choice.Id == pocket) ?? BagPocketTabs.SelectedItem;
+                SelectSaveBagRow(_bagRows.FirstOrDefault(row => items.Contains(row.ItemId))?.Address);
+                ExportSaveButton.IsEnabled = document.HasChanges;
+                SetWriteNotice($"{label}已写入存档副本：新增 {result.Added} 个，更新 {result.Updated} 个，数量设为 {(pocket == 8 ? 1 : BagBatchQuantity)}，等待导出。");
+            });
+            return;
+        }
+
         await RunUiTask(label, () =>
         {
             using var bridge = ConnectBridge();
@@ -1548,50 +1805,39 @@ public partial class MainWindow : Window
         if (!TryReadBoxEvTotal("写入箱子", out var pendingEvTotal)) return;
         if (!await ConfirmHighEvTotalAsync(pendingEvTotal)) return;
 
+        if (_dataSourceMode == DataSourceMode.SaveFile)
+        {
+            await RunUiTask("更新存档箱子", () =>
+            {
+                var document = _loadedSave ?? throw new InvalidOperationException("当前没有已读取的存档。");
+                var mon = new BoxPokemon(row.Mon.Raw);
+                var (species, evTotal) = ApplyBoxEditor(mon);
+                document.ReplaceBoxPokemon(row.Slot, mon);
+                var info = mon.GetInfo();
+                var boxNumber = (row.Slot - 1) / BoxScanner.BoxSlots + 1;
+                var slotInBox = (row.Slot - 1) % BoxScanner.BoxSlots + 1;
+                var title = BoxDisplayTitle(boxNumber, slotInBox, mon, info);
+                if (HasSummaryAllStatsIncreaseNatureCode(info.GameNatureCode)) title += " / 性格代码异常";
+                var updated = new BoxSlotRow(row.Slot, row.Address, mon, info, title, "存档待导出副本", BoxDisplaySprite(info));
+                var index = _boxRows.IndexOf(row);
+                if (index >= 0) _boxRows[index] = updated;
+                RefreshBoxGridGroups();
+                BoxList.SelectedItem = updated;
+                ExportSaveButton.IsEnabled = true;
+                SetWriteNotice(
+                    evTotal > 510
+                        ? $"存档箱{boxNumber:00}-{slotInBox:00}已更新为 {SpeciesName(species)}，等待导出。警告：努力值总和已超过限制。"
+                        : $"存档箱{boxNumber:00}-{slotInBox:00}已更新为 {SpeciesName(species)}，等待导出。",
+                    success: evTotal <= 510);
+            });
+            return;
+        }
+
         await RunUiTask("写入箱子", () =>
         {
             using var bridge = ConnectBridge();
             var mon = ReadSelectedBoxMon(bridge, row);
-            var before = mon.GetInfo();
-            var originalOtName = PokemonOtName(mon.Raw);
-            var species = ParseSpeciesRequired(BoxSpeciesBox, "箱子宝可梦");
-            SyncNicknameForSpeciesChange(mon, species);
-            ApplyEditedOtName(mon, BoxOtNameBox.Text, originalOtName);
-            var item = ParseItemRequired(BoxItemBox, "箱子携带道具");
-            mon.SetGrowth(
-                species: species,
-                item: item,
-                exp: ParseUIntOrNull(BoxExpBox.Text),
-                friendship: ParseBoxFriendshipOrHatchCounter(before),
-                ppBonuses: BuildPpBonuses(BoxPpUp1Box, BoxPpUp2Box, BoxPpUp3Box, BoxPpUp4Box));
-            if (SelectedChoiceId(BoxNatureBox) is { } nature)
-                mon.SetNature(nature);
-            mon.SetShiny(BoxShinyBox.IsChecked == true);
-            ApplyGenderChoice(mon, species);
-            if (SelectedChoiceId(BoxAbilityBox) is { } ability)
-                mon.SetIvs(new Dictionary<string, int> { ["ability"] = ability });
-            var ivs = BuildIntStats(BoxIvHpBox, BoxIvAtkBox, BoxIvDefBox, BoxIvSpeBox, BoxIvSpaBox, BoxIvSpdBox);
-            foreach (var value in ivs.Values)
-            {
-                if (value is < 0 or > 31) throw new InvalidOperationException("个体值必须在 0..31 之间。");
-            }
-            var evs = BuildByteStats(BoxEvHpBox, BoxEvAtkBox, BoxEvDefBox, BoxEvSpeBox, BoxEvSpaBox, BoxEvSpdBox);
-            var evTotal = evs.Values.Sum(x => x);
-            mon.SetIvs(ivs);
-            mon.SetEvs(evs);
-            mon.SetMoves(
-                [
-                    ParseMoveOrNull(BoxMove1Box),
-                    ParseMoveOrNull(BoxMove2Box),
-                    ParseMoveOrNull(BoxMove3Box),
-                    ParseMoveOrNull(BoxMove4Box)
-                ],
-                [
-                    ParseByteOrNull(BoxPp1Box.Text),
-                    ParseByteOrNull(BoxPp2Box.Text),
-                    ParseByteOrNull(BoxPp3Box.Text),
-                    ParseByteOrNull(BoxPp4Box.Text)
-                ]);
+            var (species, evTotal) = ApplyBoxEditor(mon);
             bridge.WriteRangeVerified(row.Address, mon.Raw.ToArray());
             SetWriteNotice(
                 evTotal > 510
@@ -1602,6 +1848,51 @@ public partial class MainWindow : Window
             RefreshPartyRowsIfPossible(bridge);
             BoxList.SelectedItem = _boxRows.FirstOrDefault(r => r.Address == row.Address) ?? BoxList.SelectedItem;
         });
+    }
+
+    private (ushort Species, int EvTotal) ApplyBoxEditor(BoxPokemon mon)
+    {
+        var before = mon.GetInfo();
+        var originalOtName = PokemonOtName(mon.Raw);
+        var species = ParseSpeciesRequired(BoxSpeciesBox, "箱子宝可梦");
+        var experience = ResolveBoxExperience(before, species);
+        SyncNicknameForSpeciesChange(mon, species);
+        ApplyEditedOtName(mon, BoxOtNameBox.Text, originalOtName);
+        var item = ParseItemRequired(BoxItemBox, "箱子携带道具");
+        mon.SetGrowth(
+            species: species,
+            item: item,
+            exp: experience,
+            friendship: ParseBoxFriendshipOrHatchCounter(before),
+            ppBonuses: BuildPpBonuses(BoxPpUp1Box, BoxPpUp2Box, BoxPpUp3Box, BoxPpUp4Box));
+        if (SelectedChoiceId(BoxNatureBox) is { } nature)
+            mon.SetNature(nature);
+        mon.SetShiny(BoxShinyBox.IsChecked == true);
+        ApplyGenderChoice(mon, species);
+        if (SelectedChoiceId(BoxAbilityBox) is { } ability)
+            mon.SetIvs(new Dictionary<string, int> { ["ability"] = ability });
+        var ivs = BuildIntStats(BoxIvHpBox, BoxIvAtkBox, BoxIvDefBox, BoxIvSpeBox, BoxIvSpaBox, BoxIvSpdBox);
+        foreach (var value in ivs.Values)
+        {
+            if (value is < 0 or > 31) throw new InvalidOperationException("个体值必须在 0..31 之间。");
+        }
+        var evs = BuildByteStats(BoxEvHpBox, BoxEvAtkBox, BoxEvDefBox, BoxEvSpeBox, BoxEvSpaBox, BoxEvSpdBox);
+        mon.SetIvs(ivs);
+        mon.SetEvs(evs);
+        mon.SetMoves(
+            [
+                ParseMoveOrNull(BoxMove1Box),
+                ParseMoveOrNull(BoxMove2Box),
+                ParseMoveOrNull(BoxMove3Box),
+                ParseMoveOrNull(BoxMove4Box)
+            ],
+            [
+                ParseByteOrNull(BoxPp1Box.Text),
+                ParseByteOrNull(BoxPp2Box.Text),
+                ParseByteOrNull(BoxPp3Box.Text),
+                ParseByteOrNull(BoxPp4Box.Text)
+            ]);
+        return (species, evs.Values.Sum(x => x));
     }
 
     private async void OnBoxDeleteClicked(object? sender, RoutedEventArgs e)
@@ -3146,7 +3437,9 @@ public partial class MainWindow : Window
         });
         root.Children.Add(new TextBlock
         {
-            Text = "已有机器会跳过，不会叠加数量。写入前建议先保存 mGBA 即时存档；写入后需要在游戏中手动存档才会保留。",
+            Text = _dataSourceMode == DataSourceMode.SaveFile
+                ? $"已有机器和新增机器的数量都会设为 {BagBatchQuantity}。修改只进入待导出副本，不覆盖原存档。"
+                : "已有机器会跳过，不会叠加数量。写入前建议先保存 mGBA 即时存档；写入后需要在游戏中手动存档才会保留。",
             TextWrapping = TextWrapping.Wrap,
             Foreground = new SolidColorBrush(Color.FromRgb(108, 98, 85))
         });
@@ -3198,8 +3491,12 @@ public partial class MainWindow : Window
         root.Children.Add(new TextBlock
         {
             Text = isKeyItems
-                ? "重要物品会直接影响剧情标记和流程状态，可能导致剧情卡住、NPC 不触发或进程无法继续，不建议使用。继续前务必保存 mGBA 即时存档。"
-                : $"已有道具会把数量改为 {BagBatchQuantity}，缺失道具会写入空槽。写入后需要在游戏中手动存档才会保留。",
+                ? _dataSourceMode == DataSourceMode.SaveFile
+                    ? "重要物品会影响剧情标记和流程状态，可能导致剧情卡住、NPC 不触发或进程无法继续，不建议使用。修改只进入待导出副本。"
+                    : "重要物品会直接影响剧情标记和流程状态，可能导致剧情卡住、NPC 不触发或进程无法继续，不建议使用。继续前务必保存 mGBA 即时存档。"
+                : _dataSourceMode == DataSourceMode.SaveFile
+                    ? $"已有道具会把数量改为 {BagBatchQuantity}，缺失道具会写入空槽。修改只进入待导出副本。"
+                    : $"已有道具会把数量改为 {BagBatchQuantity}，缺失道具会写入空槽。写入后需要在游戏中手动存档才会保留。",
             TextWrapping = TextWrapping.Wrap,
             Foreground = new SolidColorBrush(isKeyItems ? Color.FromRgb(150, 43, 43) : Color.FromRgb(108, 98, 85)),
             FontWeight = isKeyItems ? FontWeight.SemiBold : FontWeight.Normal
@@ -3359,8 +3656,8 @@ public partial class MainWindow : Window
 
     private MgbaBridgeClient ConnectBridge()
     {
-        if (_dataSourceMode == DataSourceMode.SaveReadOnly)
-            throw new InvalidOperationException("当前是存档只读模式。请先点击“连接 mGBA”切换到实时模式；存档写回功能尚未开放。");
+        if (_dataSourceMode == DataSourceMode.SaveFile)
+            throw new InvalidOperationException("当前是存档模式，该操作只支持 mGBA 实时内存。");
         var host = string.IsNullOrWhiteSpace(HostBox.Text) ? "127.0.0.1" : HostBox.Text.Trim();
         var port = int.TryParse(PortBox.Text, out var parsed) ? parsed : 8765;
         var bridge = MgbaBridgeClient.Connect(host, port);
@@ -3519,14 +3816,14 @@ public partial class MainWindow : Window
     {
         var isEgg = info is not null && IsEgg(info);
         EggHatchPanel.IsVisible = isEgg;
-        EggHatchStepsBox.Text = isEgg ? Math.Max(1, (int)info!.Friendship).ToString() : string.Empty;
+        EggHatchStepsBox.Text = isEgg ? info!.Friendship.ToString() : string.Empty;
     }
 
     private void UpdateBoxEggHatchEditor(BoxMonInfo? info)
     {
         var isEgg = info is not null && IsEgg(info);
         BoxEggHatchPanel.IsVisible = isEgg;
-        BoxEggHatchStepsBox.Text = isEgg ? Math.Max(1, (int)info!.Friendship).ToString() : string.Empty;
+        BoxEggHatchStepsBox.Text = isEgg ? info!.Friendship.ToString() : string.Empty;
     }
 
     private byte? ParsePartyFriendshipOrHatchCounter(PartyMonInfo info)
@@ -3537,10 +3834,7 @@ public partial class MainWindow : Window
 
     private static byte ParseHatchCounter(string? text)
     {
-        var value = ParseByteOrNull(text) ?? throw new InvalidOperationException("缺少孵化所需步数。");
-        if (value < 1)
-            throw new InvalidOperationException("孵化所需步数最小为 1。");
-        return value;
+        return ParseByteOrNull(text) ?? throw new InvalidOperationException("剩余孵化周期必须在 0..255 之间。");
     }
 
     private static bool IsEgg(PartyMonInfo info)
@@ -3571,7 +3865,7 @@ public partial class MainWindow : Window
                 ? $"{prefix}{name}"
                 : $"{prefix}{name} x{quantity}";
         var detail = $"{pocketName}  地址 0x{address:X8}  {note}";
-        return new BagSlotRow(address, itemId, quantity, pocket, definition?.QuantityKey ?? 0, definition?.QuantityXor == true, title, detail);
+        return new BagSlotRow(address, itemId, quantity, pocket, slotNumber ?? 0, definition?.QuantityKey ?? 0, definition?.QuantityXor == true, title, detail);
     }
 
     private void LoadBagRows(MgbaBridgeClient bridge)
@@ -3613,6 +3907,61 @@ public partial class MainWindow : Window
             Log($"{PocketNameZh(selected)} 当前未定位到道具，按空口袋处理。");
         if (nonEmpty == 0)
             Log("没有读到可信背包槽：当前画面可能不是可读状态，或该存档需要用“校准背包”重新定位。");
+    }
+
+    private void LoadSaveBagRows(IEnumerable<Gen3SaveBagEntry> entries, int? selectedOffset = null)
+    {
+        _bagRows.Clear();
+        _allBagRows.Clear();
+        foreach (var entry in entries.OrderBy(entry => entry.SaveOffset))
+        {
+            var pocket = entry.Pocket is >= 1 and <= 8 ? entry.Pocket : PocketOfItem(entry.ItemId);
+            var definition = new BagPocketDefinition(
+                pocket,
+                PocketNameZh(pocket),
+                0,
+                0,
+                entry.QuantityXor,
+                entry.QuantityKey);
+            _allBagRows.Add(ToBagRow(
+                (uint)entry.SaveOffset,
+                entry.ItemId,
+                entry.Quantity,
+                entry.Note,
+                pocket,
+                entry.SlotInPocket,
+                definition));
+        }
+
+        ApplyBagPocketFilter();
+        SelectSaveBagRow(selectedOffset is null ? null : (uint)selectedOffset.Value);
+    }
+
+    private void RefreshSaveBagEditableRows(uint? selectedAddress = null)
+    {
+        if (_dataSourceMode != DataSourceMode.SaveFile) return;
+        selectedAddress ??= (SaveBagList.SelectedItem as SaveBagEditableRow)?.Row.Address;
+        _saveBagRows.Clear();
+        foreach (var row in _bagRows)
+        {
+            var choices = BagItemChoicesForPocket(row.Pocket);
+            _saveBagRows.Add(new SaveBagEditableRow(
+                row,
+                choices,
+                choices.FirstOrDefault(choice => choice.Id == row.ItemId),
+                row.Pocket == 8 ? "1" : row.Quantity.ToString()));
+        }
+        SelectSaveBagRow(selectedAddress);
+    }
+
+    private void SelectSaveBagRow(uint? address)
+    {
+        if (_dataSourceMode != DataSourceMode.SaveFile) return;
+        SaveBagList.SelectedItem = address is null
+            ? null
+            : _saveBagRows.FirstOrDefault(editable => editable.Row.Address == address.Value);
+        if (SaveBagList.SelectedItem is null && _saveBagRows.Count > 0)
+            SaveBagList.SelectedIndex = 0;
     }
 
     private void LoadBoxRows(MgbaBridgeClient bridge)
@@ -3729,6 +4078,12 @@ public partial class MainWindow : Window
         _bagRows.Clear();
         foreach (var row in rows)
             _bagRows.Add(row);
+        if (_dataSourceMode == DataSourceMode.SaveFile)
+        {
+            RefreshSaveBagEditableRows();
+            UpdateBagNameText();
+            return;
+        }
         if (BagList.SelectedItem is BagSlotRow selectedRow && _bagRows.Contains(selectedRow))
             SetBagItemChoicesForPocket(selectedRow.Pocket);
         else
@@ -3739,6 +4094,13 @@ public partial class MainWindow : Window
     private void UpdateBagBatchButtons(int? selectedPocket = null)
     {
         if (BagGiveAllCurrentPocketButton is null || BagGiveAllTmsButton is null || BagGiveAllHmsButton is null) return;
+        if (_dataSourceMode == DataSourceMode.SaveFile && _loadedSave?.CanWrite != true)
+        {
+            BagGiveAllCurrentPocketButton.IsVisible = false;
+            BagGiveAllTmsButton.IsVisible = false;
+            BagGiveAllHmsButton.IsVisible = false;
+            return;
+        }
         var pocket = selectedPocket ?? SelectedChoiceId(BagPocketTabs) ?? 0;
         var isConcretePocket = pocket is >= 1 and <= 8;
         var isMachinePocket = pocket == MachinePocket;
@@ -3916,6 +4278,10 @@ public partial class MainWindow : Window
 
     private int CurrentBagEditPocket()
     {
+        if (_dataSourceMode == DataSourceMode.SaveFile &&
+            SaveBagList.SelectedItem is SaveBagEditableRow editable &&
+            string.Equals(BagAddressBox.Text, $"0x{editable.Row.Address:X8}", StringComparison.OrdinalIgnoreCase))
+            return editable.Row.Pocket;
         if (BagList.SelectedItem is BagSlotRow row &&
             string.Equals(BagAddressBox.Text, $"0x{row.Address:X8}", StringComparison.OrdinalIgnoreCase))
             return row.Pocket;
@@ -4437,35 +4803,67 @@ public partial class MainWindow : Window
         BoxCurrentSpdStatText.Text = CalculateOtherDisplay(stats.SpDefense, ivs.GetValueOrDefault("spd"), evs.GetValueOrDefault("spd"), level, nature, 4).ToString();
     }
 
-    private static int LevelFromExp(uint exp, byte growthRate)
+    private (uint Exp, byte Level) ResolvePartyExperience(PartyMonInfo before, ushort? editedSpecies)
     {
-        var level = 1;
-        while (level < MaxPokemonLevel && ExperienceForLevel(level + 1, growthRate) <= exp)
-            level++;
-        return level;
+        var targetSpecies = editedSpecies ?? before.Species;
+        var targetLevel = ParseByteOrNull(LevelBox.Text) ?? before.Level;
+        if (targetLevel is < 1 or > MaxPokemonLevel)
+            throw new InvalidOperationException($"等级必须在 1..{MaxPokemonLevel} 之间。");
+
+        var enteredExp = ParseUIntOrNull(ExpBox.Text) ?? before.Exp;
+        if (enteredExp > PokemonExperienceTable.MaxStoredExperience)
+            throw new InvalidOperationException($"经验最多为 {PokemonExperienceTable.MaxStoredExperience}；该改版只保存经验字段的低 23 位。");
+
+        var sourceGrowthRate = ReadSpeciesStats(before.Species).GrowthRate;
+        var targetGrowthRate = ReadSpeciesStats(targetSpecies).GrowthRate;
+        var sourceWasConsistent = _experienceTable.IsConsistent(before.Exp, before.Level, sourceGrowthRate);
+        var shouldRemap = enteredExp == before.Exp
+                          && (targetSpecies != before.Species || targetLevel != before.Level || !sourceWasConsistent);
+        var targetExp = shouldRemap
+            ? _experienceTable.RemapPreservingLevelProgress(
+                before.Exp,
+                before.Level,
+                sourceGrowthRate,
+                targetLevel,
+                targetGrowthRate)
+            : enteredExp;
+
+        if (!_experienceTable.IsConsistent(targetExp, targetLevel, targetGrowthRate))
+        {
+            var calculatedLevel = _experienceTable.LevelFromExperience(targetExp, targetGrowthRate);
+            throw new InvalidOperationException(
+                $"经验 {targetExp} 按 {SpeciesName(targetSpecies)} 的成长率对应 {calculatedLevel} 级，与填写的 {targetLevel} 级冲突。" +
+                "请修改等级或经验；物种/等级变化时保持原经验值不动，程序会自动换算。");
+        }
+
+        return (targetExp, targetLevel);
     }
 
-    private static uint ExperienceForLevel(int level, byte growthRate)
+    private uint ResolveBoxExperience(BoxMonInfo before, ushort targetSpecies)
     {
-        var n = Math.Clamp(level, 1, MaxPokemonLevel);
-        var n2 = n * n;
-        var n3 = n2 * n;
-        var exp = growthRate switch
-        {
-            1 when n <= 50 => n3 * (100 - n) / 50,
-            1 when n <= 68 => n3 * (150 - n) / 100,
-            1 when n <= 98 => n3 * ((1911 - 10 * n) / 3) / 500,
-            1 => n3 * (160 - n) / 100,
-            2 when n <= 15 => n3 * (((n + 1) / 3) + 24) / 50,
-            2 when n <= 36 => n3 * (n + 14) / 50,
-            2 => n3 * ((n / 2) + 32) / 50,
-            3 => (6 * n3 / 5) - (15 * n2) + (100 * n) - 140,
-            4 => 4 * n3 / 5,
-            5 => 5 * n3 / 4,
-            _ => n3
-        };
-        return (uint)Math.Max(0, exp);
+        var enteredExp = ParseUIntOrNull(BoxExpBox.Text) ?? before.Exp;
+        if (enteredExp > PokemonExperienceTable.MaxStoredExperience)
+            throw new InvalidOperationException($"经验最多为 {PokemonExperienceTable.MaxStoredExperience}；该改版只保存经验字段的低 23 位。");
+
+        if (targetSpecies == before.Species || enteredExp != before.Exp)
+            return enteredExp;
+
+        var sourceGrowthRate = ReadSpeciesStats(before.Species).GrowthRate;
+        var targetGrowthRate = ReadSpeciesStats(targetSpecies).GrowthRate;
+        var level = _experienceTable.LevelFromExperience(before.Exp, sourceGrowthRate);
+        return _experienceTable.RemapPreservingLevelProgress(
+            before.Exp,
+            level,
+            sourceGrowthRate,
+            level,
+            targetGrowthRate);
     }
+
+    private int LevelFromExp(uint exp, byte growthRate)
+        => _experienceTable.LevelFromExperience(exp, growthRate);
+
+    private uint ExperienceForLevel(int level, byte growthRate)
+        => _experienceTable.ExperienceForLevel(Math.Clamp(level, 1, MaxPokemonLevel), growthRate);
 
     private static int CalculateHpDisplay(int baseStat, int iv, int ev, int level)
         => (((2 * baseStat + iv + ev / 4) * level) / 100) + level + 10;

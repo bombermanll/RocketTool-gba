@@ -13,6 +13,18 @@ namespace RocketTool.Avalonia;
 
 public sealed class SearchableChoiceBox : UserControl
 {
+    public static readonly DirectProperty<SearchableChoiceBox, IEnumerable<ChoiceRow>?> ItemsSourceProperty =
+        AvaloniaProperty.RegisterDirect<SearchableChoiceBox, IEnumerable<ChoiceRow>?>(
+            nameof(ItemsSource),
+            box => box.ItemsSource,
+            (box, value) => box.ItemsSource = value);
+
+    public static readonly DirectProperty<SearchableChoiceBox, ChoiceRow?> SelectedItemProperty =
+        AvaloniaProperty.RegisterDirect<SearchableChoiceBox, ChoiceRow?>(
+            nameof(SelectedItem),
+            box => box.SelectedItem,
+            (box, value) => box.SelectedItem = value);
+
     private readonly Button _toggleButton;
     private readonly TextBlock _displayText;
     private readonly TextBlock _arrowText;
@@ -21,6 +33,7 @@ public sealed class SearchableChoiceBox : UserControl
     private readonly ListBox _listBox;
     private readonly TextBlock _emptyText;
     private IReadOnlyList<ChoiceRow> _choices = [];
+    private IEnumerable<ChoiceRow>? _itemsSource;
     private ChoiceRow? _selected;
 
     public event EventHandler? SelectionChanged;
@@ -120,9 +133,10 @@ public sealed class SearchableChoiceBox : UserControl
 
     public IEnumerable<ChoiceRow>? ItemsSource
     {
-        get => _choices;
+        get => _itemsSource;
         set
         {
+            if (!SetAndRaise(ItemsSourceProperty, ref _itemsSource, value)) return;
             _choices = value?.ToArray() ?? [];
             if (_selected is not null)
                 _selected = _choices.FirstOrDefault(c => c.Id == _selected.Id);
@@ -131,13 +145,13 @@ public sealed class SearchableChoiceBox : UserControl
         }
     }
 
-    public object? SelectedItem
+    public ChoiceRow? SelectedItem
     {
         get => _selected;
         set
         {
-            if (value is ChoiceRow row)
-                SetSelected(row, raise: false);
+            if (value is not null)
+                SetSelected(value, raise: false);
             else
                 ClearSelected(raise: false);
         }
@@ -248,7 +262,7 @@ public sealed class SearchableChoiceBox : UserControl
 
     private void SetSelected(ChoiceRow row, bool raise)
     {
-        _selected = row;
+        SetAndRaise(SelectedItemProperty, ref _selected, row);
         RefreshDisplay();
         _listBox.SelectedItem = row;
         _popup.IsOpen = false;
@@ -262,7 +276,7 @@ public sealed class SearchableChoiceBox : UserControl
 
     private void ClearSelected(bool raise)
     {
-        _selected = null;
+        SetAndRaise(SelectedItemProperty, ref _selected, null);
         _listBox.SelectedItem = null;
         RefreshDisplay();
 
