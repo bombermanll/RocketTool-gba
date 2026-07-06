@@ -27,19 +27,25 @@
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
                 <StackPanel>
                     <TextBlock x:Name="AppTitleText" Text="火箭队修改工具" FontSize="34" FontWeight="Bold" Foreground="#F7F2E8" />
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <TextBlock x:Name="SelectedVersionText" Text="尚未选择游戏版本" Foreground="#F7F2E8" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <Button x:Name="SwitchVersionButton" Content="切换版本" Click="OnSwitchVersionClicked" Padding="10,3" FontSize="12" />
+                    </StackPanel>
                     <TextBlock Text="mGBA 实时编辑 / GBA 存档编辑" Foreground="#F7F2E8" Opacity="0.82" />
                 </StackPanel>
                 <Border Classes="card" Grid.Column="1" MinWidth="360">
-                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="6">
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="6">
                         <TextBox x:Name="HostBox" Text="127.0.0.1" IsVisible="False" />
                         <TextBox x:Name="PortBox" Text="8765" IsVisible="False" />
                         <TextBox x:Name="BaseBox" IsVisible="False" />
                         <Button x:Name="ReloadPartyButton" Content="刷新队伍" Click="OnReloadPartyClicked" IsVisible="False" />
                         <TextBlock x:Name="ConnectionStatusText" Text="尚未连接 mGBA bridge" VerticalAlignment="Center" Foreground="#2B2016" />
-                        <Button x:Name="ScanButton" Grid.Column="1" Content="连接 mGBA" Click="OnScanClicked" Classes="primary" />
-                        <Button x:Name="LoadSaveButton" Grid.Column="2" Content="读取存档" Click="OnLoadSaveClicked" />
-                        <Button x:Name="ExportSaveButton" Grid.Column="3" Content="导出修改后存档" Click="OnExportSaveClicked" Classes="primary" IsVisible="False" IsEnabled="False" />
-                        <TextBlock x:Name="LastWriteText" Grid.Row="1" Grid.ColumnSpan="4" Text="最近写入：暂无" Foreground="#6C6255" TextWrapping="Wrap" />
+                        <Button x:Name="ModeSwitchButton" Grid.Column="1" Content="切换到存档模式" Click="OnModeSwitchClicked" />
+                        <Button x:Name="ScanButton" Grid.Column="2" Content="连接 mGBA" Click="OnScanClicked" Classes="primary" />
+                        <Button x:Name="LoadSaveButton" Grid.Column="2" Content="选择存档" Click="OnLoadSaveClicked" IsVisible="False" Classes="primary" />
+                        <Button x:Name="ExportSaveButton" Grid.Column="3" Content="保存修改并备份" Click="OnSaveInPlaceClicked" Classes="primary" IsVisible="False" IsEnabled="False" />
+                        <Button x:Name="SaveAsButton" Grid.Column="4" Content="另存为" Click="OnExportSaveClicked" IsVisible="False" IsEnabled="False" />
+                        <TextBlock x:Name="LastWriteText" Grid.Row="1" Grid.ColumnSpan="5" Text="最近写入：暂无" Foreground="#6C6255" TextWrapping="Wrap" />
                     </Grid>
                 </Border>
             </Grid>
@@ -368,7 +374,7 @@
                             <ScrollViewer x:Name="BagRightScroll" Grid.Column="1" Padding="20,20,20,56" HorizontalScrollBarVisibility="Disabled">
                                 <StackPanel Spacing="16" Margin="0,0,0,96" MaxWidth="{Binding #BagRightScroll.Bounds.Width}">
                                     <TextBlock x:Name="BagEditorTitleText" Text="背包槽编辑" FontSize="24" FontWeight="Bold" Foreground="#102E4A" />
-                                    <TextBlock x:Name="BagEditorDescriptionText" Text="选中左侧口袋槽位后编辑。实时模式直接写入内存；存档模式修改待导出副本，并在导出后重新校验。" Foreground="#6C6255" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="BagEditorDescriptionText" Text="选中左侧口袋槽位后编辑。实时模式直接写入内存；存档模式修改待保存副本，并在保存后重新校验。" Foreground="#6C6255" TextWrapping="Wrap" />
                                     <WrapPanel HorizontalAlignment="Right">
                                         <Button x:Name="BagGiveAllCurrentPocketButton" Content="获取当前分类全部" Margin="0,0,8,0" Click="OnBagGiveAllCurrentPocketClicked" />
                                         <Button x:Name="BagGiveAllTmsButton" Content="获取全部技能机" Margin="0,0,8,0" Click="OnBagGiveAllTmsClicked" />
@@ -404,7 +410,7 @@
                         <ScrollViewer Padding="20,20,36,56" HorizontalScrollBarVisibility="Disabled">
                             <StackPanel Spacing="16" Margin="0,0,0,96">
                                 <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
-                                    <TextBlock Text="使用 modifier_db 内置派生表：宝可梦、招式、道具、特性、道具效果。" Foreground="#6C6255" TextWrapping="Wrap" />
+                                    <TextBlock Text="使用当前所选版本的内置派生表：宝可梦、招式、道具、特性、道具效果。" Foreground="#6C6255" TextWrapping="Wrap" />
                                 </Border>
 
                                 <Grid ColumnDefinitions="*,*,*" ColumnSpacing="14">

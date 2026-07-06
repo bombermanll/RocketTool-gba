@@ -74,15 +74,18 @@ public static class BagScanner
     };
 
     public static uint LocateSaveBlockBase(MgbaBridgeClient bridge)
+        => LocateSaveBlockBase(bridge, SaveBlockPointerAddress);
+
+    public static uint LocateSaveBlockBase(MgbaBridgeClient bridge, uint saveBlockPointerAddress)
     {
-        var bytes = bridge.Read(SaveBlockPointerAddress, 4);
+        var bytes = bridge.Read(saveBlockPointerAddress, 4);
         var address = U32(bytes, 0);
         var lastPocket = KnownPockets.MaxBy(p => p.Offset + (uint)p.SlotCount * 4U)!;
         if (address < PartyScanner.EwramBase ||
             address + lastPocket.Offset + (uint)lastPocket.SlotCount * 4U > PartyScanner.EwramBase + PartyScanner.EwramSize)
         {
             throw new InvalidOperationException(
-                $"没有定位到有效背包基址：0x{SaveBlockPointerAddress:X8} -> 0x{address:X8}。请先进入游戏存档/背包界面后再试。");
+                $"没有定位到有效背包基址：0x{saveBlockPointerAddress:X8} -> 0x{address:X8}。请先进入游戏存档/背包界面后再试。");
         }
 
         return address;

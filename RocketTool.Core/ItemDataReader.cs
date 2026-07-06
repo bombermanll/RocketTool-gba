@@ -33,6 +33,11 @@ public sealed class ItemDataReader
         _entrySize = entrySize;
     }
 
+    public ItemDataReader(string romPath, GameProfile profile)
+        : this(romPath, profile.RomTables.Items.Offset, profile.RomTables.Items.EntrySize)
+    {
+    }
+
     public ItemData Read(int item)
     {
         var off = _tableOffset + item * _entrySize;

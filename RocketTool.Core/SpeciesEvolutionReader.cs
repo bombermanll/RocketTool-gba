@@ -31,6 +31,15 @@ public sealed class SpeciesEvolutionReader
         _entrySize = entrySize;
     }
 
+    public SpeciesEvolutionReader(string romPath, GameProfile profile)
+        : this(
+            romPath,
+            profile.RomTables.Evolutions.Offset,
+            profile.RomTables.Evolutions.EntriesPerRecord,
+            profile.RomTables.Evolutions.EntrySize)
+    {
+    }
+
     public IReadOnlyList<SpeciesEvolution> Read(int species)
     {
         if (species < 0) throw new ArgumentOutOfRangeException(nameof(species));

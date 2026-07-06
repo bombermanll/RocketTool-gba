@@ -43,6 +43,11 @@ public sealed class SpeciesStatsReader
         _entrySize = entrySize;
     }
 
+    public SpeciesStatsReader(string romPath, GameProfile profile)
+        : this(romPath, profile.RomTables.BaseStats.Offset, profile.RomTables.BaseStats.EntrySize)
+    {
+    }
+
     public SpeciesStats Read(int species)
     {
         var off = _tableOffset + species * _entrySize;

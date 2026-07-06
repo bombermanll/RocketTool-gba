@@ -322,12 +322,12 @@ public sealed class BoxPokemon
             throw new ArgumentOutOfRangeException(nameof(gender), "gender must be male, female, or genderless.");
         if (genderRatio == 255)
         {
-            if (gender != PartyPokemon.Genderless) throw new InvalidOperationException("该宝可梦固定为无性别，不能改为雄性或雌性。");
+            if (gender != PartyPokemon.Genderless) throw new InvalidOperationException("该宝可梦固定为无性别，不能改为公 ♂ 或母 ♀。");
             return;
         }
         if (gender == PartyPokemon.Genderless) throw new InvalidOperationException("该宝可梦不是无性别种族，不能改为无性别。");
-        if (genderRatio == 0 && gender != PartyPokemon.GenderMale) throw new InvalidOperationException("该宝可梦固定为雄性。");
-        if (genderRatio == 254 && gender != PartyPokemon.GenderFemale) throw new InvalidOperationException("该宝可梦固定为雌性。");
+        if (genderRatio == 0 && gender != PartyPokemon.GenderMale) throw new InvalidOperationException("该宝可梦固定为公 ♂。");
+        if (genderRatio == 254 && gender != PartyPokemon.GenderFemale) throw new InvalidOperationException("该宝可梦固定为母 ♀。");
     }
 
     private byte[] Subblock(byte[] decrypted, int substructure)

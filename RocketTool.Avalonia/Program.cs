@@ -77,30 +77,16 @@ class Program
 
     private static string? TryWriteStartupLog(Exception exception)
     {
-        var fileName = $"startup-error-{DateTime.Now:yyyyMMdd-HHmmss}.log";
-        var candidates = new[]
+        try
         {
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RocketTool", "logs"),
-            Path.Combine(Path.GetTempPath(), "RocketTool", "logs")
-        };
-
-        foreach (var directory in candidates)
-        {
-            try
-            {
-                if (string.IsNullOrWhiteSpace(directory)) continue;
-                Directory.CreateDirectory(directory);
-                var path = Path.Combine(directory, fileName);
-                File.WriteAllText(path, BuildStartupLog(exception), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-                return path;
-            }
-            catch
-            {
-                // Try the next writable location.
-            }
+            var path = Path.Combine(AppContext.BaseDirectory, "log.txt");
+            File.WriteAllText(path, BuildStartupLog(exception), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            return path;
         }
-
-        return null;
+        catch
+        {
+            return null;
+        }
     }
 
     private static string BuildStartupLog(Exception exception)

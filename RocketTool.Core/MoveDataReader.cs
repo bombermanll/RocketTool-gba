@@ -29,6 +29,11 @@ public sealed class MoveDataReader
         _entrySize = entrySize;
     }
 
+    public MoveDataReader(string romPath, GameProfile profile)
+        : this(romPath, profile.RomTables.Moves.Offset, profile.RomTables.Moves.EntrySize)
+    {
+    }
+
     public MoveData Read(int move)
     {
         var off = _tableOffset + move * _entrySize;

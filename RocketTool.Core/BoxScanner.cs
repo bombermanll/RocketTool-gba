@@ -13,12 +13,12 @@ public static class BoxScanner
     public const int TotalSlots = BoxSlots * MaxBoxes;
     public const int StorageSize = TotalSlots * BoxPokemon.Size;
 
-    public static IReadOnlyList<BoxCandidate> FindCandidates(ReadOnlySpan<byte> ewram, int minScore = 12)
+    public static IReadOnlyList<BoxCandidate> FindCandidates(ReadOnlySpan<byte> ewram, int minScore = 12, int maxSpecies = PartyScanner.MaxSpecies)
     {
         var hits = new List<BoxCandidate>();
         for (var off = 0; off <= ewram.Length - BoxPokemon.Size; off += 4)
         {
-            var candidate = ScoreBoxMon(PartyScanner.EwramBase + (uint)off, ewram.Slice(off, BoxPokemon.Size));
+            var candidate = ScoreBoxMon(PartyScanner.EwramBase + (uint)off, ewram.Slice(off, BoxPokemon.Size), maxSpecies);
             if (candidate.Score >= minScore)
                 hits.Add(candidate);
         }
@@ -54,18 +54,18 @@ public static class BoxScanner
             .ToArray();
     }
 
-    public static BoxRun? LocateBestRun(ReadOnlySpan<byte> ewram)
+    public static BoxRun? LocateBestRun(ReadOnlySpan<byte> ewram, int maxSpecies = PartyScanner.MaxSpecies)
     {
-        var candidates = FindCandidates(ewram);
+        var candidates = FindCandidates(ewram, maxSpecies: maxSpecies);
         return GroupRuns(candidates).FirstOrDefault(r => r.Length >= 2)
                ?? GroupRuns(candidates, checksumRequired: false).FirstOrDefault(r => r.Length >= 2)
                ?? GroupRuns(candidates).FirstOrDefault();
     }
 
-    public static BoxStorageRun? LocatePcStorage(ReadOnlySpan<byte> ewram, int minScore = 12)
+    public static BoxStorageRun? LocatePcStorage(ReadOnlySpan<byte> ewram, int minScore = 12, int maxSpecies = PartyScanner.MaxSpecies)
     {
-        var candidates = FindCandidates(ewram, minScore)
-            .Where(c => c.ChecksumOk && c.Species is >= 1 and <= PartyScanner.MaxSpecies)
+        var candidates = FindCandidates(ewram, minScore, maxSpecies)
+            .Where(c => c.ChecksumOk && c.Species >= 1 && c.Species <= maxSpecies)
             .GroupBy(c => c.Address)
             .ToDictionary(g => g.Key, g => g.OrderByDescending(c => c.Score).First());
         if (candidates.Count == 0) return null;
@@ -156,7 +156,7 @@ public static class BoxScanner
         return score;
     }
 
-    private static BoxCandidate ScoreBoxMon(uint address, ReadOnlySpan<byte> mon)
+    private static BoxCandidate ScoreBoxMon(uint address, ReadOnlySpan<byte> mon, int maxSpecies)
     {
         if (mon.Length < BoxPokemon.Size || IsZero(mon)) return new BoxCandidate(address, 0, false, 0, 0);
         var pokemon = new BoxPokemon(mon);
@@ -167,7 +167,7 @@ public static class BoxScanner
         var score = 0;
         var checksumOk = info.Checksum == info.CalculatedChecksum;
         if (checksumOk) score += 6;
-        if (info.Species is >= 1 and <= PartyScanner.MaxSpecies) score += 5;
+        if (info.Species >= 1 && info.Species <= maxSpecies) score += 5;
         if (language is >= 1 and <= 7 or 0x12) score += 1;
         if (HasNickname(mon.Slice(0x08, 0x0A))) score += 1;
         if (info.Exp < 2_000_000) score += 1;

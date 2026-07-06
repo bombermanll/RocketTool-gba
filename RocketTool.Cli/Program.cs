@@ -6,9 +6,9 @@ static string RootDir()
     for (var i = 0; i < 8; i++)
     {
         var candidate = Path.GetFullPath(Path.Combine(dir, string.Concat(Enumerable.Repeat("../", i))));
-        if (Directory.Exists(Path.Combine(candidate, "modifier_db"))) return candidate;
+        if (Directory.Exists(Path.Combine(candidate, "profiles"))) return candidate;
     }
-    throw new DirectoryNotFoundException("Cannot find csharp/modifier_db. Run from the project tree or publish modifier_db with the CLI.");
+    throw new DirectoryNotFoundException("Cannot find csharp/profiles. Run from the project tree or publish profiles with the CLI.");
 }
 
 static int ParseInt(string value) => value.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
@@ -81,12 +81,27 @@ static uint? GetUInt32Arg(string[] args, string name)
     return idx >= 0 && idx + 1 < args.Length ? ParseUInt(args[idx + 1]) : null;
 }
 
-static ModifierDatabase Db() => new(Path.Combine(RootDir(), "modifier_db"));
+static GameProfile CurrentProfile()
+{
+    var profiles = GameProfileCatalog.Load(Path.Combine(RootDir(), "profiles"));
+    var requested = Environment.GetEnvironmentVariable("ROCKET_TOOL_PROFILE");
+    if (!string.IsNullOrWhiteSpace(requested))
+        return profiles.FirstOrDefault(profile => string.Equals(profile.Id, requested, StringComparison.OrdinalIgnoreCase))
+               ?? throw new InvalidOperationException($"Unknown ROCKET_TOOL_PROFILE: {requested}");
+    if (profiles.Count == 1) return profiles[0];
+    throw new InvalidOperationException("Multiple profiles are installed. Set ROCKET_TOOL_PROFILE to the required profile ID.");
+}
+
+static ModifierDatabase Db()
+{
+    var profile = CurrentProfile();
+    return new ModifierDatabase(profile.DatabaseDirectory);
+}
 
 static SpeciesStats ReadSpeciesStatsFromDb(ModifierDatabase db, int species)
 {
     if (!db.Table("species_stats").TryGetValue(species, out var raw))
-        throw new InvalidOperationException($"modifier_db/species_stats.tsv missing species {species}");
+        throw new InvalidOperationException($"profile db/species_stats.tsv missing species {species}");
     var parts = raw.Split('\t');
     if (parts.Length < 22)
         throw new InvalidOperationException($"Invalid species_stats row for species {species}");
@@ -104,7 +119,7 @@ static SpeciesStats ReadSpeciesStatsFromDb(ModifierDatabase db, int species)
 static MoveData ReadMoveDataFromDb(ModifierDatabase db, int move)
 {
     if (!db.Table("move_data").TryGetValue(move, out var raw))
-        throw new InvalidOperationException($"modifier_db/move_data.tsv missing move {move}");
+        throw new InvalidOperationException($"profile db/move_data.tsv missing move {move}");
     var parts = raw.Split('\t');
     if (parts.Length < 10)
         throw new InvalidOperationException($"Invalid move_data row for move {move}");
@@ -118,7 +133,7 @@ static MoveData ReadMoveDataFromDb(ModifierDatabase db, int move)
 static ItemData ReadItemDataFromDb(ModifierDatabase db, int item)
 {
     if (!db.Table("item_data").TryGetValue(item, out var raw))
-        throw new InvalidOperationException($"modifier_db/item_data.tsv missing item {item}");
+        throw new InvalidOperationException($"profile db/item_data.tsv missing item {item}");
     var parts = raw.Split('\t');
     if (parts.Length < 13)
         throw new InvalidOperationException($"Invalid item_data row for item {item}");
@@ -660,7 +675,7 @@ static int SaveProbe(string[] args)
     if (string.IsNullOrWhiteSpace(path))
         throw new ArgumentException("Missing --save path");
 
-    var result = Gen3SaveReader.Read(path);
+    var result = Gen3SaveReader.Read(path, CurrentProfile());
     Console.WriteLine($"Save: {result.FileName}");
     Console.WriteLine($"  size={result.FileSize} slot={result.SaveSlot} saveIndex={result.SaveIndex} sections={result.ValidSectionCount}/14");
     Console.WriteLine($"  party={result.Party.Count} bag={result.Bag.Count} boxes={result.Boxes.Count}");
@@ -688,7 +703,11 @@ static int SaveProbe(string[] args)
     }
 
     Console.WriteLine("\nBoxes:");
-    foreach (var entry in result.Boxes.Take(30))
+    Console.WriteLine("  " + string.Join("；", result.Boxes
+        .GroupBy(entry => entry.BoxNumber)
+        .OrderBy(group => group.Key)
+        .Select(group => $"箱{group.Key:00}={group.Count()}只")));
+    foreach (var entry in result.Boxes)
     {
         var info = entry.Mon.GetInfo();
         Console.WriteLine($"  box{entry.BoxNumber:00}-{entry.SlotInBox:00} off=0x{entry.SaveOffset:X} {info.Species}({db.NameOf("species", info.Species)}) item={info.Item}({(info.Item == 0 ? "无" : db.NameOf("items", info.Item))})");

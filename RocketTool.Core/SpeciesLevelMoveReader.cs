@@ -22,6 +22,11 @@ public sealed class SpeciesLevelMoveReader
         _maxEntriesPerSpecies = maxEntriesPerSpecies;
     }
 
+    public SpeciesLevelMoveReader(string romPath, GameProfile profile, int maxEntriesPerSpecies = DefaultMaxEntriesPerSpecies)
+        : this(romPath, profile.RomTables.LevelMoves.Offset, maxEntriesPerSpecies)
+    {
+    }
+
     public IReadOnlyList<SpeciesLevelMove> Read(int species)
     {
         if (species < 0) throw new ArgumentOutOfRangeException(nameof(species));

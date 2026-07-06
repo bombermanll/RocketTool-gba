@@ -6,12 +6,14 @@ public sealed class ModifierDatabase
 {
     private readonly string _dbDirectory;
     private readonly Assembly? _resourceAssembly;
+    private readonly string _resourcePrefix;
     private readonly Dictionary<string, Dictionary<int, string>> _cache = new(StringComparer.OrdinalIgnoreCase);
 
-    public ModifierDatabase(string dbDirectory, Assembly? resourceAssembly = null)
+    public ModifierDatabase(string dbDirectory, Assembly? resourceAssembly = null, string resourcePrefix = "modifier_db")
     {
         _dbDirectory = dbDirectory;
         _resourceAssembly = resourceAssembly;
+        _resourcePrefix = resourcePrefix.Trim('.');
     }
 
     public IReadOnlyDictionary<int, string> Table(string name)
@@ -56,13 +58,15 @@ public sealed class ModifierDatabase
     private Stream? OpenResource(string name)
     {
         if (_resourceAssembly is null) return null;
-        var expected = $"modifier_db.{name}.tsv";
+        var expected = $"{_resourcePrefix}.{name}.tsv";
         var resourceName = _resourceAssembly.GetManifestResourceNames()
-                               .FirstOrDefault(r => string.Equals(r, expected, StringComparison.OrdinalIgnoreCase))
+                               .FirstOrDefault(r => string.Equals(NormalizeResourceName(r), expected, StringComparison.OrdinalIgnoreCase))
                            ?? _resourceAssembly.GetManifestResourceNames()
-                               .FirstOrDefault(r => r.EndsWith("." + expected, StringComparison.OrdinalIgnoreCase));
+                               .FirstOrDefault(r => NormalizeResourceName(r).EndsWith("." + expected, StringComparison.OrdinalIgnoreCase));
         return resourceName is null ? null : _resourceAssembly.GetManifestResourceStream(resourceName);
     }
+
+    private static string NormalizeResourceName(string name) => name.Replace('\\', '.').Replace('/', '.');
 
     private static void AddLine(Dictionary<int, string> table, string line)
     {

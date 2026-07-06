@@ -28,6 +28,7 @@
   <ItemGroup>
     <AvaloniaResource Include="Assets\AppIcon.ico" />
     <AvaloniaResource Include="Assets\Pokemon\front\*.png" />
-    <EmbeddedResource Include="..\modifier_db\*.tsv" LogicalName="modifier_db.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\profiles\**\profile.json" LogicalName="profiles.%(RecursiveDir)%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\profiles\**\db\*.tsv" LogicalName="profiles.%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

@@ -25,13 +25,13 @@ public static class PartyScanner
         return ewram;
     }
 
-    public static IReadOnlyList<PartyCandidate> FindCandidates(ReadOnlySpan<byte> ewram, int minScore = 13)
+    public static IReadOnlyList<PartyCandidate> FindCandidates(ReadOnlySpan<byte> ewram, int minScore = 13, int maxSpecies = MaxSpecies)
     {
         var hits = new List<PartyCandidate>();
         for (var off = 0; off <= ewram.Length - Gen3Constants.PartyMonSize; off += 4)
         {
-            var candidate = ScoreMon(EwramBase + (uint)off, ewram.Slice(off, Gen3Constants.PartyMonSize));
-            if (candidate.Score >= minScore && IsStrongPartyCandidate(candidate)) hits.Add(candidate);
+            var candidate = ScoreMon(EwramBase + (uint)off, ewram.Slice(off, Gen3Constants.PartyMonSize), maxSpecies);
+            if (candidate.Score >= minScore && IsStrongPartyCandidate(candidate, maxSpecies)) hits.Add(candidate);
         }
         return hits.OrderByDescending(c => c.Score).ThenBy(c => c.Address).ToArray();
     }
@@ -61,14 +61,27 @@ public static class PartyScanner
     }
 
     public static PartyRun? LocateParty(byte[] ewram, int minScore = 13)
+        => LocateParty(
+            ewram,
+            Gen3Constants.DefaultPartyBase,
+            Gen3Constants.PartyCountOffsetFromPartyBase,
+            MaxSpecies,
+            minScore);
+
+    public static PartyRun? LocateParty(
+        byte[] ewram,
+        uint preferredBase,
+        int partyCountOffsetFromBase,
+        int maxSpecies,
+        int minScore = 13)
     {
-        var knownBase = TryLocatePartyAtKnownBase(ewram, minScore);
+        var knownBase = TryBuildPartyRunAtBase(ewram, preferredBase, partyCountOffsetFromBase, maxSpecies, minScore);
         if (knownBase is not null) return knownBase;
 
-        var candidates = FindCandidates(ewram, minScore);
+        var candidates = FindCandidates(ewram, minScore, maxSpecies);
         var strict = GroupRuns(candidates, checksumRequired: true)
             .Where(IsUsablePartyRun)
-            .OrderByDescending(r => r.StartAddress == Gen3Constants.DefaultPartyBase)
+            .OrderByDescending(r => r.StartAddress == preferredBase)
             .ThenByDescending(r => Math.Min(r.Length, Gen3Constants.PartySlots))
             .ThenByDescending(r => r.ScoreSum)
             .ThenBy(r => r.StartAddress)
@@ -76,7 +89,7 @@ public static class PartyScanner
         if (strict is not null) return strict;
         return GroupRuns(candidates)
             .Where(IsUsablePartyRun)
-            .OrderByDescending(r => r.StartAddress == Gen3Constants.DefaultPartyBase)
+            .OrderByDescending(r => r.StartAddress == preferredBase)
             .ThenByDescending(r => Math.Min(r.Length, Gen3Constants.PartySlots))
             .ThenByDescending(r => r.ScoreSum)
             .ThenBy(r => r.StartAddress)
@@ -84,8 +97,11 @@ public static class PartyScanner
     }
 
     public static int? TryReadPartyCount(ReadOnlySpan<byte> ewram, uint partyBase)
+        => TryReadPartyCount(ewram, partyBase, Gen3Constants.PartyCountOffsetFromPartyBase);
+
+    public static int? TryReadPartyCount(ReadOnlySpan<byte> ewram, uint partyBase, int partyCountOffsetFromBase)
     {
-        var countAddress = (long)partyBase + Gen3Constants.PartyCountOffsetFromPartyBase;
+        var countAddress = (long)partyBase + partyCountOffsetFromBase;
         var offset = countAddress - EwramBase;
         if (offset < 0 || offset >= ewram.Length) return null;
 
@@ -97,8 +113,21 @@ public static class PartyScanner
         => TryBuildPartyRunAtBase(ewram, Gen3Constants.DefaultPartyBase, minScore);
 
     public static PartyRun? TryBuildPartyRunAtBase(byte[] ewram, uint partyBase, int minScore = 13)
+        => TryBuildPartyRunAtBase(
+            ewram,
+            partyBase,
+            Gen3Constants.PartyCountOffsetFromPartyBase,
+            MaxSpecies,
+            minScore);
+
+    public static PartyRun? TryBuildPartyRunAtBase(
+        byte[] ewram,
+        uint partyBase,
+        int partyCountOffsetFromBase,
+        int maxSpecies,
+        int minScore = 13)
     {
-        var count = TryReadPartyCount(ewram, partyBase);
+        var count = TryReadPartyCount(ewram, partyBase, partyCountOffsetFromBase);
         if (count is null) return null;
 
         if (partyBase < EwramBase) return null;
@@ -109,8 +138,8 @@ public static class PartyScanner
         for (var slot = 0; slot < count.Value; slot++)
         {
             var offset = startOffset + slot * Gen3Constants.PartyMonSize;
-            var candidate = ScoreMon(partyBase + (uint)(slot * Gen3Constants.PartyMonSize), ewram.AsSpan(offset, Gen3Constants.PartyMonSize));
-            if (!candidate.ChecksumOk || candidate.Score < minScore || !IsStrongPartyCandidate(candidate)) return null;
+            var candidate = ScoreMon(partyBase + (uint)(slot * Gen3Constants.PartyMonSize), ewram.AsSpan(offset, Gen3Constants.PartyMonSize), maxSpecies);
+            if (!candidate.ChecksumOk || candidate.Score < minScore || !IsStrongPartyCandidate(candidate, maxSpecies)) return null;
             candidates.Add(candidate);
         }
 
@@ -120,14 +149,14 @@ public static class PartyScanner
     private static bool IsUsablePartyRun(PartyRun run)
         => run.Length >= 2;
 
-    private static bool IsStrongPartyCandidate(PartyCandidate candidate)
+    private static bool IsStrongPartyCandidate(PartyCandidate candidate, int maxSpecies)
         => candidate.ChecksumOk
-           && candidate.Species is >= 1 and <= MaxSpecies
+           && candidate.Species >= 1 && candidate.Species <= maxSpecies
            && candidate.Level is >= 1
            && candidate.MaxHp is >= 1 and <= 999
            && candidate.Hp <= candidate.MaxHp;
 
-    private static PartyCandidate ScoreMon(uint address, ReadOnlySpan<byte> mon)
+    private static PartyCandidate ScoreMon(uint address, ReadOnlySpan<byte> mon, int maxSpecies)
     {
         if (mon.Length < Gen3Constants.PartyMonSize || IsZero(mon)) return new PartyCandidate(address, 0, false, 0, 0, 0, 0, 0);
         var pokemon = new PartyPokemon(mon);
@@ -137,7 +166,7 @@ public static class PartyScanner
         var score = 0;
         var checksumOk = info.Checksum == info.CalculatedChecksum;
         if (checksumOk) score += 6;
-        if (1 <= info.Species && info.Species <= MaxSpecies) score += 5;
+        if (1 <= info.Species && info.Species <= maxSpecies) score += 5;
         if (info.Level >= 1) score += 3;
         if (1 <= info.MaxHp && info.MaxHp <= 999 && info.Hp <= info.MaxHp) score += 3;
         if (language is >= 1 and <= 7 or 0x12) score += 1;
