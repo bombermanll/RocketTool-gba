@@ -92,24 +92,6 @@
 
 ## 运行与构建
 
-### 运行已发布版本
-
-项目发布脚本当前生成以下自包含程序：
-
-- macOS Intel：`RocketTool_osx_x64`
-- macOS Apple Silicon：`RocketTool_osx_arm64`
-- Windows x64：`RocketTool_win_x64.exe`
-
-运行发布脚本后，文件位于 `publish/`。macOS 文件需要具有可执行权限。
-
-如果 Windows 版在主窗口显示前启动失败，程序会弹出原生错误窗口，并把最新一次完整日志写入程序所在目录：
-
-```text
-log.txt
-```
-
-反馈启动问题时请同时提供该日志、Windows 版本和系统架构。如果程序位于不可写目录，日志可能无法生成，此时错误窗口会提示用户截图。
-
 ### 从源码构建
 
 要求安装 .NET SDK 10。主要开发环境为 macOS，Avalonia 项目也可面向 Windows 构建。
@@ -122,12 +104,6 @@ dotnet build RocketTool.Avalonia/RocketTool.Avalonia.csproj
 
 ```sh
 dotnet build RocketTool.Cli/RocketTool.Cli.csproj
-```
-
-发布 macOS x64、macOS arm64 和 Windows x64 单文件版本：
-
-```sh
-./publish_all.sh
 ```
 
 ## 数据安全与限制
@@ -148,8 +124,6 @@ RocketTool.Cli/        调试和逆向验证命令行工具
 profiles/              按游戏版本保存 profile.json 与 ROM 派生 db
 docs/                  界面图片和文档资源
 mgba_bridge.lua        mGBA 实时通信脚本
-publish_all.sh         多平台发布脚本
-reverse_notes.md       ROM、内存与存档结构的逆向结论
 ```
 
 ## 游戏版本配置
