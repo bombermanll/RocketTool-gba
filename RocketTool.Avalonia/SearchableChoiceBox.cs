@@ -4,6 +4,7 @@ using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -85,7 +86,13 @@ public sealed class SearchableChoiceBox : UserControl
         _listBox = new ListBox
         {
             MaxHeight = 320,
-            MinWidth = 160
+            MinWidth = 160,
+            ItemTemplate = new FuncDataTemplate<ChoiceRow>((row, _) => new TextBlock
+            {
+                Text = row?.ToString() ?? string.Empty,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(6, 4)
+            })
         };
         _emptyText = new TextBlock
         {
@@ -291,6 +298,7 @@ public sealed class SearchableChoiceBox : UserControl
             ? _choices
             : _choices.Where(choice => MatchesChoice(choice, term)).ToArray();
         _listBox.ItemsSource = rows;
+        _emptyText.Text = _choices.Count == 0 ? "列表未载入" : "没有匹配结果";
         _emptyText.IsVisible = rows.Count == 0;
         _listBox.IsVisible = rows.Count > 0;
         _listBox.SelectedItem = _selected is not null ? rows.FirstOrDefault(c => c.Id == _selected.Id) : null;

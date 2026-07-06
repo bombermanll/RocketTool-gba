@@ -108,12 +108,17 @@ static SpeciesStats ReadSpeciesStatsFromDb(ModifierDatabase db, int species)
 
     byte B(int i) => byte.Parse(parts[i]);
     ushort U(int i) => ushort.Parse(parts[i]);
+    ushort? OptionalAbility(int i)
+    {
+        var ability = U(i);
+        return ability == 0 ? null : ability;
+    }
     return new SpeciesStats(
         species,
         B(0), B(1), B(2), B(3), B(4), B(5), B(6), B(7),
         U(8), U(9), U(10), U(11), U(12),
         B(13), B(14), B(15), B(16), B(17), B(18),
-        U(19), U(20), U(21));
+        U(19), U(20), OptionalAbility(21));
 }
 
 static MoveData ReadMoveDataFromDb(ModifierDatabase db, int move)
@@ -639,6 +644,16 @@ static string PocketNameZh(int pocket) => pocket switch
     _ => $"#{pocket}"
 };
 
+static string UnboundPocketNameZh(int pocket) => pocket switch
+{
+    1 => "道具",
+    2 => "重要物品",
+    3 => "精灵球",
+    4 => "招式机器",
+    5 => "树果",
+    _ => $"#{pocket}"
+};
+
 static int BagSet(string[] args)
 {
     var db = Db();
@@ -675,10 +690,14 @@ static int SaveProbe(string[] args)
     if (string.IsNullOrWhiteSpace(path))
         throw new ArgumentException("Missing --save path");
 
-    var result = Gen3SaveReader.Read(path, CurrentProfile());
+    var profile = CurrentProfile();
+    var isUnbound = string.Equals(profile.Strategies.Save, "unbound-cfru-save-v1", StringComparison.Ordinal);
+    var result = Gen3SaveReader.Read(path, profile);
     Console.WriteLine($"Save: {result.FileName}");
     Console.WriteLine($"  size={result.FileSize} slot={result.SaveSlot} saveIndex={result.SaveIndex} sections={result.ValidSectionCount}/14");
     Console.WriteLine($"  party={result.Party.Count} bag={result.Bag.Count} boxes={result.Boxes.Count}");
+    if (result.Trainer is { } trainer)
+        Console.WriteLine($"  trainerId={(ushort)trainer.OtId} secretId={(ushort)(trainer.OtId >> 16)} money={trainer.Money}");
 
     Console.WriteLine("\nWarnings/probes:");
     foreach (var warning in result.Warnings)
@@ -689,12 +708,13 @@ static int SaveProbe(string[] args)
     {
         var info = result.Party[i].GetInfo();
         Console.WriteLine($"  {i + 1}. {info.Species}({db.NameOf("species", info.Species)}) Lv{info.Level} item={info.Item}({(info.Item == 0 ? "无" : db.NameOf("items", info.Item))})");
+        Console.WriteLine("     moves=" + string.Join(", ", info.Moves.Where(move => move != 0).Select(move => $"{move}({db.NameOf("moves", move)})")));
     }
 
     Console.WriteLine("\nBag:");
     foreach (var group in result.Bag.GroupBy(b => b.Pocket).OrderBy(g => g.Key))
     {
-        Console.WriteLine($"  {PocketNameZh(group.Key)} ({group.Count()}):");
+        Console.WriteLine($"  {(isUnbound ? UnboundPocketNameZh(group.Key) : PocketNameZh(group.Key))} ({group.Count()}):");
         foreach (var entry in group.Take(80))
         {
             var qty = entry.Pocket == 8 ? "" : $" x{entry.Quantity}";
@@ -713,6 +733,50 @@ static int SaveProbe(string[] args)
         Console.WriteLine($"  box{entry.BoxNumber:00}-{entry.SlotInBox:00} off=0x{entry.SaveOffset:X} {info.Species}({db.NameOf("species", info.Species)}) item={info.Item}({(info.Item == 0 ? "无" : db.NameOf("items", info.Item))})");
     }
 
+    return 0;
+}
+
+static int SaveVerifyWrite(string[] args)
+{
+    var path = GetArg(args, "--save", "");
+    var output = GetArg(args, "--output", "");
+    if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(output))
+        throw new ArgumentException("Missing --save or --output path");
+    if (!HasArg(args, "--yes"))
+        throw new InvalidOperationException("该命令会生成测试存档副本；确认后请加 --yes。");
+
+    var profile = CurrentProfile();
+    var document = Gen3SaveReader.Open(path, profile);
+    if (document.Snapshot.Party.Count == 0)
+        throw new InvalidOperationException("测试存档没有队伍宝可梦。");
+    var source = document.Snapshot.Party[0];
+    var clone = new PartyPokemon(source.Raw, source.Layout);
+    var info = clone.GetInfo();
+    clone.SetGrowth(friendship: (byte)(info.Friendship == 255 ? 254 : info.Friendship + 1));
+    document.ReplacePartyPokemon(1, clone);
+
+    if (document.Snapshot.Bag.FirstOrDefault() is { } bag)
+        document.ReplaceBagEntry(bag.SaveOffset, bag.ItemId, bag.Quantity);
+
+    if (string.Equals(profile.Strategies.Save, "unbound-cfru-save-v1", StringComparison.Ordinal))
+    {
+        if (document.Snapshot.Trainer is { } trainer)
+        {
+            document.ReplaceTrainerName(trainer.NameBytes);
+            document.ReplaceTrainerMoney(trainer.Money == 99_999_999 ? trainer.Money - 1 : trainer.Money + 1);
+        }
+        var targetSlots = new[] { 1, 20 * 30 - 29, 22 * 30, 23 * 30 - 29, 25 * 30 - 29 };
+        for (var i = 0; i < targetSlots.Length; i++)
+        {
+            var box = BoxPokemon.Create(0x12345679u + (uint)(i * 2), info.OtId, PokemonDataLayout.UnboundCfruPlainParty);
+            box.SetGrowth(species: (ushort)(i + 1), item: 0, exp: 0, friendship: 70, ppBonuses: 0);
+            box.SetIvs(new Dictionary<string, int> { ["hp"] = 1, ["atk"] = 2, ["def"] = 3, ["spe"] = 4, ["spa"] = 5, ["spd"] = 6 });
+            document.ReplaceBoxPokemon(targetSlots[i], box);
+        }
+    }
+
+    var result = document.SaveAs(output);
+    Console.WriteLine($"Verified write: {result.FileName} sections={result.ValidSectionCount}/14 party={result.Party.Count} bag={result.Bag.Count} boxes={result.Boxes.Count} trainer={(result.Trainer is null ? "n/a" : "ok")}");
     return 0;
 }
 
@@ -735,6 +799,7 @@ if (args.Length == 0)
     Console.WriteLine("  RocketTool.Cli bag-read --addr 0x02000000");
     Console.WriteLine("  RocketTool.Cli bag-set --addr 0x02000000 --item N --qty N [--yes]");
     Console.WriteLine("  RocketTool.Cli save-probe --save path/to/file.sav");
+    Console.WriteLine("  RocketTool.Cli save-verify-write --save input.sav --output output.sav --yes");
     return 1;
 }
 
@@ -756,5 +821,6 @@ return args[0] switch
     "bag-read" => BagRead(args[1..]),
     "bag-set" => BagSet(args[1..]),
     "save-probe" => SaveProbe(args[1..]),
+    "save-verify-write" => SaveVerifyWrite(args[1..]),
     _ => throw new ArgumentException($"Unknown command: {args[0]}")
 };

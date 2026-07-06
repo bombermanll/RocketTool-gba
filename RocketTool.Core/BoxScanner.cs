@@ -13,12 +13,13 @@ public static class BoxScanner
     public const int TotalSlots = BoxSlots * MaxBoxes;
     public const int StorageSize = TotalSlots * BoxPokemon.Size;
 
-    public static IReadOnlyList<BoxCandidate> FindCandidates(ReadOnlySpan<byte> ewram, int minScore = 12, int maxSpecies = PartyScanner.MaxSpecies)
+    public static IReadOnlyList<BoxCandidate> FindCandidates(ReadOnlySpan<byte> ewram, int minScore = 12, int maxSpecies = PartyScanner.MaxSpecies,
+        PokemonDataLayout layout = PokemonDataLayout.SpanishRocketEncrypted)
     {
         var hits = new List<BoxCandidate>();
         for (var off = 0; off <= ewram.Length - BoxPokemon.Size; off += 4)
         {
-            var candidate = ScoreBoxMon(PartyScanner.EwramBase + (uint)off, ewram.Slice(off, BoxPokemon.Size), maxSpecies);
+            var candidate = ScoreBoxMon(PartyScanner.EwramBase + (uint)off, ewram.Slice(off, BoxPokemon.Size), maxSpecies, layout);
             if (candidate.Score >= minScore)
                 hits.Add(candidate);
         }
@@ -54,17 +55,21 @@ public static class BoxScanner
             .ToArray();
     }
 
-    public static BoxRun? LocateBestRun(ReadOnlySpan<byte> ewram, int maxSpecies = PartyScanner.MaxSpecies)
+    public static BoxRun? LocateBestRun(ReadOnlySpan<byte> ewram, int maxSpecies = PartyScanner.MaxSpecies,
+        PokemonDataLayout layout = PokemonDataLayout.SpanishRocketEncrypted)
     {
-        var candidates = FindCandidates(ewram, maxSpecies: maxSpecies);
+        var candidates = FindCandidates(ewram, maxSpecies: maxSpecies, layout: layout);
         return GroupRuns(candidates).FirstOrDefault(r => r.Length >= 2)
                ?? GroupRuns(candidates, checksumRequired: false).FirstOrDefault(r => r.Length >= 2)
                ?? GroupRuns(candidates).FirstOrDefault();
     }
 
-    public static BoxStorageRun? LocatePcStorage(ReadOnlySpan<byte> ewram, int minScore = 12, int maxSpecies = PartyScanner.MaxSpecies)
+    public static BoxStorageRun? LocatePcStorage(ReadOnlySpan<byte> ewram, int minScore = 12, int maxSpecies = PartyScanner.MaxSpecies,
+        int maxBoxes = MaxBoxes, PokemonDataLayout layout = PokemonDataLayout.SpanishRocketEncrypted)
     {
-        var candidates = FindCandidates(ewram, minScore, maxSpecies)
+        var totalSlots = BoxSlots * maxBoxes;
+        var storageSize = totalSlots * BoxPokemon.Size;
+        var candidates = FindCandidates(ewram, minScore, maxSpecies, layout)
             .Where(c => c.ChecksumOk && c.Species >= 1 && c.Species <= maxSpecies)
             .GroupBy(c => c.Address)
             .ToDictionary(g => g.Key, g => g.OrderByDescending(c => c.Score).First());
@@ -75,18 +80,18 @@ public static class BoxScanner
         var scoredBases = new Dictionary<uint, (int Count, int Score, int BoundaryScore)>();
         foreach (var candidate in candidates.Values)
         {
-            for (var slot = 0; slot < TotalSlots; slot++)
+            for (var slot = 0; slot < totalSlots; slot++)
             {
                 var slotOffset = checked((uint)(slot * BoxPokemon.Size));
                 if (candidate.Address < ewramStart + slotOffset) continue;
                 var baseAddress = candidate.Address - slotOffset;
                 if (baseAddress < ewramStart) continue;
-                if (baseAddress + (uint)StorageSize > ewramEnd) continue;
+                if (baseAddress + (uint)storageSize > ewramEnd) continue;
 
                 if (scoredBases.ContainsKey(baseAddress)) continue;
                 var count = 0;
                 var score = 0;
-                for (var i = 0; i < TotalSlots; i++)
+                for (var i = 0; i < totalSlots; i++)
                 {
                     var address = baseAddress + checked((uint)(i * BoxPokemon.Size));
                     if (!candidates.TryGetValue(address, out var hit)) continue;
@@ -94,7 +99,7 @@ public static class BoxScanner
                     score += hit.Score;
                 }
 
-                var boundaryScore = ScoreBoxBoundaries(baseAddress, candidates);
+                var boundaryScore = ScoreBoxBoundaries(baseAddress, candidates, maxBoxes);
                 scoredBases[baseAddress] = (count, score, boundaryScore);
             }
         }
@@ -109,7 +114,7 @@ public static class BoxScanner
         if (best.Value.Count < 2) return null;
 
         var bySlot = new Dictionary<int, BoxCandidate>();
-        for (var i = 0; i < TotalSlots; i++)
+        for (var i = 0; i < totalSlots; i++)
         {
             var address = best.Key + checked((uint)(i * BoxPokemon.Size));
             if (candidates.TryGetValue(address, out var hit))
@@ -119,10 +124,10 @@ public static class BoxScanner
         return new BoxStorageRun(best.Key, best.Value.Count, best.Value.Score, best.Value.BoundaryScore, bySlot);
     }
 
-    private static int ScoreBoxBoundaries(uint baseAddress, IReadOnlyDictionary<uint, BoxCandidate> candidates)
+    private static int ScoreBoxBoundaries(uint baseAddress, IReadOnlyDictionary<uint, BoxCandidate> candidates, int maxBoxes)
     {
         var score = 0;
-        for (var box = 0; box < MaxBoxes; box++)
+        for (var box = 0; box < maxBoxes; box++)
         {
             var firstSlot = BoxSlots;
             var count = 0;
@@ -156,10 +161,10 @@ public static class BoxScanner
         return score;
     }
 
-    private static BoxCandidate ScoreBoxMon(uint address, ReadOnlySpan<byte> mon, int maxSpecies)
+    private static BoxCandidate ScoreBoxMon(uint address, ReadOnlySpan<byte> mon, int maxSpecies, PokemonDataLayout layout)
     {
         if (mon.Length < BoxPokemon.Size || IsZero(mon)) return new BoxCandidate(address, 0, false, 0, 0);
-        var pokemon = new BoxPokemon(mon);
+        var pokemon = new BoxPokemon(mon, layout);
         if (pokemon.IsEmpty) return new BoxCandidate(address, 0, false, 0, pokemon.Pid);
         var info = pokemon.GetInfo();
         var language = mon[0x12];

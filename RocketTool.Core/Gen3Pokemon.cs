@@ -1,5 +1,11 @@
 namespace RocketTool.Core;
 
+public enum PokemonDataLayout
+{
+    SpanishRocketEncrypted,
+    UnboundCfruPlainParty
+}
+
 public static class Gen3Constants
 {
     public const int PartyMonSize = 100;
@@ -66,38 +72,85 @@ public sealed class PartyPokemon
     private const uint GrowthExpMask = 0x007FFFFF;
     private const int MiscAbilitySlotOffset = 11;
     private const byte MiscAbilitySlotMask = 0x03;
+    private const int UnboundOtNameOffset = 0x14;
+    private const int UnboundGrowthOffset = 0x20;
+    private const int UnboundAttacksOffset = 0x2C;
+    private const int UnboundEvsOffset = 0x38;
+    private const int UnboundMiscOffset = 0x44;
     private readonly byte[] _raw;
+    private readonly PokemonDataLayout _layout;
 
-    public PartyPokemon(ReadOnlySpan<byte> raw)
+    public PartyPokemon(ReadOnlySpan<byte> raw, PokemonDataLayout layout = PokemonDataLayout.SpanishRocketEncrypted)
     {
         if (raw.Length != Size) throw new ArgumentException($"Party Pokemon must be {Size} bytes");
         _raw = raw.ToArray();
+        _layout = layout;
     }
 
     public ReadOnlySpan<byte> Raw => _raw;
+    public PokemonDataLayout Layout => _layout;
     public uint Pid => U32(0x00);
     public uint OtId => U32(0x04);
     public uint Key => Pid ^ OtId;
-    public ushort Checksum => U16(0x1C);
+    public ushort Checksum => _layout == PokemonDataLayout.UnboundCfruPlainParty ? (ushort)0 : U16(0x1C);
     public bool IsEmpty => Pid == 0 && OtId == 0;
     public bool IsShiny => IsShinyPid(Pid, OtId);
 
-    public static PartyPokemon Create(uint pid, uint otId)
+    public static PartyPokemon Create(uint pid, uint otId, PokemonDataLayout layout = PokemonDataLayout.SpanishRocketEncrypted)
     {
         if (pid == 0) throw new ArgumentOutOfRangeException(nameof(pid), "PID must be non-zero.");
         var raw = new byte[Size];
         WriteU32(raw, 0x00, pid);
         WriteU32(raw, 0x04, otId);
-        raw[0x12] = 0x12;
+        raw[0x12] = layout == PokemonDataLayout.UnboundCfruPlainParty ? (byte)2 : (byte)0x12;
+        if (layout == PokemonDataLayout.UnboundCfruPlainParty)
+        {
+            raw[0x13] = 2; // hasSpecies sanity bit in CFRU's unpacked party structure
+            raw.AsSpan(UnboundOtNameOffset, OtNameLength).Fill(0xFF);
+            return new PartyPokemon(raw, layout);
+        }
         raw.AsSpan(OtNameOffset, OtNameLength).Fill(0xFF);
         var key = pid ^ otId;
         for (var i = 0x20; i < 0x50; i += 4)
             WriteU32(raw, i, key);
-        return new PartyPokemon(raw);
+        return new PartyPokemon(raw, layout);
     }
 
     public PartyMonInfo GetInfo()
     {
+        if (_layout == PokemonDataLayout.UnboundCfruPlainParty)
+        {
+            var unboundIvWord = U32(UnboundMiscOffset + 4);
+            var unboundIvs = IvWordToDictionary(unboundIvWord);
+            unboundIvs["ability"] = UnboundAbilitySlot(unboundIvWord);
+            return new PartyMonInfo(
+                Pid,
+                OtId,
+                NatureFromPid(Pid),
+                NatureOverrideUsePid,
+                U16(UnboundGrowthOffset),
+                U16(UnboundGrowthOffset + 2),
+                U32(UnboundGrowthOffset + 4),
+                _raw[UnboundGrowthOffset + 8],
+                _raw[UnboundGrowthOffset + 9],
+                [U16(UnboundAttacksOffset), U16(UnboundAttacksOffset + 2), U16(UnboundAttacksOffset + 4), U16(UnboundAttacksOffset + 6)],
+                _raw.AsSpan(UnboundAttacksOffset + 8, 4).ToArray(),
+                _raw.AsSpan(UnboundEvsOffset, 6).ToArray(),
+                unboundIvs,
+                unboundIvWord,
+                U32(0x50),
+                _raw[0x54],
+                U16(0x56),
+                U16(0x58),
+                U16(0x5A),
+                U16(0x5C),
+                U16(0x5E),
+                U16(0x60),
+                U16(0x62),
+                0,
+                0);
+        }
+
         var dec = Decrypted();
         var growth = Subblock(dec, 0);
         var attacks = Subblock(dec, 1);
@@ -136,6 +189,21 @@ public sealed class PartyPokemon
 
     public void SetGrowth(ushort? species = null, ushort? item = null, uint? exp = null, byte? friendship = null, byte? ppBonuses = null)
     {
+        if (_layout == PokemonDataLayout.UnboundCfruPlainParty)
+        {
+            if (species is not null)
+            {
+                Put16(UnboundGrowthOffset, species.Value);
+                Put16(0x1C, species.Value); // CFRU unpacked backupSpecies
+                _raw[0x13] |= 2;
+            }
+            if (item is not null) Put16(UnboundGrowthOffset + 2, item.Value);
+            if (exp is not null) Put32(UnboundGrowthOffset + 4, exp.Value);
+            if (ppBonuses is not null) _raw[UnboundGrowthOffset + 8] = ppBonuses.Value;
+            if (friendship is not null) _raw[UnboundGrowthOffset + 9] = friendship.Value;
+            return;
+        }
+
         var dec = Decrypted();
         var block = Subblock(dec, 0);
         if (species is not null) WriteU16(block, 0, species.Value);
@@ -149,6 +217,12 @@ public sealed class PartyPokemon
 
     public void SetGameNatureCode(int code)
     {
+        if (_layout == PokemonDataLayout.UnboundCfruPlainParty)
+        {
+            if (code != NatureOverrideUsePid)
+                throw new InvalidOperationException("宝可梦解放的性格由 PID 决定，不支持旧版性格覆盖字段。");
+            return;
+        }
         if (code is < 0 or > 0x1F) throw new ArgumentOutOfRangeException(nameof(code), "game nature code must be 0..31");
         var dec = Decrypted();
         var block = Subblock(dec, 0);
@@ -162,11 +236,22 @@ public sealed class PartyPokemon
         if (speciesNameEntry.Length < NicknameLength)
             throw new ArgumentException($"Species name entry must contain at least {NicknameLength} bytes.", nameof(speciesNameEntry));
         speciesNameEntry[..NicknameLength].CopyTo(_raw.AsSpan(NicknameOffset, NicknameLength));
-        _raw[0x12] = 0x12;
+        _raw[0x12] = _layout == PokemonDataLayout.UnboundCfruPlainParty ? (byte)2 : (byte)0x12;
     }
 
     public void SetMoves(IReadOnlyList<ushort?>? moves, IReadOnlyList<byte?>? pp)
     {
+        if (_layout == PokemonDataLayout.UnboundCfruPlainParty)
+        {
+            if (moves is not null)
+                for (var i = 0; i < Math.Min(4, moves.Count); i++)
+                    if (moves[i] is ushort move) Put16(UnboundAttacksOffset + i * 2, move);
+            if (pp is not null)
+                for (var i = 0; i < Math.Min(4, pp.Count); i++)
+                    if (pp[i] is byte value) _raw[UnboundAttacksOffset + 8 + i] = value;
+            return;
+        }
+
         var dec = Decrypted();
         var block = Subblock(dec, 1);
         if (moves is not null)
@@ -185,6 +270,13 @@ public sealed class PartyPokemon
 
     public void SetEvs(Dictionary<string, byte> values)
     {
+        if (_layout == PokemonDataLayout.UnboundCfruPlainParty)
+        {
+            for (var i = 0; i < Gen3Constants.StatNames.Length; i++)
+                if (values.TryGetValue(Gen3Constants.StatNames[i], out var value)) _raw[UnboundEvsOffset + i] = value;
+            return;
+        }
+
         var dec = Decrypted();
         var block = Subblock(dec, 2);
         for (var i = 0; i < Gen3Constants.StatNames.Length; i++)
@@ -195,6 +287,14 @@ public sealed class PartyPokemon
 
     public void SetIvs(Dictionary<string, int> values)
     {
+        if (_layout == PokemonDataLayout.UnboundCfruPlainParty)
+        {
+            var unboundWord = SetIvWord(U32(UnboundMiscOffset + 4), values);
+            Put32(UnboundMiscOffset + 4, unboundWord);
+            if (values.TryGetValue("ability", out var unboundAbilitySlot)) SetAbilitySlot(unboundAbilitySlot);
+            return;
+        }
+
         var dec = Decrypted();
         var block = Subblock(dec, 3);
         var word = SetIvWord(ReadU32(block, 4), values);
@@ -208,6 +308,11 @@ public sealed class PartyPokemon
     public void SetNature(int nature)
     {
         if (nature is < 0 or > 24) throw new ArgumentOutOfRangeException(nameof(nature), "nature must be 0..24");
+        if (_layout == PokemonDataLayout.UnboundCfruPlainParty)
+        {
+            Put32(0x00, FindPidWithNatureAndShinyState(Pid, OtId, nature, IsShiny));
+            return;
+        }
         var dec = Decrypted();
         var growth = Subblock(dec, 0);
         SetGameNatureCode(growth, NatureOverrideUsePid);
@@ -219,6 +324,11 @@ public sealed class PartyPokemon
     public void SetShiny(bool shiny)
     {
         if (IsShiny == shiny) return;
+        if (_layout == PokemonDataLayout.UnboundCfruPlainParty)
+        {
+            Put32(0x00, FindPidWithShinyState(Pid, OtId, shiny));
+            return;
+        }
         var decrypted = Decrypted();
         Put32(0x00, FindPidWithShinyState(Pid, OtId, shiny));
         SetDecrypted(decrypted);
@@ -227,6 +337,11 @@ public sealed class PartyPokemon
     public void SetGender(byte genderRatio, int gender)
     {
         if (GenderFromPid(Pid, genderRatio) == gender) return;
+        if (_layout == PokemonDataLayout.UnboundCfruPlainParty)
+        {
+            Put32(0x00, FindPidWithNatureShinyGenderState(Pid, OtId, NatureFromPid(Pid), IsShiny, genderRatio, gender));
+            return;
+        }
         var decrypted = Decrypted();
         Put32(0x00, FindPidWithNatureShinyGenderState(Pid, OtId, NatureFromPid(Pid), IsShiny, genderRatio, gender));
         SetDecrypted(decrypted);
@@ -235,6 +350,11 @@ public sealed class PartyPokemon
     public void SetOtId(uint otId)
     {
         if (OtId == otId) return;
+        if (_layout == PokemonDataLayout.UnboundCfruPlainParty)
+        {
+            Put32(0x04, otId);
+            return;
+        }
         var decrypted = Decrypted();
         Put32(0x04, otId);
         SetDecrypted(decrypted);
@@ -242,14 +362,32 @@ public sealed class PartyPokemon
 
     public void SetOtName(ReadOnlySpan<byte> otName)
     {
-        var target = _raw.AsSpan(OtNameOffset, OtNameLength);
+        var offset = _layout == PokemonDataLayout.UnboundCfruPlainParty ? UnboundOtNameOffset : OtNameOffset;
+        var target = _raw.AsSpan(offset, OtNameLength);
         target.Fill(0xFF);
         otName[..Math.Min(otName.Length, OtNameLength)].CopyTo(target);
     }
 
-    public void SetAbilitySlot(int abilitySlot)
+    public void SetAbilitySlot(int abilitySlot, byte? genderRatio = null)
     {
         if (abilitySlot is not (0 or 1 or 2)) throw new ArgumentOutOfRangeException(nameof(abilitySlot), "ability slot must be 0..2");
+        if (_layout == PokemonDataLayout.UnboundCfruPlainParty)
+        {
+            var word = U32(UnboundMiscOffset + 4);
+            if (abilitySlot == 2)
+            {
+                Put32(UnboundMiscOffset + 4, word | 0x80000000u);
+                return;
+            }
+
+            Put32(UnboundMiscOffset + 4, word & 0x7FFFFFFFu);
+            if ((Pid & 1) != (uint)abilitySlot)
+            {
+                var gender = genderRatio is byte ratio ? GenderFromPid(Pid, ratio) : (int?)null;
+                Put32(0x00, FindUnboundPidForAbility(Pid, OtId, abilitySlot, genderRatio, gender));
+            }
+            return;
+        }
         SetIvs(new Dictionary<string, int> { ["ability"] = abilitySlot });
     }
 
@@ -390,6 +528,31 @@ public sealed class PartyPokemon
 
     private static int AbilitySlotFromMisc(ReadOnlySpan<byte> misc)
         => misc[MiscAbilitySlotOffset] & MiscAbilitySlotMask;
+
+    private int UnboundAbilitySlot(uint ivWord)
+        => (ivWord & 0x80000000u) != 0 ? 2 : (int)(Pid & 1);
+
+    private static uint FindUnboundPidForAbility(uint oldPid, uint otId, int abilitySlot, byte? genderRatio, int? gender)
+    {
+        var nature = (int)(oldPid % 25);
+        var shiny = IsShinyPid(oldPid, otId);
+        for (ulong delta = 1; delta <= uint.MaxValue; delta++)
+        {
+            if ((ulong)oldPid + delta <= uint.MaxValue)
+            {
+                var candidate = oldPid + (uint)delta;
+                if ((candidate & 1) == (uint)abilitySlot && candidate % 25 == nature && IsShinyPid(candidate, otId) == shiny &&
+                    (genderRatio is not byte ratio || gender is null || GenderFromPid(candidate, ratio) == gender)) return candidate;
+            }
+            if (oldPid >= delta)
+            {
+                var candidate = oldPid - (uint)delta;
+                if ((candidate & 1) == (uint)abilitySlot && candidate % 25 == nature && IsShinyPid(candidate, otId) == shiny &&
+                    (genderRatio is not byte ratio || gender is null || GenderFromPid(candidate, ratio) == gender)) return candidate;
+            }
+        }
+        throw new InvalidOperationException("无法生成保持性格、闪光和性别的特性 PID。");
+    }
 
     private static void SetAbilitySlotInMisc(Span<byte> misc, int abilitySlot)
     {

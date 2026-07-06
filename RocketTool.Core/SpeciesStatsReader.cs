@@ -63,7 +63,8 @@ public sealed class SpeciesStatsReader
         return new SpeciesStats(
             species, e[0], e[1], e[2], e[3], e[4], e[5], e[6], e[7],
             e[8], e[9], U16(e, 10), U16(e, 12), U16(e, 14),
-            e[16], e[17], e[18], e[19], e[20], e[21], e[22], e[23], null);
+            e[16], e[17], e[18], e[19], e[20], e[21], e[22], e[23],
+            _entrySize >= 27 ? e[26] : null);
     }
 
     private static ushort U16(ReadOnlySpan<byte> data, int offset)

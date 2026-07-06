@@ -1,0 +1,5 @@
+{
+  "sourceRom": "jiefang v2.1.1.gba",
+  "sha1": "ede0d74375ad466c96a2088dd14dda7096c9ecd6",
+  "notes": "测试用 profile：已使用 ROM header/扩展配置指针确认 species name table 0xA36398、active item table 0x876200、active move table 0xA769AF。species_name_bytes.tsv 由真实 ROM 名表派生；items.tsv 改为中文显示名，TM 区间按 active item table 生成。"
+}

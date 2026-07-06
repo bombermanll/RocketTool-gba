@@ -1,0 +1,64 @@
+{
+  "id": "spanish-rocket-current",
+  "displayName": "西班牙火箭队一至五周目汉化版+汉化by兔砸博士v2.1",
+  "description": "",
+  "strategies": {
+    "pokemon": "spanish-rocket-pokemon-v1",
+    "partyScanner": "spanish-rocket-party-v1",
+    "boxScanner": "spanish-rocket-box-v1",
+    "bag": "spanish-rocket-bag-v1",
+    "save": "spanish-rocket-save-v1"
+  },
+  "memory": {
+    "ewramBase": "0x02000000",
+    "ewramSize": "0x40000",
+    "defaultPartyBase": "0x02025170",
+    "partyCountOffsetFromPartyBase": -3,
+    "saveBlock1PointerAddress": "0x0300524C",
+    "saveBlock2PointerAddress": "0x03005250",
+    "saveBlock1MoneyOffset": "0x490",
+    "saveBlock2EncryptionKeyOffset": "0xAC",
+    "saveBlock2PlayerOtIdOffset": "0x0A",
+    "saveBlock2HeaderLength": "0x0E",
+    "playerNameLength": 8,
+    "pokemonOtNameOffset": "0x13",
+    "pokemonOtNameLength": 7,
+    "pcBoxCount": 14,
+    "pcBoxSlots": 30,
+    "pcBoxRecordSize": 80,
+    "pcBoxRegions": []
+  },
+  "romTables": {
+    "baseStats": { "offset": "0x5B4764", "entrySize": 36, "count": 1395 },
+    "moves": { "offset": "0x5ACD5E", "entrySize": 20, "count": 755 },
+    "items": { "offset": "0xC3D558", "entrySize": 44, "count": 923 },
+    "evolutions": { "offset": "0x5F96D4", "entrySize": 8, "count": 1395, "entriesPerRecord": 10 },
+    "levelMoves": { "offset": "0x614AC4", "entrySize": 4, "count": 1395 },
+    "experience": { "offset": "0x5B3484", "entrySize": 4, "count": 906 }
+  },
+  "graphics": {
+    "spritesVerified": true,
+    "spriteAssetRoot": "Pokemon/front",
+    "frontSpriteTableOffset": "0x568888",
+    "normalPaletteTableOffset": "0x5545C4",
+    "spriteIndexAdjustment": -1,
+    "paletteIndexAdjustment": 1,
+    "eggSpeciesId": 1395
+  },
+  "limits": {
+    "maxSpecies": 1394,
+    "maxMove": 754,
+    "maxItem": 922,
+    "maxAbility": 267,
+    "maxLevel": 150
+  },
+  "features": {
+    "liveEditing": true,
+    "saveEditing": true,
+    "party": true,
+    "boxes": true,
+    "bag": true,
+    "trainer": true,
+    "experiments": true
+  }
+}

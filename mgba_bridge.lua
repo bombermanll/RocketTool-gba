@@ -27,6 +27,7 @@ local G_FIELD_CALLBACK = 0x0300526C
 local G_WARP_DESTINATION = 0x020332A0
 local QUEUE_WARP_TASK_FUNC = 0x080E6B19
 local CB2_FIELD_TRANSITION = 0x080BBA71
+local CB2_LOAD_MAP = 0x0805671D
 local WALK_THROUGH_WALLS_PATCH_ADDR = 0x080C8A80
 local WALK_THROUGH_WALLS_ORIGINAL = { 0xF0, 0xB5, 0x57, 0x46 }
 local WALK_THROUGH_WALLS_PATCHED = { 0x00, 0x20, 0x70, 0x47 } -- Thumb: movs r0,#0; bx lr
@@ -40,7 +41,42 @@ local cheats = {
     WALK_THROUGH_WALLS = false,
     party_base = PARTY_BASE,
     save_base = nil,
+    profile = "SPANISH_ROCKET",
 }
+
+local function set_cheat_profile(name)
+    name = tostring(name or ""):upper()
+    if name == "UNBOUND" then
+        cheats.profile = "UNBOUND"
+        PARTY_BASE = 0x02024284
+        PARTY_COUNT_OFFSET = -0x25B
+        SAVE_BLOCK_PTR = 0x03005008
+        REPEL_STEP_OFFSET = 0x1040
+        G_MAIN_CALLBACK2 = 0x0300F034
+        G_FIELD_CALLBACK = 0x03005020
+        G_WARP_DESTINATION = 0x02031DBC
+        WALK_THROUGH_WALLS_PATCH_ADDR = 0x080636AC
+        WALK_THROUGH_WALLS_ORIGINAL = { 0xF0, 0xB5, 0x57, 0x46 }
+        cheats.party_base = PARTY_BASE
+        cheats.save_base = nil
+        return true
+    elseif name == "SPANISH_ROCKET" or name == "SPANISH" then
+        cheats.profile = "SPANISH_ROCKET"
+        PARTY_BASE = 0x02025170
+        PARTY_COUNT_OFFSET = -3
+        SAVE_BLOCK_PTR = 0x0300524C
+        REPEL_STEP_OFFSET = 0x402
+        G_MAIN_CALLBACK2 = 0x030032E4
+        G_FIELD_CALLBACK = 0x0300526C
+        G_WARP_DESTINATION = 0x020332A0
+        WALK_THROUGH_WALLS_PATCH_ADDR = 0x080C8A80
+        WALK_THROUGH_WALLS_ORIGINAL = { 0xF0, 0xB5, 0x57, 0x46 }
+        cheats.party_base = PARTY_BASE
+        cheats.save_base = nil
+        return true
+    end
+    return false
+end
 
 local cheat_frame = 0
 local battle_hp_candidates = {}
@@ -260,6 +296,16 @@ local function request_teleport(map_group, map_num, x, y)
 
     write_warp_data(G_WARP_DESTINATION, map_group, map_num, 0xFF, x, y)
 
+    if cheats.profile == "UNBOUND" then
+        local old_callback2 = read_u32(G_MAIN_CALLBACK2)
+        if old_callback2 == 0 then
+            return false, string.format("unexpected callback2: 0x%08X", old_callback2)
+        end
+        write_u32(G_FIELD_CALLBACK, 0)
+        write_u32(G_MAIN_CALLBACK2, CB2_LOAD_MAP)
+        return true, string.format("queued group=%d map=%d x=%d y=%d old_cb=0x%08X mode=CB2_LoadMap", map_group, map_num, x, y, old_callback2)
+    end
+
     local old_callback2 = read_u32(G_MAIN_CALLBACK2)
     local old_field_callback = read_u32(G_FIELD_CALLBACK)
     if old_callback2 == 0 then
@@ -322,6 +368,11 @@ local function subblock_offset(addr, substructure)
 end
 
 local function party_mon_looks_valid(addr)
+    if cheats.profile == "UNBOUND" then
+        local species = read_u16(addr + 0x20)
+        local sanity = emu:read8(addr + 0x13)
+        return species >= 1 and species <= 1293 and (sanity % 4) >= 2
+    end
     local pid = read_u32(addr)
     local otid = read_u32(addr + 4)
     if pid == 0 or otid == 0 then return false end
@@ -432,6 +483,15 @@ end
 
 local function apply_infinite_pp(addr)
     if not party_mon_looks_valid(addr) then return end
+    if cheats.profile == "UNBOUND" then
+        for i = 0, 3 do
+            local move = read_u16(addr + 0x2C + i * 2)
+            if move ~= 0 and emu:read8(addr + 0x34 + i) ~= 99 then
+                emu:write8(addr + 0x34 + i, 99)
+            end
+        end
+        return
+    end
     local bytes, key = decrypt_box_data(addr)
     local attacks = subblock_offset(addr, 1)
     if not attacks then return end
@@ -476,7 +536,8 @@ local function apply_cheats()
     if cheats.NO_ENCOUNTER then
         local base = current_save_base()
         if base then
-            emu:write8(base + REPEL_STEP_OFFSET, 250)
+            if cheats.profile == "UNBOUND" then write_u16(base + REPEL_STEP_OFFSET, 250)
+            else emu:write8(base + REPEL_STEP_OFFSET, 250) end
         end
     end
 
@@ -484,7 +545,8 @@ local function apply_cheats()
 end
 
 local function cheat_status()
-    return string.format("LOCK_HP=%d INFINITE_PP=%d NO_ENCOUNTER=%d WALK_THROUGH_WALLS=%d WTW_PATCH=%s PARTY_BASE=0x%08X BATTLE_HP=%d SAVE_BASE=%s REPEL_OFFSET=0x%X",
+    return string.format("PROFILE=%s LOCK_HP=%d INFINITE_PP=%d NO_ENCOUNTER=%d WALK_THROUGH_WALLS=%d WTW_PATCH=%s PARTY_BASE=0x%08X BATTLE_HP=%d SAVE_BASE=%s REPEL_OFFSET=0x%X",
+        cheats.profile,
         cheats.LOCK_HP and 1 or 0,
         cheats.INFINITE_PP and 1 or 0,
         cheats.NO_ENCOUNTER and 1 or 0,
@@ -504,6 +566,9 @@ end
 local function handle_cheat(parts)
     local name = (parts[2] or ""):upper()
     if name == "STATUS" then
+        return ok(cheat_status())
+    elseif name == "PROFILE" then
+        if not set_cheat_profile(parts[3]) then return err("usage: CHEAT PROFILE UNBOUND|SPANISH_ROCKET") end
         return ok(cheat_status())
     elseif name == "LOCATION" then
         local base = current_save_base()
@@ -560,7 +625,7 @@ local function handle_cheat(parts)
         log("cheat " .. name .. "=" .. tostring(cheats[name]))
         return ok(cheat_status())
     end
-    return err("usage: CHEAT STATUS|LOCATION|TELEPORT|CLEAR|PARTY_BASE|SAVE_BASE|REPEL_OFFSET|LOCK_HP|INFINITE_PP|NO_ENCOUNTER|WALK_THROUGH_WALLS")
+    return err("usage: CHEAT STATUS|PROFILE|LOCATION|TELEPORT|CLEAR|PARTY_BASE|SAVE_BASE|REPEL_OFFSET|LOCK_HP|INFINITE_PP|NO_ENCOUNTER|WALK_THROUGH_WALLS")
 end
 
 local function handle_command(line)

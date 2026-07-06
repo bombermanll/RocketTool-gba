@@ -25,12 +25,13 @@ public static class PartyScanner
         return ewram;
     }
 
-    public static IReadOnlyList<PartyCandidate> FindCandidates(ReadOnlySpan<byte> ewram, int minScore = 13, int maxSpecies = MaxSpecies)
+    public static IReadOnlyList<PartyCandidate> FindCandidates(ReadOnlySpan<byte> ewram, int minScore = 13, int maxSpecies = MaxSpecies,
+        PokemonDataLayout layout = PokemonDataLayout.SpanishRocketEncrypted)
     {
         var hits = new List<PartyCandidate>();
         for (var off = 0; off <= ewram.Length - Gen3Constants.PartyMonSize; off += 4)
         {
-            var candidate = ScoreMon(EwramBase + (uint)off, ewram.Slice(off, Gen3Constants.PartyMonSize), maxSpecies);
+            var candidate = ScoreMon(EwramBase + (uint)off, ewram.Slice(off, Gen3Constants.PartyMonSize), maxSpecies, layout);
             if (candidate.Score >= minScore && IsStrongPartyCandidate(candidate, maxSpecies)) hits.Add(candidate);
         }
         return hits.OrderByDescending(c => c.Score).ThenBy(c => c.Address).ToArray();
@@ -73,12 +74,13 @@ public static class PartyScanner
         uint preferredBase,
         int partyCountOffsetFromBase,
         int maxSpecies,
-        int minScore = 13)
+        int minScore = 13,
+        PokemonDataLayout layout = PokemonDataLayout.SpanishRocketEncrypted)
     {
-        var knownBase = TryBuildPartyRunAtBase(ewram, preferredBase, partyCountOffsetFromBase, maxSpecies, minScore);
+        var knownBase = TryBuildPartyRunAtBase(ewram, preferredBase, partyCountOffsetFromBase, maxSpecies, minScore, layout);
         if (knownBase is not null) return knownBase;
 
-        var candidates = FindCandidates(ewram, minScore, maxSpecies);
+        var candidates = FindCandidates(ewram, minScore, maxSpecies, layout);
         var strict = GroupRuns(candidates, checksumRequired: true)
             .Where(IsUsablePartyRun)
             .OrderByDescending(r => r.StartAddress == preferredBase)
@@ -125,7 +127,8 @@ public static class PartyScanner
         uint partyBase,
         int partyCountOffsetFromBase,
         int maxSpecies,
-        int minScore = 13)
+        int minScore = 13,
+        PokemonDataLayout layout = PokemonDataLayout.SpanishRocketEncrypted)
     {
         var count = TryReadPartyCount(ewram, partyBase, partyCountOffsetFromBase);
         if (count is null) return null;
@@ -138,7 +141,7 @@ public static class PartyScanner
         for (var slot = 0; slot < count.Value; slot++)
         {
             var offset = startOffset + slot * Gen3Constants.PartyMonSize;
-            var candidate = ScoreMon(partyBase + (uint)(slot * Gen3Constants.PartyMonSize), ewram.AsSpan(offset, Gen3Constants.PartyMonSize), maxSpecies);
+            var candidate = ScoreMon(partyBase + (uint)(slot * Gen3Constants.PartyMonSize), ewram.AsSpan(offset, Gen3Constants.PartyMonSize), maxSpecies, layout);
             if (!candidate.ChecksumOk || candidate.Score < minScore || !IsStrongPartyCandidate(candidate, maxSpecies)) return null;
             candidates.Add(candidate);
         }
@@ -156,10 +159,10 @@ public static class PartyScanner
            && candidate.MaxHp is >= 1 and <= 999
            && candidate.Hp <= candidate.MaxHp;
 
-    private static PartyCandidate ScoreMon(uint address, ReadOnlySpan<byte> mon, int maxSpecies)
+    private static PartyCandidate ScoreMon(uint address, ReadOnlySpan<byte> mon, int maxSpecies, PokemonDataLayout layout)
     {
         if (mon.Length < Gen3Constants.PartyMonSize || IsZero(mon)) return new PartyCandidate(address, 0, false, 0, 0, 0, 0, 0);
-        var pokemon = new PartyPokemon(mon);
+        var pokemon = new PartyPokemon(mon, layout);
         if (pokemon.IsEmpty) return new PartyCandidate(address, 0, false, 0, 0, 0, 0, pokemon.Pid);
         var info = pokemon.GetInfo();
         var language = mon[0x12];

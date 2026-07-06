@@ -39,6 +39,22 @@ public sealed class MoveDataReader
         var off = _tableOffset + move * _entrySize;
         if (off < 0 || off + _entrySize > _rom.Length) throw new ArgumentOutOfRangeException(nameof(move));
         var e = _rom.AsSpan(off, _entrySize);
+        if (_entrySize == 12)
+        {
+            return new MoveData(
+                move,
+                e[1],
+                e[2],
+                e[3],
+                e[4],
+                e[5],
+                e[6],
+                unchecked((sbyte)e[7]),
+                e[8],
+                e[10],
+                e[9],
+                e.ToArray());
+        }
         return new MoveData(
             move,
             U16(e, 0),
@@ -57,7 +73,7 @@ public sealed class MoveDataReader
     public static string TypeName(int type) => type switch
     {
         0 => "Normal", 1 => "Fighting", 2 => "Flying", 3 => "Poison", 4 => "Ground", 5 => "Rock", 6 => "Bug", 7 => "Ghost",
-        8 => "Steel", 10 => "Fire", 11 => "Water", 12 => "Grass", 13 => "Electric", 14 => "Psychic", 15 => "Ice", 16 => "Dragon", 17 => "Dark",
+        8 => "Steel", 10 => "Fire", 11 => "Water", 12 => "Grass", 13 => "Electric", 14 => "Psychic", 15 => "Ice", 16 => "Dragon", 17 => "Dark", 18 or 23 => "Fairy",
         _ => $"#{type}"
     };
 

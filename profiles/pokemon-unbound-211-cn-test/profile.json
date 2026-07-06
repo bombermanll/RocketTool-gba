@@ -1,0 +1,94 @@
+{
+  "id": "pokemon-unbound-211-cn-test",
+  "displayName": "宝可梦解放 v2.1.1 汉化修订版",
+  "description": "宝可梦解放 v2.1.1 汉化修订版专用配置。",
+  "strategies": {
+    "pokemon": "unbound-cfru-pokemon-v1",
+    "partyScanner": "unbound-fixed-party-v1",
+    "boxScanner": "unbound-cfru-boxes-v1",
+    "bag": "unbound-cfru-bag-v1",
+    "save": "unbound-cfru-save-v1"
+  },
+  "memory": {
+    "ewramBase": "0x02000000",
+    "ewramSize": "0x40000",
+    "defaultPartyBase": "0x02024284",
+    "partyCountOffsetFromPartyBase": -603,
+    "saveBlock1PointerAddress": "0x03005008",
+    "saveBlock2PointerAddress": "0x0300500C",
+    "saveBlock1MoneyOffset": "0x290",
+    "saveBlock2EncryptionKeyOffset": "0xF20",
+    "saveBlock2PlayerOtIdOffset": "0x0A",
+    "saveBlock2HeaderLength": "0x0E",
+    "playerNameLength": 8,
+    "pokemonOtNameOffset": "0x14",
+    "pokemonOtNameLength": 7,
+    "pcBoxCount": 25,
+    "pcBoxSlots": 30,
+    "pcBoxRecordSize": 58,
+    "pcBoxRegions": [
+      { "firstBox": 1, "boxCount": 19, "address": "0x02029318" },
+      { "firstBox": 20, "boxCount": 3, "address": "0x0203CB44" },
+      { "firstBox": 23, "boxCount": 2, "address": "0x02027434" },
+      { "firstBox": 25, "boxCount": 1, "address": "0x02024638" }
+    ]
+  },
+  "romTables": {
+    "baseStats": {
+      "offset": "0x19E0C9C",
+      "entrySize": 28,
+      "count": 1294
+    },
+    "moves": {
+      "offset": "0xA769AF",
+      "entrySize": 12,
+      "count": 923
+    },
+    "items": {
+      "offset": "0x876200",
+      "entrySize": 44,
+      "count": 729
+    },
+    "evolutions": {
+      "offset": "0x19F3A7A",
+      "entrySize": 8,
+      "count": 1294,
+      "entriesPerRecord": 16
+    },
+    "levelMoves": {
+      "offset": "0x1A2457C",
+      "entrySize": 3,
+      "count": 1294
+    },
+    "experience": {
+      "offset": "0x0",
+      "entrySize": 4,
+      "count": 1
+    }
+  },
+  "graphics": {
+    "spritesVerified": true,
+    "spriteAssetRoot": "Profiles/pokemon-unbound-211-cn-test/Pokemon/front",
+    "frontSpriteTableOffset": "0x1A1D5B4",
+    "normalPaletteTableOffset": "0x1A32BDC",
+    "spriteIndexAdjustment": 0,
+    "paletteIndexAdjustment": 0,
+    "eggSpeciesId": 412
+  },
+  "limits": {
+    "maxSpecies": 1293,
+    "maxMove": 922,
+    "maxItem": 728,
+    "maxAbility": 254,
+    "maxLevel": 100
+  },
+  "features": {
+    "liveEditing": true,
+    "saveEditing": true,
+    "party": true,
+    "boxes": true,
+    "bag": true,
+    "trainer": true,
+    "experiments": true
+  }
+}

@@ -661,11 +661,11 @@
                         </Grid>
                     </TabItem>
 
-                    <TabItem x:Name="DexTab" Header="宝可梦图鉴">
+                    <TabItem x:Name="DexTab" Header="内置图鉴">
                         <Grid ColumnDefinitions="340,*" ColumnSpacing="0" Margin="0">
                             <Border Background="#EFE5D3" Padding="16" CornerRadius="18,0,0,18">
                                 <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="10">
-                                    <TextBlock Text="宝可梦图鉴" FontSize="20" FontWeight="SemiBold" Foreground="#102E4A" />
+                                    <TextBlock Text="内置图鉴" FontSize="20" FontWeight="SemiBold" Foreground="#102E4A" />
                                     <TextBox x:Name="DexSearchBox" Grid.Row="1" Watermark="输入中文名或编号搜索" TextChanged="OnDexSearchChanged" />
                                     <Grid Grid.Row="2" ColumnDefinitions="*,92" ColumnSpacing="8">
                                         <ComboBox x:Name="DexSortBox" SelectionChanged="OnDexSortChanged" />
@@ -725,7 +725,7 @@
                                             </ItemsControl>
                                             <TextBlock x:Name="DexHeaderBstText" Foreground="#6C6255" FontWeight="SemiBold" VerticalAlignment="Center" Margin="2,0,0,4" />
                                         </WrapPanel>
-                                        <TextBlock x:Name="DexSubtitleText" Text="图鉴数据使用程序内置派生表，不在使用时读取 ROM。" Foreground="#6C6255" TextWrapping="Wrap" />
+                                        <TextBlock x:Name="DexSubtitleText" Text="内置图鉴使用当前版本的内置派生表；未验证当前版本素材时不显示宝可梦图片。" Foreground="#6C6255" TextWrapping="Wrap" />
                                     </StackPanel>
                                     <WrapPanel Grid.Column="2" VerticalAlignment="Top">
                                         <Button x:Name="DexImportPartyButton" Content="导入队伍" Margin="0,0,6,4" Click="OnDexImportPartyClicked" Classes="primary" />
