@@ -183,6 +183,7 @@ public partial class MainWindow : Window
     private int? _abilitySpecies;
     private int? _boxAbilitySpecies;
     private bool _suppressEditorEvents;
+    private bool _suppressExperienceSync;
     private bool _suppressCheatEvents;
     private DispatcherTimer? _toastTimer;
     private readonly Dictionary<SearchableChoiceBox, IReadOnlyList<ChoiceRow>> _searchableChoices = [];
@@ -707,6 +708,7 @@ public partial class MainWindow : Window
         ClearEditor();
         BoxSelectedTitleText.Text = "箱子槽编辑";
         BoxNameText.Text = "选择箱子槽后显示。";
+        BoxAbilityDescriptionText.Text = "选择特性后显示说明。";
         SetPokemonSprite(BoxDetailSpriteImage, 0);
         UpdateBoxHeaderInfo(0, null);
         UpdateBoxEggHatchEditor(null);
@@ -2700,6 +2702,17 @@ public partial class MainWindow : Window
         {
             var b = bytes[i];
             if (b is 0x00 or 0xFF) break;
+            if (i + 1 < bytes.Length && bytes[i + 1] != 0xFF)
+            {
+                var code = (ushort)(b << 8 | bytes[i + 1]);
+                if (decodeMap.TryGetValue(code, out var text))
+                {
+                    output.Add(text);
+                    i += 2;
+                    continue;
+                }
+            }
+
             if (TrySingleByteGameTextChar(b, out var ch))
             {
                 output.Add(ch.ToString());
@@ -2709,8 +2722,7 @@ public partial class MainWindow : Window
 
             if (i + 1 < bytes.Length && bytes[i + 1] != 0xFF)
             {
-                var code = (ushort)(b << 8 | bytes[i + 1]);
-                output.Add(decodeMap.TryGetValue(code, out var text) ? text : "□");
+                output.Add("□");
                 i += 2;
                 continue;
             }
@@ -2809,7 +2821,10 @@ public partial class MainWindow : Window
         var encode = new Dictionary<char, byte[]>();
         var decode = new Dictionary<ushort, string>();
         var names = _db.Table("species");
-        foreach (var (species, hex) in _db.Table("species_name_bytes"))
+        var nameByteTable = _db.Table("species_nickname_bytes");
+        if (nameByteTable.Count == 0)
+            nameByteTable = _db.Table("species_name_bytes");
+        foreach (var (species, hex) in nameByteTable)
         {
             if (!names.TryGetValue(species, out var name) || string.IsNullOrWhiteSpace(name))
                 continue;
@@ -4280,6 +4295,7 @@ public partial class MainWindow : Window
             StatusBox.SelectedItem = null;
             ShinyBox.IsChecked = false;
             AbilityBox.ItemsSource = null;
+            AbilityDescriptionText.Text = "选择特性后显示说明。";
             foreach (var box in EditorBoxes()) box.Text = string.Empty;
             ClearStatTexts();
             SetPokemonSprite(PartyDetailSpriteImage, 0);
@@ -4707,7 +4723,11 @@ public partial class MainWindow : Window
 
     private void HookNameRefresh()
     {
-        SpeciesBox.SelectionChanged += (_, _) => UpdateNameHintsFromBoxes();
+        SpeciesBox.SelectionChanged += (_, _) =>
+        {
+            SyncPartyExperienceFromLevel();
+            UpdateNameHintsFromBoxes();
+        };
         ItemBox.SelectionChanged += (_, _) => UpdateNameHintsFromBoxes();
         NatureBox.SelectionChanged += (_, _) => UpdateNameHintsFromBoxes();
         GenderBox.SelectionChanged += (_, _) => UpdateNameHintsFromBoxes();
@@ -4721,7 +4741,16 @@ public partial class MainWindow : Window
         PpUp2Box.SelectionChanged += (_, _) => UpdateNameHintsFromBoxes();
         PpUp3Box.SelectionChanged += (_, _) => UpdateNameHintsFromBoxes();
         PpUp4Box.SelectionChanged += (_, _) => UpdateNameHintsFromBoxes();
-        LevelBox.TextChanged += (_, _) => UpdateNameHintsFromBoxes();
+        LevelBox.TextChanged += (_, _) =>
+        {
+            SyncPartyExperienceFromLevel();
+            UpdateNameHintsFromBoxes();
+        };
+        ExpBox.TextChanged += (_, _) =>
+        {
+            SyncPartyLevelFromExperience();
+            UpdateNameHintsFromBoxes();
+        };
         BagItemBox.SelectionChanged += (_, _) => UpdateBagNameText();
         BoxSpeciesBox.SelectionChanged += (_, _) => UpdateBoxNameText();
         BoxItemBox.SelectionChanged += (_, _) => UpdateBoxNameText();
@@ -4770,6 +4799,7 @@ public partial class MainWindow : Window
             SetPokemonSprite(PartyDetailSpriteImage, species);
             UpdatePartyHeaderInfo(species, level);
             RefreshAbilityChoices(species, SelectedAbilitySlot());
+            AbilityDescriptionText.Text = AbilityDescriptionFor(species, SelectedAbilitySlot());
             EnsureValidGenderChoice(GenderBox, species);
             UpdateBaseStatTexts(species);
             var nature = SelectedChoiceId(NatureBox) is { } n ? $"PID性格：{NatureDisplays[n]}" : "PID性格：未选择";
@@ -4827,6 +4857,7 @@ public partial class MainWindow : Window
             SetPokemonSprite(BoxDetailSpriteImage, species);
             UpdateBoxHeaderInfo(species, exp);
             RefreshBoxAbilityChoices(species, SelectedChoiceId(BoxAbilityBox));
+            BoxAbilityDescriptionText.Text = AbilityDescriptionFor(species, SelectedChoiceId(BoxAbilityBox));
             EnsureValidGenderChoice(BoxGenderBox, species);
             UpdateBoxStatsFromBoxes();
             var ppUps = new[] { BoxPpUp1Box, BoxPpUp2Box, BoxPpUp3Box, BoxPpUp4Box };
@@ -4935,7 +4966,9 @@ public partial class MainWindow : Window
     }
 
     private int MaxItemId()
-        => Math.Max(BagScanner.DefaultMaxItemId, _db.Table("items").Keys.DefaultIfEmpty(0).Max());
+        => _profile.Limits.MaxItem > 0
+            ? _profile.Limits.MaxItem
+            : Math.Max(BagScanner.DefaultMaxItemId, _db.Table("items").Keys.DefaultIfEmpty(0).Max());
 
     private int MaxSpeciesId()
         => Math.Min(ushort.MaxValue, _db.Table("species").Keys.DefaultIfEmpty(0).Max());
@@ -5403,40 +5436,112 @@ public partial class MainWindow : Window
         BoxCurrentSpdStatText.Text = CalculateOtherDisplay(stats.SpDefense, ivs.GetValueOrDefault("spd"), evs.GetValueOrDefault("spd"), level, nature, 4).ToString();
     }
 
+    private void SyncPartyExperienceFromLevel()
+    {
+        if (_suppressEditorEvents || _suppressExperienceSync) return;
+        try
+        {
+            var species = ParseChoiceUShortOrNull(SpeciesBox, _speciesChoices);
+            var level = ParseByteOrNull(LevelBox.Text);
+            if (species is null or 0 || level is null || level.Value < 1 || level.Value > ProfileMaxPokemonLevel) return;
+            var growthRate = ReadSpeciesStats(species.Value).GrowthRate;
+            SetPartyExperienceText(ExperienceForLevel(level.Value, growthRate), level.Value);
+        }
+        catch
+        {
+            // 输入过程中允许临时非法值。
+        }
+    }
+
+    private void SyncPartyLevelFromExperience()
+    {
+        if (_suppressEditorEvents || _suppressExperienceSync) return;
+        try
+        {
+            var species = ParseChoiceUShortOrNull(SpeciesBox, _speciesChoices);
+            var exp = ParseUIntOrNull(ExpBox.Text);
+            if (species is null or 0 || exp is null || exp.Value > PokemonExperienceTable.MaxStoredExperience) return;
+            var growthRate = ReadSpeciesStats(species.Value).GrowthRate;
+            SetPartyExperienceText(exp.Value, LevelFromExp(exp.Value, growthRate));
+        }
+        catch
+        {
+            // 输入过程中允许临时非法值。
+        }
+    }
+
+    private void SetPartyExperienceText(uint exp, int level)
+    {
+        _suppressExperienceSync = true;
+        try
+        {
+            ExpBox.Text = exp.ToString();
+            LevelBox.Text = Math.Clamp(level, 1, ProfileMaxPokemonLevel).ToString();
+        }
+        finally
+        {
+            _suppressExperienceSync = false;
+        }
+    }
+
     private (uint Exp, byte Level) ResolvePartyExperience(PartyMonInfo before, ushort? editedSpecies)
     {
         var targetSpecies = editedSpecies ?? before.Species;
-        var targetLevel = ParseByteOrNull(LevelBox.Text) ?? before.Level;
+        var parsedLevel = ParseByteOrNull(LevelBox.Text);
+        var targetLevel = (int)(parsedLevel ?? before.Level);
         if (targetLevel < 1 || targetLevel > ProfileMaxPokemonLevel)
             throw new InvalidOperationException($"等级必须在 1..{ProfileMaxPokemonLevel} 之间。");
 
-        var enteredExp = ParseUIntOrNull(ExpBox.Text) ?? before.Exp;
+        var parsedExp = ParseUIntOrNull(ExpBox.Text);
+        var enteredExp = parsedExp ?? before.Exp;
         if (enteredExp > PokemonExperienceTable.MaxStoredExperience)
             throw new InvalidOperationException($"经验最多为 {PokemonExperienceTable.MaxStoredExperience}；该改版只保存经验字段的低 23 位。");
 
         var sourceGrowthRate = ReadSpeciesStats(before.Species).GrowthRate;
         var targetGrowthRate = ReadSpeciesStats(targetSpecies).GrowthRate;
+        var speciesChanged = targetSpecies != before.Species;
+        var levelEdited = parsedLevel is not null && parsedLevel.Value != before.Level;
+        var expEdited = parsedExp is not null && parsedExp.Value != before.Exp;
         var sourceWasConsistent = _experienceTable.IsConsistent(before.Exp, before.Level, sourceGrowthRate);
-        var shouldRemap = enteredExp == before.Exp
-                          && (targetSpecies != before.Species || targetLevel != before.Level || !sourceWasConsistent);
-        var targetExp = shouldRemap
-            ? _experienceTable.RemapPreservingLevelProgress(
+        uint targetExp;
+
+        if (levelEdited)
+        {
+            targetExp = ExperienceForLevel(targetLevel, targetGrowthRate);
+        }
+        else if (expEdited)
+        {
+            targetExp = enteredExp;
+            targetLevel = LevelFromExp(targetExp, targetGrowthRate);
+        }
+        else if (speciesChanged || !sourceWasConsistent)
+        {
+            targetExp = _experienceTable.RemapPreservingLevelProgress(
                 before.Exp,
                 before.Level,
                 sourceGrowthRate,
                 targetLevel,
-                targetGrowthRate)
-            : enteredExp;
+                targetGrowthRate);
+        }
+        else
+        {
+            targetExp = enteredExp;
+        }
 
         if (!_experienceTable.IsConsistent(targetExp, targetLevel, targetGrowthRate))
         {
-            var calculatedLevel = _experienceTable.LevelFromExperience(targetExp, targetGrowthRate);
-            throw new InvalidOperationException(
-                $"经验 {targetExp} 按 {SpeciesName(targetSpecies)} 的成长率对应 {calculatedLevel} 级，与填写的 {targetLevel} 级冲突。" +
-                "请修改等级或经验；物种/等级变化时保持原经验值不动，程序会自动换算。");
+            if (expEdited && !levelEdited)
+            {
+                targetLevel = LevelFromExp(targetExp, targetGrowthRate);
+            }
+            else
+            {
+                targetExp = ExperienceForLevel(targetLevel, targetGrowthRate);
+            }
         }
 
-        return (targetExp, targetLevel);
+        SetPartyExperienceText(targetExp, targetLevel);
+        return (targetExp, checked((byte)targetLevel));
     }
 
     private uint ResolveBoxExperience(BoxMonInfo before, ushort targetSpecies)
@@ -5764,8 +5869,9 @@ public partial class MainWindow : Window
 
     private byte[] SpeciesNameEntryBytes(int species)
     {
-        if (!_db.Table("species_name_bytes").TryGetValue(species, out var hex))
-            throw new InvalidOperationException($"缺少宝可梦 {SpeciesName(species)} 的内部名字字节，无法自动同步昵称。");
+        if (!_db.Table("species_nickname_bytes").TryGetValue(species, out var hex) &&
+            !_db.Table("species_name_bytes").TryGetValue(species, out hex))
+            throw new InvalidOperationException($"缺少宝可梦 {SpeciesName(species)} 的昵称名字字节，无法自动同步昵称。");
 
         try
         {
@@ -5776,17 +5882,24 @@ public partial class MainWindow : Window
         }
         catch (FormatException ex)
         {
-            throw new InvalidOperationException($"宝可梦 {SpeciesName(species)} 的内部名字字节格式无效，无法自动同步昵称。", ex);
+            throw new InvalidOperationException($"宝可梦 {SpeciesName(species)} 的昵称名字字节格式无效，无法自动同步昵称。", ex);
         }
     }
 
     private void RefreshAbilityChoices(int species, int? selectedBit)
     {
-        if (species <= 0) return;
+        if (species <= 0)
+        {
+            _abilitySpecies = null;
+            AbilityBox.ItemsSource = null;
+            AbilityDescriptionText.Text = "选择宝可梦和特性后显示说明。";
+            return;
+        }
         if (_abilitySpecies == species && AbilityBox.ItemsSource is IEnumerable<object> existing)
         {
             if (selectedBit is not null)
                 AbilityBox.SelectedItem = existing.OfType<ChoiceRow>().FirstOrDefault(c => c.Id == selectedBit.Value) ?? AbilityBox.SelectedItem;
+            AbilityDescriptionText.Text = AbilityDescriptionFor(species, SelectedAbilitySlot());
             return;
         }
 
@@ -5797,20 +5910,29 @@ public partial class MainWindow : Window
             _abilitySpecies = species;
             AbilityBox.ItemsSource = choices;
             AbilityBox.SelectedItem = choices.FirstOrDefault(c => c.Id == selectedBit) ?? choices.First();
+            AbilityDescriptionText.Text = AbilityDescriptionFor(species, SelectedAbilitySlot());
         }
         catch
         {
             SetFallbackAbilityChoices(AbilityBox, species, selectedBit, ref _abilitySpecies);
+            AbilityDescriptionText.Text = AbilityDescriptionFor(species, SelectedAbilitySlot());
         }
     }
 
     private void RefreshBoxAbilityChoices(int species, int? selectedBit)
     {
-        if (species <= 0) return;
+        if (species <= 0)
+        {
+            _boxAbilitySpecies = null;
+            BoxAbilityBox.ItemsSource = null;
+            BoxAbilityDescriptionText.Text = "选择宝可梦和特性后显示说明。";
+            return;
+        }
         if (_boxAbilitySpecies == species && BoxAbilityBox.ItemsSource is IEnumerable<object> existing)
         {
             if (selectedBit is not null)
                 BoxAbilityBox.SelectedItem = existing.OfType<ChoiceRow>().FirstOrDefault(c => c.Id == selectedBit.Value) ?? BoxAbilityBox.SelectedItem;
+            BoxAbilityDescriptionText.Text = AbilityDescriptionFor(species, SelectedChoiceId(BoxAbilityBox));
             return;
         }
 
@@ -5821,10 +5943,12 @@ public partial class MainWindow : Window
             _boxAbilitySpecies = species;
             BoxAbilityBox.ItemsSource = choices;
             BoxAbilityBox.SelectedItem = choices.FirstOrDefault(c => c.Id == selectedBit) ?? choices.First();
+            BoxAbilityDescriptionText.Text = AbilityDescriptionFor(species, SelectedChoiceId(BoxAbilityBox));
         }
         catch
         {
             SetFallbackAbilityChoices(BoxAbilityBox, species, selectedBit, ref _boxAbilitySpecies);
+            BoxAbilityDescriptionText.Text = AbilityDescriptionFor(species, SelectedChoiceId(BoxAbilityBox));
         }
     }
 
@@ -5860,6 +5984,43 @@ public partial class MainWindow : Window
         if (ability3 is not null and not 0)
             choices.Add(new(2, $"特性3（隐藏）：{AbilityName(ability3.Value)}", $"特性3（隐藏）：{AbilityName(ability3.Value)}"));
         return choices;
+    }
+
+    private string AbilityDescriptionFor(int species, int? abilitySlot)
+    {
+        if (species <= 0 || abilitySlot is null)
+            return "选择宝可梦和特性后显示说明。";
+        return TrySpeciesAbilityId(species, abilitySlot.Value, out var ability)
+            ? AbilityTooltip(ability)
+            : "当前槽位没有可用特性。";
+    }
+
+    private bool TrySpeciesAbilityId(int species, int abilitySlot, out ushort ability)
+    {
+        ability = 0;
+        try
+        {
+            var stats = ReadSpeciesStats(species);
+            return TryAbilityIdFromSlots(stats.Ability1, stats.Ability2, stats.Ability3, abilitySlot, out ability);
+        }
+        catch
+        {
+            if (TryReadSpeciesAbilities(species, out var ability1, out var ability2, out var ability3))
+                return TryAbilityIdFromSlots(ability1, ability2, ability3, abilitySlot, out ability);
+            return false;
+        }
+    }
+
+    private static bool TryAbilityIdFromSlots(ushort ability1, ushort ability2, ushort? ability3, int abilitySlot, out ushort ability)
+    {
+        ability = abilitySlot switch
+        {
+            0 => ability1,
+            1 when ability2 != 0 => ability2,
+            2 when ability3 is not null and not 0 => ability3.Value,
+            _ => (ushort)0
+        };
+        return ability != 0;
     }
 
     private bool TryReadSpeciesAbilities(int species, out ushort ability1, out ushort ability2, out ushort? ability3)
@@ -6236,7 +6397,7 @@ public partial class MainWindow : Window
     {
         if (item == 0) return -1;
         if (item < 0 || item > MaxItemId()) return -1;
-        if (item is >= MachineTmStartItem and <= 845)
+        if (!UsesUnboundCfruLayout && item is >= MachineTmStartItem and <= 845)
             return IsBagMachineItem(item) ? 7 : -1;
 
         if (_db.Table("item_pockets").TryGetValue(item, out var pocketText) &&
@@ -6246,10 +6407,12 @@ public partial class MainWindow : Window
 
         try
         {
-            return ReadItemData(item).Pocket;
+            var dataPocket = ReadItemData(item).Pocket;
+            return dataPocket is >= 1 and <= 8 ? dataPocket : -1;
         }
         catch
         {
+            if (UsesUnboundCfruLayout) return -1;
             var fromOriginalRanges = PocketOfItemByOriginalRanges(item);
             return fromOriginalRanges ?? -1;
         }

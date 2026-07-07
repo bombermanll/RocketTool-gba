@@ -135,7 +135,8 @@
                                                 <TextBlock Text="性格" Classes="label" Grid.Row="2" />
                                                 <TextBlock Text="特性" Classes="label" Grid.Row="2" Grid.Column="1" />
                                                 <local:SearchableChoiceBox x:Name="NatureBox" Grid.Row="3" PlaceholderText="选择或搜索性格" />
-                                                <ComboBox x:Name="AbilityBox" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" />
+                                                <ComboBox x:Name="AbilityBox" Grid.Row="3" Grid.Column="1" />
+                                                <TextBlock x:Name="AbilityDescriptionText" Grid.Row="3" Grid.Column="2" Text="选择特性后显示说明。" Foreground="#6C6255" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" />
 
                                                 <TextBlock Text="携带道具" Classes="label" Grid.Row="4" />
                                                 <TextBlock Text="经验" Classes="label" Grid.Row="4" Grid.Column="1" />
@@ -544,7 +545,8 @@
                                                 <TextBlock Text="性格" Classes="label" Grid.Row="2" />
                                                 <TextBlock Text="特性" Classes="label" Grid.Row="2" Grid.Column="1" />
                                                 <local:SearchableChoiceBox x:Name="BoxNatureBox" Grid.Row="3" PlaceholderText="选择或搜索性格" />
-                                                <ComboBox x:Name="BoxAbilityBox" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" />
+                                                <ComboBox x:Name="BoxAbilityBox" Grid.Row="3" Grid.Column="1" />
+                                                <TextBlock x:Name="BoxAbilityDescriptionText" Grid.Row="3" Grid.Column="2" Text="选择特性后显示说明。" Foreground="#6C6255" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" />
 
                                                 <TextBlock Text="携带道具" Classes="label" Grid.Row="4" />
                                                 <TextBlock Text="经验" Classes="label" Grid.Row="4" Grid.Column="1" />
