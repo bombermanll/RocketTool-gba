@@ -182,15 +182,15 @@ public static class Gen3SaveReader
         var section0 = RequiredUnboundSection(best, 0);
         var saveBlock2 = section0.Data.AsSpan(0, 0xF24).ToArray();
         var saveBlock1 = new byte[0x3D68];
-        CopyUnboundSection(best, 1, saveBlock1, 0x0000, 0xF80);
-        CopyUnboundSection(best, 2, saveBlock1, 0x0F80, 0xF80);
-        CopyUnboundSection(best, 3, saveBlock1, 0x1F00, 0xF80);
-        CopyUnboundSection(best, 4, saveBlock1, 0x2E80, 0xD98);
+        CopyUnboundSection(best, 1, saveBlock1, 0x0000, 0xF80, warnings);
+        CopyUnboundSection(best, 2, saveBlock1, 0x0F80, 0xF80, warnings);
+        CopyUnboundSection(best, 3, saveBlock1, 0x1F00, 0xF80, warnings);
+        CopyUnboundSection(best, 4, saveBlock1, 0x2E80, 0xD98, warnings);
 
         var pcStorage = new byte[0x83D0];
         for (var id = 5; id <= 12; id++)
-            CopyUnboundSection(best, id, pcStorage, (id - 5) * SectionDataSize, SectionDataSize);
-        CopyUnboundSection(best, 13, pcStorage, 8 * SectionDataSize, 0x450);
+            CopyUnboundSection(best, id, pcStorage, (id - 5) * SectionDataSize, SectionDataSize, warnings);
+        CopyUnboundSection(best, 13, pcStorage, 8 * SectionDataSize, 0x450, warnings);
 
         var parasite = BuildUnboundParasite(raw, best);
         var party = ReadUnboundParty(saveBlock1, profile, warnings);
@@ -243,6 +243,7 @@ public static class Gen3SaveReader
     {
         0 => 0xF24,
         1 => 0xFF4,
+        3 => 0xFF4,
         4 => 0xD98,
         13 => 0x450,
         _ => SectionDataSize
@@ -255,6 +256,18 @@ public static class Gen3SaveReader
 
     private static void CopyUnboundSection(SaveSlot slot, int id, Span<byte> destination, int destinationOffset, int count)
         => RequiredUnboundSection(slot, id).Data.AsSpan(0, count).CopyTo(destination[destinationOffset..]);
+
+    private static void CopyUnboundSection(SaveSlot slot, int id, Span<byte> destination, int destinationOffset, int count, List<string> warnings)
+    {
+        if (!slot.ValidSections.TryGetValue(id, out var section))
+        {
+            warnings.Add($"解放版存档缺少 section {id}，对应区域已按空数据只读解析；保存写回已禁用。");
+            destination.Slice(destinationOffset, count).Clear();
+            return;
+        }
+
+        section.Data.AsSpan(0, count).CopyTo(destination[destinationOffset..]);
+    }
 
     private static byte[] BuildUnboundParasite(byte[] raw, SaveSlot slot)
     {

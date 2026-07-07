@@ -128,13 +128,14 @@ public partial class MainWindow : Window
     private const int MachineHmStartItem = 838;
     private const int MachineHmCount = 8;
     private const int MachineHmMoveStartIndex = 246;
-    private const int MachinePocket = 7;
+    private const int SpanishMachinePocket = 7;
     private const int MaxPokemonLevel = PokemonExperienceTable.MaxLevel;
     private const int DexImportLevel = 5;
     private const ushort MaxBagWriteQuantity = 255;
     private const ushort BagBatchQuantity = 240;
     private const int MaxTrainerMoney = 99999999;
     private sealed record PlayerTrainerIdentity(uint OtId, byte[] OtName);
+    private sealed record DexEvolutionSegment(string Text, int? SpeciesId = null, bool IsCurrent = false);
 
     private readonly ObservableCollection<PartySlotRow> _partyRows = [];
     private readonly GameProfile _profile;
@@ -197,6 +198,7 @@ public partial class MainWindow : Window
         _profile.Strategies.Pokemon,
         "unbound-cfru-pokemon-v1",
         StringComparison.Ordinal);
+    private int MachinePocket => UsesUnboundCfruLayout ? 4 : SpanishMachinePocket;
     private PokemonDataLayout ActivePokemonLayout => UsesUnboundCfruLayout
         ? PokemonDataLayout.UnboundCfruPlainParty
         : PokemonDataLayout.SpanishRocketEncrypted;
@@ -284,19 +286,30 @@ public partial class MainWindow : Window
             new(1, "特殊"),
             new(2, "变化")
         ];
-        _bagPocketChoices =
-        [
-            new(1, "普通道具"),
-            new(2, "回复药品"),
-            new(3, "精灵球"),
-            new(4, "战斗道具"),
-            new(5, "树果"),
-            new(6, "宝物"),
-            new(7, "招式机器/秘传机器"),
-            new(8, "重要物品"),
-            new(-1, "未知/候选"),
-            new(0, "全部口袋")
-        ];
+        _bagPocketChoices = UsesUnboundCfruLayout
+            ?
+            [
+                new(1, "道具"),
+                new(2, "重要物品"),
+                new(3, "精灵球"),
+                new(4, "招式机器"),
+                new(5, "树果"),
+                new(-1, "未知/候选"),
+                new(0, "全部口袋")
+            ]
+            :
+            [
+                new(1, "普通道具"),
+                new(2, "回复药品"),
+                new(3, "精灵球"),
+                new(4, "战斗道具"),
+                new(5, "树果"),
+                new(6, "宝物"),
+                new(7, "招式机器/秘传机器"),
+                new(8, "重要物品"),
+                new(-1, "未知/候选"),
+                new(0, "全部口袋")
+            ];
         PartyList.ItemsSource = _partyRows;
         BagList.ItemsSource = _bagRows;
         SaveBagList.ItemsSource = _saveBagRows;
@@ -1787,7 +1800,7 @@ public partial class MainWindow : Window
         {
             var document = loaded ?? throw new InvalidOperationException("请先读取存档。");
             var item = checked((ushort)choice.Id);
-            var quantity = item == 0 ? (ushort)0 : editable.Row.Pocket == 8 ? (ushort)1 : editable.Row.Quantity;
+            var quantity = item == 0 ? (ushort)0 : IsKeyItemPocket(editable.Row.Pocket) ? (ushort)1 : editable.Row.Quantity;
             var updated = document.ReplaceBagEntry(checked((int)editable.Row.Address), item, quantity);
             LoadSaveBagRows(document.CurrentBag, updated?.SaveOffset);
             UpdateSaveButtons();
@@ -1814,7 +1827,7 @@ public partial class MainWindow : Window
     {
         if (_dataSourceMode != DataSourceMode.SaveFile || box.DataContext is not SaveBagEditableRow editable)
             return;
-        if (editable.Row.Pocket == 8)
+        if (IsKeyItemPocket(editable.Row.Pocket))
         {
             box.Text = "1";
             return;
@@ -1918,14 +1931,14 @@ public partial class MainWindow : Window
                 var selectedPocket = SelectedChoiceId(BagPocketTabs) ?? 0;
                 if (selectedPocket <= 0)
                     selectedPocket = CurrentBagEditPocket();
-                if (selectedPocket is < 1 or > 8)
+                if (!IsConcreteBagPocket(selectedPocket))
                     throw new InvalidOperationException("请先切换到具体背包分类。");
                 var item = ParseBagItemRequired(selectedPocket, allowEmpty: false);
                 var qty = ParseBagQuantityRequired(item, allowZero: false);
                 var added = document.AddBagItem(selectedPocket, item, qty);
                 LoadSaveBagRows(document.CurrentBag, added.SaveOffset);
                 UpdateSaveButtons();
-                SetWriteNotice($"存档背包已添加 {ItemName(item)} x{(selectedPocket == 8 ? 1 : qty)}，等待保存。");
+                SetWriteNotice($"存档背包已添加 {ItemName(item)} x{(IsKeyItemPocket(selectedPocket) ? 1 : qty)}，等待保存。");
             });
             return;
         }
@@ -1958,19 +1971,11 @@ public partial class MainWindow : Window
     private void AddUnboundLiveBagItem(MgbaBridgeClient bridge)
     {
         var selectedPocket = SelectedChoiceId(BagPocketTabs) ?? CurrentBagEditPocket();
-        var area = selectedPocket switch
-        {
-            1 => (Address: 0x0203BB20u, Capacity: 450),
-            2 => (Address: 0x0203C228u, Capacity: 75),
-            3 => (Address: 0x0203C354u, Capacity: 50),
-            4 => (Address: 0x0203C41Cu, Capacity: 128),
-            5 => (Address: 0x0203C61Cu, Capacity: 75),
-            _ => throw new InvalidOperationException("解放版只支持道具、重要物品、精灵球、招式机器和树果五个口袋。")
-        };
+        var area = UnboundLiveBagArea(selectedPocket)
+                   ?? throw new InvalidOperationException("解放版只支持道具、重要物品、精灵球、招式机器和树果五个口袋。");
         var item = ParseBagItemRequired(selectedPocket, allowEmpty: false);
         var quantity = ParseBagQuantityRequired(item, allowZero: false);
-        var saveBlock2 = ReadU32Le(bridge.Read(_profile.Memory.SaveBlock2PointerAddress, 4), 0);
-        var key = (ushort)(ReadU32Le(bridge.Read(saveBlock2 + _profile.Memory.SaveBlock2EncryptionKeyOffset, 4), 0) & 0xFFFF);
+        var key = ReadUnboundQuantityKey(bridge);
         var raw = bridge.Read(area.Address, area.Capacity * 4);
         var targetIndex = -1;
         ushort beforeQuantity = 0;
@@ -1999,14 +2004,14 @@ public partial class MainWindow : Window
         var pocket = SelectedChoiceId(BagPocketTabs) ?? 0;
         if (pocket <= 0)
             pocket = CurrentBagEditPocket();
-        if (pocket is < 1 or > 8)
+        if (!IsConcreteBagPocket(pocket))
         {
             ShowToast("请先选择一个具体背包分类。", success: false);
             return;
         }
 
         var items = BagItemChoicesForPocket(pocket)
-            .Where(choice => choice.Id > 0 && PocketOfItem(choice.Id) == pocket)
+            .Where(choice => choice.Id > 0 && PocketOfItem(choice.Id) == pocket && IsBulkImportableItem(choice.Id))
             .Select(choice => (ushort)choice.Id)
             .Distinct()
             .OrderBy(id => id)
@@ -2061,17 +2066,25 @@ public partial class MainWindow : Window
         await RunUiTask(label, () =>
         {
             using var bridge = ConnectBridge();
-            _bagBase = BagScanner.LocateSaveBlockBase(bridge, _profile.Memory.SaveBlock1PointerAddress);
+            _bagBase = UsesUnboundCfruLayout
+                ? 0x0203B174u
+                : BagScanner.LocateSaveBlockBase(bridge, _profile.Memory.SaveBlock1PointerAddress);
             var ewram = PartyScanner.ReadEwram(bridge);
-            var definition = BagScanner.DefinitionForPocket(MachinePocket)
-                             ?? throw new InvalidOperationException("缺少招式机器/秘传机器口袋定义。");
-            var startAddress = _bagBase.Value + definition.Offset;
+            var definition = UsesUnboundCfruLayout
+                ? new BagPocketDefinition(MachinePocket, "招式机器", 0, 128, true, 0)
+                : BagScanner.DefinitionForPocket(MachinePocket)
+                  ?? throw new InvalidOperationException("缺少招式机器/秘传机器口袋定义。");
+            var startAddress = UsesUnboundCfruLayout
+                ? 0x0203C41Cu
+                : _bagBase.Value + definition.Offset;
             var startOffset = checked((int)(startAddress - PartyScanner.EwramBase));
             var endOffset = startOffset + definition.SlotCount * 4;
             if (startOffset < 0 || endOffset > ewram.Length)
                 throw new InvalidOperationException("招式机器/秘传机器口袋地址无效。请先读取或校准背包。");
 
-            var quantityKey = BagScanner.InferQuantityKey(ewram);
+            var quantityKey = UsesUnboundCfruLayout
+                ? ReadUnboundQuantityKey(bridge)
+                : BagScanner.InferQuantityKey(ewram);
             var machines = ReadMachinePocketQuantities(ewram, startOffset, definition.SlotCount, quantityKey);
             var existingBefore = items.Count(machines.ContainsKey);
             var skipped = 0;
@@ -2109,13 +2122,20 @@ public partial class MainWindow : Window
             await RunUiTask(label, () =>
             {
                 var document = _loadedSave ?? throw new InvalidOperationException("请先读取存档。");
-                var result = document.SetBagItems(pocket, items, pocket == 8 ? (ushort)1 : BagBatchQuantity);
+                var quantity = IsKeyItemPocket(pocket) ? (ushort)1 : BagBatchQuantity;
+                var result = document.SetBagItems(pocket, items, quantity);
                 LoadSaveBagRows(document.CurrentBag);
                 BagPocketTabs.SelectedItem = _bagPocketChoices.FirstOrDefault(choice => choice.Id == pocket) ?? BagPocketTabs.SelectedItem;
                 SelectSaveBagRow(_bagRows.FirstOrDefault(row => items.Contains(row.ItemId))?.Address);
                 UpdateSaveButtons();
-                SetWriteNotice($"{label}已写入存档副本：新增 {result.Added} 个，更新 {result.Updated} 个，数量设为 {(pocket == 8 ? 1 : BagBatchQuantity)}，等待保存。");
+                SetWriteNotice($"{label}已写入存档副本：新增 {result.Added} 个，更新 {result.Updated} 个，数量设为 {quantity}，等待保存。");
             });
+            return;
+        }
+
+        if (UsesUnboundCfruLayout)
+        {
+            await GiveUnboundLiveBagPocketItemsAsync(label, pocket, items);
             return;
         }
 
@@ -2171,7 +2191,62 @@ public partial class MainWindow : Window
             LoadBagRows(bridge);
             BagPocketTabs.SelectedItem = _bagPocketChoices.FirstOrDefault(choice => choice.Id == pocket) ?? BagPocketTabs.SelectedItem;
             BagList.SelectedItem = _bagRows.FirstOrDefault(row => items.Contains(row.ItemId)) ?? BagList.SelectedItem;
-            SetWriteNotice($"{label}完成：新增 {added} 个，更新数量 {updated} 个，数量设置为 {(pocket == 8 ? 1 : BagBatchQuantity)}。请回游戏确认后手动保存。");
+            SetWriteNotice($"{label}完成：新增 {added} 个，更新数量 {updated} 个，数量设置为 {BatchQuantityForPocket(pocket)}。请回游戏确认后手动保存。");
+        });
+    }
+
+    private async Task GiveUnboundLiveBagPocketItemsAsync(string label, int pocket, IReadOnlyList<ushort> items)
+    {
+        await RunUiTask(label, () =>
+        {
+            var area = UnboundLiveBagArea(pocket)
+                       ?? throw new InvalidOperationException("解放版只支持道具、重要物品、精灵球、招式机器和树果五个口袋。");
+            using var bridge = ConnectBridge();
+            var quantityKey = ReadUnboundQuantityKey(bridge);
+            var raw = bridge.Read(area.Address, area.Capacity * 4);
+            var wanted = items.ToHashSet();
+            var existing = new Dictionary<ushort, int>();
+            var emptyIndexes = new List<int>();
+
+            for (var i = 0; i < area.Capacity; i++)
+            {
+                var offset = i * 4;
+                var item = ReadU16(raw, offset);
+                if (item == 0)
+                {
+                    emptyIndexes.Add(i);
+                    continue;
+                }
+
+                if (wanted.Contains(item) && !existing.ContainsKey(item))
+                    existing[item] = i;
+            }
+
+            var missing = items.Where(item => !existing.ContainsKey(item)).ToArray();
+            if (missing.Length > emptyIndexes.Count)
+                throw new InvalidOperationException($"{area.Name}容量不足：缺少 {missing.Length} 个道具，但只找到 {emptyIndexes.Count} 个空槽。未写入。");
+
+            var quantity = BatchQuantityForPocket(pocket);
+            var updated = 0;
+            foreach (var (item, index) in existing)
+            {
+                var address = area.Address + (uint)(index * 4);
+                bridge.WriteRangeVerified(address, BagScanner.EncodeSlot(item, quantity, quantityKey, quantityXor: true));
+                updated++;
+            }
+
+            var added = 0;
+            for (var i = 0; i < missing.Length; i++)
+            {
+                var address = area.Address + (uint)(emptyIndexes[i] * 4);
+                bridge.WriteRangeVerified(address, BagScanner.EncodeSlot(missing[i], quantity, quantityKey, quantityXor: true));
+                added++;
+            }
+
+            LoadUnboundBagRows(bridge);
+            BagPocketTabs.SelectedItem = _bagPocketChoices.FirstOrDefault(choice => choice.Id == pocket) ?? BagPocketTabs.SelectedItem;
+            BagList.SelectedItem = _bagRows.FirstOrDefault(row => items.Contains(row.ItemId)) ?? BagList.SelectedItem;
+            SetWriteNotice($"{label}完成：新增 {added} 个，更新数量 {updated} 个，数量设置为 {quantity}。请回游戏确认后手动保存。");
         });
     }
 
@@ -2965,7 +3040,8 @@ public partial class MainWindow : Window
 
     private void OnDexSearchChanged(object? sender, TextChangedEventArgs e) => ApplyDexFilter();
 
-    private void OnDexSortChanged(object? sender, SelectionChangedEventArgs e) => ApplyDexFilter(keepSelectedAtTop: true);
+    private void OnDexSortChanged(object? sender, SelectionChangedEventArgs e)
+        => ApplyDexFilter(selectFirst: true, preserveSelection: false, scrollToTop: true);
 
     private void OnMoveDexFilterChanged(object? sender, SelectionChangedEventArgs e) => ApplyMoveDexFilter();
 
@@ -3028,7 +3104,11 @@ public partial class MainWindow : Window
         ApplyMoveDexFilter();
     }
 
-    private void ApplyDexFilter(bool selectFirst = false, bool keepSelectedAtTop = false)
+    private void ApplyDexFilter(
+        bool selectFirst = false,
+        bool preserveSelection = true,
+        bool scrollToTop = false,
+        int? selectSpeciesId = null)
     {
         var previousId = DexSpeciesList.SelectedItem is DexSpeciesRow selected ? selected.Id : (int?)null;
         var filter = DexSearchBox.Text?.Trim() ?? string.Empty;
@@ -3054,10 +3134,24 @@ public partial class MainWindow : Window
             return;
         }
 
-        var next = previousId is null ? null : _dexRows.FirstOrDefault(r => r.Id == previousId.Value);
+        var next = selectSpeciesId is null ? null : _dexRows.FirstOrDefault(r => r.Id == selectSpeciesId.Value);
+        if (next is null && preserveSelection && previousId is not null)
+            next = _dexRows.FirstOrDefault(r => r.Id == previousId.Value);
         DexSpeciesList.SelectedItem = next ?? (selectFirst ? _dexRows[0] : _dexRows[0]);
-        if (keepSelectedAtTop)
-            ScrollDexSelectedItemToTop();
+        if (scrollToTop)
+            ScrollDexListToTop();
+    }
+
+    private void ScrollDexListToTop()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            var scrollViewer = DexSpeciesList.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
+            if (scrollViewer is not null)
+                scrollViewer.Offset = new Vector(scrollViewer.Offset.X, 0);
+            if (_dexRows.Count > 0)
+                DexSpeciesList.ScrollIntoView(_dexRows[0]);
+        }, DispatcherPriority.Background);
     }
 
     private void ScrollDexSelectedItemToTop()
@@ -3391,15 +3485,18 @@ public partial class MainWindow : Window
             roots = [row.Id];
 
         var branchCount = outgoingBySpecies.Count(kv => kv.Value.Length > 1);
-        var lines = new List<string> { "完整进化链" };
+        var lines = new List<IReadOnlyList<DexEvolutionSegment>>
+        {
+            new[] { new DexEvolutionSegment("完整进化链") }
+        };
         if (branchCount > 0)
-            lines.Add($"存在 {branchCount} 个分支节点，已按分支缩进显示。");
-        lines.Add("");
+            lines.Add(new[] { new DexEvolutionSegment($"存在 {branchCount} 个分支节点，已按分支缩进显示。") });
+        lines.Add(new[] { new DexEvolutionSegment("") });
 
         if (outgoingBySpecies.Values.All(evolutions => evolutions.Length == 0))
         {
-            lines.Add(EvolutionSpeciesText(row.Id, row.Id));
-            lines.Add("无进化链。");
+            lines.Add(EvolutionSpeciesSegments(row.Id, row.Id, ""));
+            lines.Add(new[] { new DexEvolutionSegment("无进化链。") });
             SetDexEvolutionLines(lines);
             return;
         }
@@ -3439,7 +3536,7 @@ public partial class MainWindow : Window
     }
 
     private void AppendEvolutionTree(
-        List<string> lines,
+        List<IReadOnlyList<DexEvolutionSegment>> lines,
         int species,
         int selectedSpecies,
         IReadOnlyDictionary<int, SpeciesEvolution[]> outgoingBySpecies,
@@ -3447,11 +3544,11 @@ public partial class MainWindow : Window
         int depth)
     {
         var indent = new string(' ', depth * 2);
-        lines.Add($"{indent}{EvolutionSpeciesText(species, selectedSpecies)}");
+        lines.Add(EvolutionSpeciesSegments(species, selectedSpecies, indent));
 
         if (!path.Add(species))
         {
-            lines.Add($"{indent}  已检测到循环进化引用。");
+            lines.Add(new[] { new DexEvolutionSegment($"{indent}  已检测到循环进化引用。") });
             return;
         }
 
@@ -3459,7 +3556,7 @@ public partial class MainWindow : Window
     }
 
     private void AppendEvolutionChildren(
-        List<string> lines,
+        List<IReadOnlyList<DexEvolutionSegment>> lines,
         int species,
         int selectedSpecies,
         IReadOnlyDictionary<int, SpeciesEvolution[]> outgoingBySpecies,
@@ -3472,10 +3569,15 @@ public partial class MainWindow : Window
             {
                 var target = evolution.TargetSpecies;
                 var edgeIndent = new string(' ', depth * 2);
-                lines.Add($"{edgeIndent}{EvolutionEdgeLabel(evolution)} -> {EvolutionSpeciesText(target, selectedSpecies)}");
+                var line = new List<DexEvolutionSegment>
+                {
+                    new($"{edgeIndent}{EvolutionEdgeLabel(evolution)} -> ")
+                };
+                line.AddRange(EvolutionSpeciesSegments(target, selectedSpecies, ""));
+                lines.Add(line);
                 if (path.Contains(target))
                 {
-                    lines.Add($"{edgeIndent}  已检测到循环进化引用。");
+                    lines.Add(new[] { new DexEvolutionSegment($"{edgeIndent}  已检测到循环进化引用。") });
                     continue;
                 }
                 var childPath = new HashSet<int>(path) { target };
@@ -3490,30 +3592,66 @@ public partial class MainWindow : Window
         return species == selectedSpecies ? $"{name}（当前）" : name;
     }
 
+    private IReadOnlyList<DexEvolutionSegment> EvolutionSpeciesSegments(int species, int selectedSpecies, string prefix)
+        => new[]
+        {
+            new DexEvolutionSegment(prefix),
+            new DexEvolutionSegment(EvolutionSpeciesText(species, selectedSpecies), species, species == selectedSpecies)
+        };
+
     private void SetDexEvolutionPlainText(string text)
     {
-        DexEvolutionText.Inlines?.Clear();
-        DexEvolutionText.Text = text;
+        DexEvolutionPanel.Children.Clear();
+        DexEvolutionPanel.Children.Add(new TextBlock
+        {
+            Text = text,
+            Foreground = Brushes.DarkSlateBlue,
+            TextWrapping = TextWrapping.Wrap
+        });
     }
 
-    private void SetDexEvolutionLines(IEnumerable<string> lines)
+    private void SetDexEvolutionLines(IEnumerable<IReadOnlyList<DexEvolutionSegment>> lines)
     {
-        DexEvolutionText.Text = "";
-        DexEvolutionText.Inlines?.Clear();
-        var first = true;
+        DexEvolutionPanel.Children.Clear();
         foreach (var line in lines)
         {
-            if (!first)
-                DexEvolutionText.Inlines?.Add(new LineBreak());
-            first = false;
-
-            var isCurrent = line.Contains("（当前）", StringComparison.Ordinal);
-            DexEvolutionText.Inlines?.Add(new Run(line)
+            var row = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
+            foreach (var segment in line)
             {
-                Foreground = isCurrent ? Brushes.Firebrick : Brushes.DarkSlateBlue,
-                FontWeight = isCurrent ? FontWeight.Bold : FontWeight.Normal
-            });
+                if (segment.SpeciesId is { } speciesId)
+                {
+                    var button = new Button
+                    {
+                        Content = segment.Text,
+                        Padding = new Thickness(4, 0),
+                        Margin = new Thickness(0, 0, 2, 0),
+                        Foreground = segment.IsCurrent ? Brushes.Firebrick : Brushes.DarkSlateBlue,
+                        FontWeight = segment.IsCurrent ? FontWeight.Bold : FontWeight.SemiBold
+                    };
+                    button.Click += (_, _) => SelectDexSpeciesFromEvolution(speciesId);
+                    row.Children.Add(button);
+                }
+                else
+                {
+                    row.Children.Add(new TextBlock
+                    {
+                        Text = segment.Text,
+                        Foreground = Brushes.DarkSlateBlue,
+                        TextWrapping = TextWrapping.Wrap,
+                        VerticalAlignment = VerticalAlignment.Center
+                    });
+                }
+            }
+
+            DexEvolutionPanel.Children.Add(row);
         }
+    }
+
+    private void SelectDexSpeciesFromEvolution(int speciesId)
+    {
+        var name = SpeciesName(speciesId);
+        DexSearchBox.Text = name;
+        ApplyDexFilter(selectFirst: true, preserveSelection: false, scrollToTop: true, selectSpeciesId: speciesId);
     }
 
     private void FillDexLevelMoves(int species)
@@ -3975,7 +4113,7 @@ public partial class MainWindow : Window
 
     private async Task<bool> ConfirmBagPocketBatchAsync(string title, int pocket, int count)
     {
-        var isKeyItems = pocket == 8;
+        var isKeyItems = IsKeyItemPocket(pocket);
         var dialog = new Window
         {
             Title = title,
@@ -4373,7 +4511,7 @@ public partial class MainWindow : Window
         var prefix = slotNumber is null ? "" : $"{slotNumber.Value:00}. ";
         var title = itemId == 0
             ? $"{prefix}空槽"
-            : pocket == 8
+            : IsKeyItemPocket(pocket)
                 ? $"{prefix}{name}"
                 : $"{prefix}{name} x{quantity}";
         var detail = $"{pocketName}  地址 0x{address:X8}  {note}";
@@ -4437,8 +4575,7 @@ public partial class MainWindow : Window
             (Pocket: 4, Address: 0x0203C41Cu, Capacity: 128, Name: "招式机器"),
             (Pocket: 5, Address: 0x0203C61Cu, Capacity: 75, Name: "树果")
         };
-        var saveBlock2 = ReadU32Le(bridge.Read(_profile.Memory.SaveBlock2PointerAddress, 4), 0);
-        var quantityKey = (ushort)(ReadU32Le(bridge.Read(saveBlock2 + _profile.Memory.SaveBlock2EncryptionKeyOffset, 4), 0) & 0xFFFF);
+        var quantityKey = ReadUnboundQuantityKey(bridge);
         _bagBase = 0x0203B174;
         _allBagRows.Clear();
         foreach (var area in areas)
@@ -4464,13 +4601,30 @@ public partial class MainWindow : Window
         Log($"已按解放版 CFRU 固定地址读取背包：非空 {_allBagRows.Count} 格，数量密钥 0x{quantityKey:X4}。");
     }
 
+    private ushort ReadUnboundQuantityKey(MgbaBridgeClient bridge)
+    {
+        var saveBlock2 = ReadU32Le(bridge.Read(_profile.Memory.SaveBlock2PointerAddress, 4), 0);
+        return (ushort)(ReadU32Le(bridge.Read(saveBlock2 + _profile.Memory.SaveBlock2EncryptionKeyOffset, 4), 0) & 0xFFFF);
+    }
+
+    private static (uint Address, int Capacity, string Name)? UnboundLiveBagArea(int pocket)
+        => pocket switch
+        {
+            1 => (0x0203BB20u, 450, "道具"),
+            2 => (0x0203C228u, 75, "重要物品"),
+            3 => (0x0203C354u, 50, "精灵球"),
+            4 => (0x0203C41Cu, 128, "招式机器"),
+            5 => (0x0203C61Cu, 75, "树果"),
+            _ => null
+        };
+
     private void LoadSaveBagRows(IEnumerable<Gen3SaveBagEntry> entries, int? selectedOffset = null)
     {
         _bagRows.Clear();
         _allBagRows.Clear();
         foreach (var entry in entries.OrderBy(entry => entry.SaveOffset))
         {
-            var pocket = entry.Pocket is >= 1 and <= 8 ? entry.Pocket : PocketOfItem(entry.ItemId);
+            var pocket = IsConcreteBagPocket(entry.Pocket) ? entry.Pocket : PocketOfItem(entry.ItemId);
             var definition = new BagPocketDefinition(
                 pocket,
                 PocketNameZh(pocket),
@@ -4703,20 +4857,28 @@ public partial class MainWindow : Window
     private void UpdateBagBatchButtons(int? selectedPocket = null)
     {
         if (BagGiveAllCurrentPocketButton is null || BagGiveAllTmsButton is null || BagGiveAllHmsButton is null) return;
-        // The bulk item ranges are version-specific.  The Unbound profile has
-        // verified pocket storage, but not a verified "all items/TMs" ID set.
-        if (UsesUnboundCfruLayout ||
-            (_dataSourceMode == DataSourceMode.SaveFile && _loadedSave?.CanWrite != true))
+        if (_dataSourceMode == DataSourceMode.SaveFile && _loadedSave?.CanWrite != true)
         {
             BagGiveAllCurrentPocketButton.IsVisible = false;
             BagGiveAllTmsButton.IsVisible = false;
             BagGiveAllHmsButton.IsVisible = false;
             return;
         }
+
         var pocket = selectedPocket ?? SelectedChoiceId(BagPocketTabs) ?? 0;
-        var isConcretePocket = pocket is >= 1 and <= 8;
+        var isConcretePocket = UsesUnboundCfruLayout
+            ? pocket is >= 1 and <= 5
+            : pocket is >= 1 and <= 8;
         var isMachinePocket = pocket == MachinePocket;
-        BagGiveAllCurrentPocketButton.IsVisible = isConcretePocket && !isMachinePocket;
+        if (UsesUnboundCfruLayout && _dataSourceMode == DataSourceMode.Live)
+        {
+            BagGiveAllCurrentPocketButton.IsVisible = isConcretePocket;
+            BagGiveAllTmsButton.IsVisible = isMachinePocket;
+            BagGiveAllHmsButton.IsVisible = isMachinePocket;
+            return;
+        }
+
+        BagGiveAllCurrentPocketButton.IsVisible = isConcretePocket && (_dataSourceMode == DataSourceMode.SaveFile || !isMachinePocket);
         BagGiveAllTmsButton.IsVisible = isMachinePocket;
         BagGiveAllHmsButton.IsVisible = isMachinePocket;
     }
@@ -4833,7 +4995,7 @@ public partial class MainWindow : Window
             var item = ParseChoiceUShortOrNull(BagItemBox, _itemChoices) ?? 0;
             var editPocket = CurrentBagEditPocket();
             var itemPocket = PocketOfItem(item);
-            var warning = item != 0 && editPocket is >= 1 and <= 8 && itemPocket != editPocket
+            var warning = item != 0 && IsConcreteBagPocket(editPocket) && itemPocket != editPocket
                 ? $"  注意：不属于当前{PocketNameZh(editPocket)}，不能写入。"
                 : "";
             BagItemNameText.Text = item == 0
@@ -4896,7 +5058,7 @@ public partial class MainWindow : Window
 
     private ChoiceRow[] BagItemChoicesForPocket(int pocket)
     {
-        if (pocket is < 1 or > 8)
+        if (!IsConcreteBagPocket(pocket))
             return _itemChoices;
         return _itemChoices
             .Where(choice => choice.Id == 0 || PocketOfItem(choice.Id) == pocket)
@@ -4913,7 +5075,23 @@ public partial class MainWindow : Window
             string.Equals(BagAddressBox.Text, $"0x{row.Address:X8}", StringComparison.OrdinalIgnoreCase))
             return row.Pocket;
         var selectedPocket = SelectedChoiceId(BagPocketTabs) ?? 0;
-        return selectedPocket is >= 1 and <= 8 ? selectedPocket : 0;
+        return IsConcreteBagPocket(selectedPocket) ? selectedPocket : 0;
+    }
+
+    private bool IsConcreteBagPocket(int pocket)
+        => UsesUnboundCfruLayout ? pocket is >= 1 and <= 5 : pocket is >= 1 and <= 8;
+
+    private bool IsKeyItemPocket(int pocket)
+        => UsesUnboundCfruLayout ? pocket == 2 : pocket == 8;
+
+    private ushort BatchQuantityForPocket(int pocket)
+        => IsKeyItemPocket(pocket) ? (ushort)1 : BagBatchQuantity;
+
+    private bool IsBulkImportableItem(int item)
+    {
+        var name = ItemName(item);
+        return !name.StartsWith("道具", StringComparison.Ordinal) &&
+               !name.StartsWith("未知道具", StringComparison.Ordinal);
     }
 
     private ushort ParseBagItemRequired(int requiredPocket, bool allowEmpty)
@@ -4928,7 +5106,7 @@ public partial class MainWindow : Window
             throw new InvalidOperationException($"道具 ID 必须在 0..{MaxItemId()} 范围内。");
 
         var actualPocket = PocketOfItem(item);
-        if (requiredPocket is >= 1 and <= 8 && actualPocket != requiredPocket)
+        if (IsConcreteBagPocket(requiredPocket) && actualPocket != requiredPocket)
             throw new InvalidOperationException($"“{ItemName(item)}”属于{PocketNameZh(actualPocket)}，不能写入当前{PocketNameZh(requiredPocket)}。");
         return item;
     }
@@ -4985,7 +5163,7 @@ public partial class MainWindow : Window
             .Select(kv =>
             {
                 var machineName = MachineMoveName(kv.Key);
-                var display = machineName is null ? kv.Value : $"{kv.Value} / {machineName}";
+                var display = machineName ?? kv.Value;
                 return new ChoiceRow(kv.Key, kv.Value, display);
             })
             .ToArray();
@@ -6259,8 +6437,8 @@ public partial class MainWindow : Window
             14 => $"{evolution.Parameter}级，分裂进化2",
             15 => $"美丽度{evolution.Parameter}",
             0xFFFF => paramItem,
-            0xFFFE => $"特殊形态 {EvolutionParameterText(evolution.Parameter)}",
-            0xFFFD => $"特殊形态 {EvolutionParameterText(evolution.Parameter)}",
+            0xFFFE => $"特殊形态，使用{EvolutionParameterItemText(evolution.Parameter)}",
+            0xFFFD => $"特殊形态，使用{EvolutionParameterItemText(evolution.Parameter)}",
             _ => $"特殊条件 {EvolutionParameterText(evolution.Parameter)}"
         };
     }
@@ -6286,8 +6464,8 @@ public partial class MainWindow : Window
             14 => $"{evolution.Parameter}级，分裂进化2",
             15 => $"美丽度达到{evolution.Parameter}",
             0xFFFF => $"特殊形态，使用{paramItem}",
-            0xFFFE => $"特殊形态，参数{EvolutionParameterText(evolution.Parameter)}",
-            0xFFFD => $"特殊形态，参数{EvolutionParameterText(evolution.Parameter)}",
+            0xFFFE => $"特殊形态，使用{EvolutionParameterItemText(evolution.Parameter)}",
+            0xFFFD => $"特殊形态，使用{EvolutionParameterItemText(evolution.Parameter)}",
             _ => $"特殊条件，参数{EvolutionParameterText(evolution.Parameter)}"
         };
     }
@@ -6366,6 +6544,20 @@ public partial class MainWindow : Window
 
     private string? MachineMoveName(int item)
     {
+        if (UsesUnboundCfruLayout)
+        {
+            if (TryReadEmbeddedItemData(item, out var data) &&
+                data.Pocket == 4 &&
+                data.ExitsBagOnUse is >= 1 and <= 128)
+            {
+                var machineNumber = data.ExitsBagOnUse;
+                var moveId = MachineMoveId(machineNumber - 1);
+                if (moveId > 0) return $"TM{machineNumber:000} {MoveName(moveId)}";
+            }
+
+            return null;
+        }
+
         var tmIndex = item - MachineTmStartItem;
         if (tmIndex >= 0 && tmIndex < MachineTmCount)
         {
@@ -6447,7 +6639,7 @@ public partial class MainWindow : Window
 
     private static bool BagMachineExists(ReadOnlySpan<byte> ewram, uint saveBlockBase, ushort item)
     {
-        var definition = BagScanner.DefinitionForPocket(MachinePocket)
+        var definition = BagScanner.DefinitionForPocket(SpanishMachinePocket)
                          ?? throw new InvalidOperationException("缺少招式机器/秘传机器口袋定义。");
         var start = checked((int)(saveBlockBase + definition.Offset - PartyScanner.EwramBase));
         var end = start + definition.SlotCount * 4;
@@ -6524,8 +6716,10 @@ public partial class MainWindow : Window
         _ => BagScanner.MaxRunSlots
     };
 
-    private static byte[] EncodeBatchBagSlot(int pocket, ushort item, ushort quantityKey)
-        => pocket == 8
+    private byte[] EncodeBatchBagSlot(int pocket, ushort item, ushort quantityKey)
+        => UsesUnboundCfruLayout
+            ? BagScanner.EncodeSlot(item, BatchQuantityForPocket(pocket), quantityKey, quantityXor: true)
+            : IsKeyItemPocket(pocket)
             ? BagScanner.EncodeSlot(item, 0, quantityKey, quantityXor: false)
             : BagScanner.EncodeSlot(item, BagBatchQuantity, quantityKey, quantityXor: true);
 
