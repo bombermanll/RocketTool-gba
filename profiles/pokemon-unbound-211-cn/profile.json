@@ -1,5 +1,5 @@
 {
-  "id": "pokemon-unbound-211-cn-test",
+  "id": "pokemon-unbound-211-cn",
   "displayName": "宝可梦解放 v2.1.1 汉化修订版",
   "description": "宝可梦解放 v2.1.1 汉化修订版专用配置。",
   "strategies": {
@@ -68,7 +68,7 @@
   },
   "graphics": {
     "spritesVerified": true,
-    "spriteAssetRoot": "Profiles/pokemon-unbound-211-cn-test/Pokemon/front",
+    "spriteAssetRoot": "Profiles/pokemon-unbound-211-cn/Pokemon/front",
     "frontSpriteTableOffset": "0x1A1D5B4",
     "normalPaletteTableOffset": "0x1A32BDC",
     "spriteIndexAdjustment": 0,

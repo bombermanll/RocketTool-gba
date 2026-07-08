@@ -186,7 +186,6 @@ public partial class MainWindow : Window
     private bool _suppressEditorEvents;
     private bool _suppressExperienceSync;
     private bool _suppressCheatEvents;
-    private DispatcherTimer? _toastTimer;
     private readonly Dictionary<SearchableChoiceBox, IReadOnlyList<ChoiceRow>> _searchableChoices = [];
     private readonly Dictionary<int, IReadOnlyList<SpeciesEvolution>> _evolutionCache = [];
     private readonly Dictionary<int, IReadOnlyList<SpeciesLevelMove>> _levelMoveCache = [];
@@ -7060,8 +7059,6 @@ public partial class MainWindow : Window
 
     private void SetWriteNotice(string message, bool success = true)
     {
-        LastWriteText.Text = $"最近写入：{message}";
-        LastWriteText.Foreground = new SolidColorBrush(success ? Color.FromRgb(16, 82, 58) : Color.FromRgb(150, 43, 43));
         ShowToast(message, success);
         Log(message);
     }
@@ -7071,16 +7068,10 @@ public partial class MainWindow : Window
         ToastText.Text = message;
         ToastBorder.Background = new SolidColorBrush(success ? Color.FromRgb(16, 46, 74) : Color.FromRgb(150, 43, 43));
         ToastBorder.IsVisible = true;
-        _toastTimer ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-        _toastTimer.Stop();
-        _toastTimer.Tick -= HideToast;
-        _toastTimer.Tick += HideToast;
-        _toastTimer.Start();
     }
 
-    private void HideToast(object? sender, EventArgs e)
+    private void OnToastCloseClicked(object? sender, RoutedEventArgs e)
     {
-        _toastTimer?.Stop();
         ToastBorder.IsVisible = false;
     }
 

@@ -45,7 +45,7 @@
                         <Button x:Name="LoadSaveButton" Grid.Column="2" Content="选择存档" Click="OnLoadSaveClicked" IsVisible="False" Classes="primary" />
                         <Button x:Name="ExportSaveButton" Grid.Column="3" Content="保存修改并备份" Click="OnSaveInPlaceClicked" Classes="primary" IsVisible="False" IsEnabled="False" />
                         <Button x:Name="SaveAsButton" Grid.Column="4" Content="另存为" Click="OnExportSaveClicked" IsVisible="False" IsEnabled="False" />
-                        <TextBlock x:Name="LastWriteText" Grid.Row="1" Grid.ColumnSpan="5" Text="最近写入：暂无" Foreground="#6C6255" TextWrapping="Wrap" />
+                        <TextBlock x:Name="LastWriteText" Grid.Row="1" Grid.ColumnSpan="5" Text="当前来源：尚未连接" Foreground="#6C6255" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
                     </Grid>
                 </Border>
             </Grid>
@@ -980,15 +980,25 @@
                 HorizontalAlignment="Center"
                 VerticalAlignment="Top"
                 Margin="0,18,0,0"
-                Padding="18,10"
-                CornerRadius="18"
+                Padding="16,12"
+                CornerRadius="10"
                 BoxShadow="0 10 28 #44000000"
                 Background="#102E4A">
-            <TextBlock x:Name="ToastText"
-                       Foreground="#F7F2E8"
-                       FontWeight="SemiBold"
-                       TextWrapping="Wrap"
-                       MaxWidth="760" />
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" MinWidth="360" MaxWidth="820">
+                <TextBlock x:Name="ToastText"
+                           Foreground="#F7F2E8"
+                           FontWeight="SemiBold"
+                           TextWrapping="Wrap"
+                           VerticalAlignment="Center" />
+                <Button Grid.Column="1"
+                        Content="X"
+                        Width="28"
+                        Height="28"
+                        Padding="0"
+                        HorizontalContentAlignment="Center"
+                        VerticalContentAlignment="Center"
+                        Click="OnToastCloseClicked" />
+            </Grid>
         </Border>
         <Border x:Name="BusyBorder"
                 IsVisible="False"

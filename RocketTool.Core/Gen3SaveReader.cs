@@ -37,7 +37,6 @@ public static class Gen3SaveReader
     private const int SaveSlotSize = SectionSize * SectionsPerSlot;
     private const uint SectionSignature = 0x08012025;
     private const uint UnboundSectionSignature = 0x01121999;
-    private const string UnboundSaveStrategy = "unbound-cfru-save-v1";
     private const int UnboundPartyCountOffset = 0x34;
     private const int UnboundPartyOffset = 0x38;
     private const int UnboundBoxRecordSize = BoxPokemon.UnboundCompressedSize;
@@ -157,15 +156,9 @@ public static class Gen3SaveReader
     public static Gen3SaveReadResult Read(string path, GameProfile profile) => Open(path, profile).Snapshot;
 
     public static Gen3SaveDocument Open(string path, GameProfile profile)
-    {
-        if (string.Equals(profile.Strategies.Save, UnboundSaveStrategy, StringComparison.Ordinal))
-            return OpenUnbound(path, profile);
-        if (string.Equals(profile.Strategies.Save, "spanish-rocket-save-v1", StringComparison.Ordinal))
-            return Open(path);
-        throw new NotSupportedException($"当前程序不支持存档策略：{profile.Strategies.Save}");
-    }
+        => Gen3SaveStrategyCatalog.ForProfile(profile).Open(path, profile);
 
-    private static Gen3SaveDocument OpenUnbound(string path, GameProfile profile)
+    internal static Gen3SaveDocument OpenUnbound(string path, GameProfile profile)
     {
         var raw = File.ReadAllBytes(path);
         var warnings = new List<string>();
@@ -213,7 +206,7 @@ public static class Gen3SaveReader
         var sections = best.ValidSections.ToDictionary(
             pair => pair.Key,
             pair => new Gen3SaveSectionLayout(pair.Key, pair.Value.Offset, pair.Value.SaveIndex, pair.Value.ChecksumMode));
-        return new Gen3SaveDocument(path, raw, sections, UnboundPartyOffset, snapshot, profile, itemPockets);
+        return new Gen3SaveDocument(path, raw, sections, UnboundPartyOffset, snapshot, profile, itemPockets, UnboundCfruSaveStrategy.Instance);
     }
 
     private static IEnumerable<SaveSlot> FindUnboundSlots(byte[] raw)
@@ -410,6 +403,9 @@ public static class Gen3SaveReader
     }
 
     public static Gen3SaveDocument Open(string path)
+        => SpanishRocketSaveStrategy.Instance.Open(path, null);
+
+    internal static Gen3SaveDocument OpenSpanishRocket(string path, GameProfile? profile)
     {
         var raw = File.ReadAllBytes(path);
         var warnings = new List<string>();
@@ -479,7 +475,7 @@ public static class Gen3SaveReader
         var sections = best.ValidSections.ToDictionary(
             pair => pair.Key,
             pair => new Gen3SaveSectionLayout(pair.Key, pair.Value.Offset, pair.Value.SaveIndex, pair.Value.ChecksumMode));
-        return new Gen3SaveDocument(path, raw, sections, partyRead.PartyOffset, snapshot);
+        return new Gen3SaveDocument(path, raw, sections, partyRead.PartyOffset, snapshot, profile, strategy: SpanishRocketSaveStrategy.Instance);
     }
 
     private static IReadOnlyList<SaveSlot> FindSlots(byte[] raw)
