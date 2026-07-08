@@ -1978,6 +1978,7 @@ public partial class MainWindow : Window
         var key = ReadUnboundQuantityKey(bridge);
         var raw = bridge.Read(area.Address, area.Capacity * 4);
         var targetIndex = -1;
+        var lastUsedIndex = -1;
         ushort beforeQuantity = 0;
         for (var i = 0; i < area.Capacity; i++)
         {
@@ -1989,7 +1990,19 @@ public partial class MainWindow : Window
                 quantity = (ushort)Math.Min(MaxBagWriteQuantity, beforeQuantity + quantity);
                 break;
             }
-            if (existing == 0 && targetIndex < 0) targetIndex = i;
+            if (existing != 0 && existing <= MaxItemId() && PocketOfItem(existing) == selectedPocket)
+                lastUsedIndex = i;
+        }
+        if (targetIndex < 0)
+        {
+            for (var i = lastUsedIndex + 1; i < area.Capacity; i++)
+            {
+                if (ReadU16(raw, i * 4) == 0)
+                {
+                    targetIndex = i;
+                    break;
+                }
+            }
         }
         if (targetIndex < 0) throw new InvalidOperationException("当前口袋已满。");
         var address = area.Address + (uint)(targetIndex * 4);
@@ -2206,23 +2219,25 @@ public partial class MainWindow : Window
             var raw = bridge.Read(area.Address, area.Capacity * 4);
             var wanted = items.ToHashSet();
             var existing = new Dictionary<ushort, int>();
-            var emptyIndexes = new List<int>();
+            var lastUsedIndex = -1;
 
             for (var i = 0; i < area.Capacity; i++)
             {
                 var offset = i * 4;
                 var item = ReadU16(raw, offset);
-                if (item == 0)
-                {
-                    emptyIndexes.Add(i);
-                    continue;
-                }
-
+                if (item != 0 && item <= MaxItemId() && PocketOfItem(item) == pocket)
+                    lastUsedIndex = i;
                 if (wanted.Contains(item) && !existing.ContainsKey(item))
                     existing[item] = i;
             }
 
             var missing = items.Where(item => !existing.ContainsKey(item)).ToArray();
+            var emptyIndexes = new List<int>();
+            for (var i = lastUsedIndex + 1; i < area.Capacity; i++)
+            {
+                if (ReadU16(raw, i * 4) == 0) emptyIndexes.Add(i);
+                if (emptyIndexes.Count >= missing.Length) break;
+            }
             if (missing.Length > emptyIndexes.Count)
                 throw new InvalidOperationException($"{area.Name}容量不足：缺少 {missing.Length} 个道具，但只找到 {emptyIndexes.Count} 个空槽。未写入。");
 
@@ -4028,7 +4043,9 @@ public partial class MainWindow : Window
         });
         root.Children.Add(new TextBlock
         {
-            Text = "确定继续写入吗？建议先保存 mGBA 即时存档。",
+            Text = _dataSourceMode == DataSourceMode.SaveFile
+                ? "确定继续应用到待保存副本吗？保存前请确认已有原始备份。"
+                : "确定继续写入吗？建议先保存 mGBA 即时存档。",
             TextWrapping = TextWrapping.Wrap,
             Foreground = new SolidColorBrush(Color.FromRgb(108, 98, 85))
         });
@@ -4040,7 +4057,7 @@ public partial class MainWindow : Window
             Spacing = 10
         };
         var cancel = new Button { Content = "取消" };
-        var ok = new Button { Content = "确定写入", Classes = { "primary" } };
+        var ok = new Button { Content = _dataSourceMode == DataSourceMode.SaveFile ? "继续应用" : "确定写入", Classes = { "primary" } };
         buttons.Children.Add(cancel);
         buttons.Children.Add(ok);
         root.Children.Add(buttons);

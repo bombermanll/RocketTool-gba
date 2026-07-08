@@ -198,32 +198,48 @@ public sealed class Gen3SaveDocument
 
         foreach (var physical in physicalPockets)
         {
-            for (var i = 0; i < physical.Capacity; i++)
-            {
-                var offset = physical.Offset + i * 4;
-                if (ReadBagU16(offset) != 0) continue;
+            var slotIndex = FindAppendBagSlotIndex(physical);
+            if (slotIndex < 0) continue;
 
-                var quantityXor = physical.HasQuantity && pocket != 8;
-                var quantityKey = quantityXor ? InferQuantityKey() : (ushort)0;
-                var storedQuantity = quantityXor ? (ushort)((_isUnbound ? quantity : quantity - 1) ^ quantityKey) : (ushort)0;
-                WriteBagRecord(offset, itemId, storedQuantity);
-                var entry = new Gen3SaveBagEntry(
-                    offset,
-                    pocket,
-                    0,
-                    itemId,
-                    quantityXor ? quantity : (ushort)1,
-                    quantityKey,
-                    quantityXor,
-                    $"存档新增；{physical.Name} 0x{physical.Offset:X}+{i}");
-                _currentBag.Add(entry);
-                _expectedBag[offset] = (entry.ItemId, entry.Quantity);
-                ReindexBagEntries();
-                return _currentBag.First(candidate => candidate.SaveOffset == offset);
-            }
+            var offset = physical.Offset + slotIndex * 4;
+            var quantityXor = physical.HasQuantity && pocket != 8;
+            var quantityKey = quantityXor ? InferQuantityKey() : (ushort)0;
+            var storedQuantity = quantityXor ? (ushort)((_isUnbound ? quantity : quantity - 1) ^ quantityKey) : (ushort)0;
+            WriteBagRecord(offset, itemId, storedQuantity);
+            var entry = new Gen3SaveBagEntry(
+                offset,
+                pocket,
+                0,
+                itemId,
+                quantityXor ? quantity : (ushort)1,
+                quantityKey,
+                quantityXor,
+                $"存档新增；{physical.Name} 0x{physical.Offset:X}+{slotIndex}");
+            _currentBag.Add(entry);
+            _expectedBag[offset] = (entry.ItemId, entry.Quantity);
+            ReindexBagEntries();
+            return _currentBag.First(candidate => candidate.SaveOffset == offset);
         }
 
         throw new InvalidOperationException($"{SavePocketName(pocket)}没有空格，无法添加新道具。");
+    }
+
+    private int FindAppendBagSlotIndex(Gen3SaveBagPhysicalPocket physical)
+    {
+        var lastUsedIndex = _currentBag
+            .Where(entry => entry.SaveOffset >= physical.Offset &&
+                            entry.SaveOffset < physical.Offset + physical.Capacity * 4)
+            .Select(entry => (entry.SaveOffset - physical.Offset) / 4)
+            .DefaultIfEmpty(-1)
+            .Max();
+
+        for (var i = lastUsedIndex + 1; i < physical.Capacity; i++)
+        {
+            var offset = physical.Offset + i * 4;
+            if (ReadBagU16(offset) == 0) return i;
+        }
+
+        return -1;
     }
 
     public Gen3SaveBagEntry SetBagItem(int pocket, ushort itemId, ushort quantity)
@@ -275,10 +291,12 @@ public sealed class Gen3SaveDocument
         if (string.Equals(destination, SourcePath, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("不能覆盖原存档，请选择新的文件名。");
 
+        var sourceTimestamps = File.Exists(SourcePath) ? FileTimestamps.Capture(SourcePath) : null;
         var temporary = CreateVerifiedTemporary(destination);
         try
         {
             File.Move(temporary, destination, overwrite: true);
+            sourceTimestamps?.TryApply(destination);
             return _profile is null ? Gen3SaveReader.Read(destination) : Gen3SaveReader.Read(destination, _profile);
         }
         finally
@@ -297,6 +315,7 @@ public sealed class Gen3SaveDocument
             throw new FileNotFoundException("原存档文件已不存在，已取消保存。", SourcePath);
 
         var currentSource = File.ReadAllBytes(SourcePath);
+        var sourceTimestamps = FileTimestamps.Capture(SourcePath);
         if (!currentSource.AsSpan().SequenceEqual(_originalRaw))
             throw new InvalidOperationException("原存档在读取后已被其他程序修改。为避免覆盖新数据，请重新读取存档后再保存。");
 
@@ -318,6 +337,7 @@ public sealed class Gen3SaveDocument
             }
 
             File.Move(temporary, SourcePath, overwrite: true);
+            sourceTimestamps.TryApply(SourcePath);
             var snapshot = _profile is null ? Gen3SaveReader.Read(SourcePath) : Gen3SaveReader.Read(SourcePath, _profile);
             return new Gen3SaveWriteResult(snapshot, SourcePath, backupPath, backupCreated);
         }
@@ -817,5 +837,25 @@ public sealed class Gen3SaveDocument
     {
         data[offset] = (byte)value;
         data[offset + 1] = (byte)(value >> 8);
+    }
+
+    private sealed record FileTimestamps(DateTime CreationUtc, DateTime LastAccessUtc, DateTime LastWriteUtc)
+    {
+        public static FileTimestamps Capture(string path)
+            => new(File.GetCreationTimeUtc(path), File.GetLastAccessTimeUtc(path), File.GetLastWriteTimeUtc(path));
+
+        public void TryApply(string path)
+        {
+            try
+            {
+                File.SetCreationTimeUtc(path, CreationUtc);
+                File.SetLastAccessTimeUtc(path, LastAccessUtc);
+                File.SetLastWriteTimeUtc(path, LastWriteUtc);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            {
+                // Timestamp preservation is best-effort; save bytes and checksums remain verified.
+            }
+        }
     }
 }

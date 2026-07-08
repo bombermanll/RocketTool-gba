@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -348,15 +349,24 @@ public sealed class SearchableChoiceBox : UserControl
     {
         var term = text?.Trim();
         if (string.IsNullOrWhiteSpace(term)) return null;
-        return _choices.FirstOrDefault(c => string.Equals(c.Name, term, StringComparison.OrdinalIgnoreCase) ||
-                                            string.Equals(c.Display, term, StringComparison.OrdinalIgnoreCase) ||
-                                            string.Equals(c.ToString(), term, StringComparison.OrdinalIgnoreCase));
+        var normalized = NormalizeSearchText(term);
+        return _choices.FirstOrDefault(c => string.Equals(NormalizeSearchText(c.Name), normalized, StringComparison.OrdinalIgnoreCase) ||
+                                            string.Equals(NormalizeSearchText(c.Display), normalized, StringComparison.OrdinalIgnoreCase) ||
+                                            string.Equals(NormalizeSearchText(c.ToString()), normalized, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool MatchesChoice(ChoiceRow choice, string term)
-        => choice.Name.Contains(term, StringComparison.OrdinalIgnoreCase)
-           || (choice.Display?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
-           || choice.Id.ToString().Contains(term, StringComparison.OrdinalIgnoreCase);
+    {
+        var normalizedTerm = NormalizeSearchText(term);
+        return NormalizeSearchText(choice.Name).Contains(normalizedTerm, StringComparison.OrdinalIgnoreCase)
+               || NormalizeSearchText(choice.Display).Contains(normalizedTerm, StringComparison.OrdinalIgnoreCase)
+               || choice.Id.ToString().Contains(normalizedTerm, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeSearchText(string? text)
+        => string.IsNullOrWhiteSpace(text)
+            ? string.Empty
+            : text.Trim().Normalize(NormalizationForm.FormKC);
 
     private static bool IsTextEditingKey(KeyEventArgs e)
     {
