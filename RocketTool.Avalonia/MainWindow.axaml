@@ -383,15 +383,17 @@
                                     </WrapPanel>
                                     <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
                                         <StackPanel Spacing="10">
-                                            <Grid ColumnDefinitions="*,96" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="8">
+                                            <Grid ColumnDefinitions="*,96" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="8">
                                                 <TextBlock Text="道具名字" Classes="label" />
                                                 <TextBlock Text="数量" Classes="label" Grid.Column="1" />
                                                 <local:SearchableChoiceBox x:Name="BagItemBox" Grid.Row="1" MinWidth="0" PlaceholderText="输入中文名搜索" />
                                                 <TextBox x:Name="BagQuantityBox" Grid.Row="1" Grid.Column="1" Width="96" />
                                                 <TextBlock Text="道具信息" Classes="label" Grid.Row="2" />
                                                 <TextBlock x:Name="BagItemNameText" Grid.Row="3" Grid.ColumnSpan="2" Text="选择候选槽后显示。" Foreground="#102E4A" TextWrapping="Wrap" />
-                                                <TextBlock Text="当前槽地址（只读）" Classes="label" Grid.Row="4" />
-                                                <TextBlock x:Name="BagAddressBox" Grid.Row="5" Grid.ColumnSpan="2" Text="未选择" Foreground="#6C6255" TextWrapping="Wrap" />
+                                                <TextBlock Text="写入数量范围" Classes="label" Grid.Row="4" />
+                                                <TextBlock x:Name="BagQuantityLimitText" Grid.Row="5" Grid.ColumnSpan="2" Text="未选择道具" Foreground="#102E4A" TextWrapping="Wrap" />
+                                                <TextBlock Text="当前槽地址（只读）" Classes="label" Grid.Row="6" />
+                                                <TextBlock x:Name="BagAddressBox" Grid.Row="7" Grid.ColumnSpan="2" Text="未选择" Foreground="#6C6255" TextWrapping="Wrap" />
                                             </Grid>
                                             <Grid RowDefinitions="Auto,Auto" RowSpacing="8">
                                                 <TextBlock Text="实时模式写入会直接生效；存档模式不会覆盖原文件。" Foreground="#6C6255" TextWrapping="Wrap" />
@@ -747,8 +749,24 @@
                                                                 <DataTemplate>
                                                                     <Grid ColumnDefinitions="128,*" ColumnSpacing="12" Margin="0,0,0,7">
                                                                         <TextBlock Text="{Binding Label}" Classes="label" />
-                                                                        <Grid Grid.Column="1" ColumnDefinitions="*,Auto" ToolTip.Tip="{Binding Tooltip}">
+                                                                        <Grid Grid.Column="1" ToolTip.Tip="{Binding Tooltip}">
                                                                             <TextBlock Text="{Binding Value}" Foreground="#102E4A" TextWrapping="Wrap" IsVisible="{Binding IsTextVisible}" />
+                                                                            <WrapPanel IsVisible="{Binding IsTooltipTextVisible}">
+                                                                                <TextBlock Text="{Binding Value}" Foreground="#102E4A" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                                                                <Border Width="18"
+                                                                                        Height="18"
+                                                                                        CornerRadius="9"
+                                                                                        Background="#E8A34A"
+                                                                                        Margin="6,1,0,0"
+                                                                                        ToolTip.Tip="{Binding Tooltip}">
+                                                                                    <TextBlock Text="?"
+                                                                                               Foreground="#102E4A"
+                                                                                               FontWeight="Bold"
+                                                                                               FontSize="12"
+                                                                                               HorizontalAlignment="Center"
+                                                                                               VerticalAlignment="Center" />
+                                                                                </Border>
+                                                                            </WrapPanel>
                                                                             <ItemsControl ItemsSource="{Binding TypeBadges}" IsVisible="{Binding HasTypeBadges}">
                                                                                 <ItemsControl.ItemsPanel>
                                                                                     <ItemsPanelTemplate>
@@ -763,21 +781,6 @@
                                                                                     </DataTemplate>
                                                                                 </ItemsControl.ItemTemplate>
                                                                             </ItemsControl>
-                                                                            <Border Width="18"
-                                                                                    Grid.Column="1"
-                                                                                    Height="18"
-                                                                                    CornerRadius="9"
-                                                                                    Background="#E8A34A"
-                                                                                    IsVisible="{Binding HasTooltip}"
-                                                                                    Margin="6,1,0,0"
-                                                                                    ToolTip.Tip="{Binding Tooltip}">
-                                                                                <TextBlock Text="?"
-                                                                                           Foreground="#102E4A"
-                                                                                           FontWeight="Bold"
-                                                                                           FontSize="12"
-                                                                                           HorizontalAlignment="Center"
-                                                                                           VerticalAlignment="Center" />
-                                                                            </Border>
                                                                         </Grid>
                                                                     </Grid>
                                                                 </DataTemplate>

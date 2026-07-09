@@ -50,7 +50,11 @@
     "maxMove": 754,
     "maxItem": 922,
     "maxAbility": 267,
-    "maxLevel": 150
+    "maxLevel": 150,
+    "maxBagQuantity": 255,
+    "maxBagQuantityByPocket": {
+      "5": 80
+    }
   },
   "features": {
     "liveEditing": true,

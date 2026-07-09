@@ -80,7 +80,8 @@
     "maxMove": 922,
     "maxItem": 728,
     "maxAbility": 254,
-    "maxLevel": 100
+    "maxLevel": 100,
+    "maxBagQuantity": 999
   },
   "features": {
     "liveEditing": true,

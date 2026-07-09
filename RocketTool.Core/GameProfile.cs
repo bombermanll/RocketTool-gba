@@ -139,6 +139,11 @@ public sealed record GameProfileLimits
     public int MaxItem { get; init; }
     public int MaxAbility { get; init; }
     public int MaxLevel { get; init; }
+    public int MaxBagQuantity { get; init; } = 255;
+    public Dictionary<int, int> MaxBagQuantityByPocket { get; init; } = [];
+
+    public int MaxBagQuantityForPocket(int pocket)
+        => MaxBagQuantityByPocket.TryGetValue(pocket, out var max) ? max : MaxBagQuantity;
 }
 
 public sealed record GameProfileFeatures
@@ -233,6 +238,13 @@ public static class GameProfileCatalog
         }
         if (profile.Limits.MaxSpecies <= 0 || profile.Limits.MaxMove <= 0 || profile.Limits.MaxItem <= 0)
             throw new InvalidOperationException($"版本配置 {profile.Id} 的数据上限无效。");
+        if (profile.Limits.MaxBagQuantity <= 0 || profile.Limits.MaxBagQuantity > ushort.MaxValue)
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的背包数量上限无效。");
+        foreach (var (pocket, max) in profile.Limits.MaxBagQuantityByPocket)
+        {
+            if (pocket <= 0 || max <= 0 || max > ushort.MaxValue)
+                throw new InvalidOperationException($"版本配置 {profile.Id} 的口袋 {pocket} 背包数量上限无效。");
+        }
         if (!profile.Features.LiveEditing && !profile.Features.SaveEditing)
             throw new InvalidOperationException($"版本配置 {profile.Id} 没有启用任何编辑模式。");
         if (profile.Graphics.SpritesVerified &&

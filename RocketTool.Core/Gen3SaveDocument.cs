@@ -137,15 +137,20 @@ public sealed class Gen3SaveDocument
             throw new InvalidOperationException($"存档背包中找不到偏移 0x{saveOffset:X} 的道具格。请重新读取存档。");
 
         var current = _currentBag[index];
-        ValidateBagValue(current.Pocket, itemId, quantity, allowEmpty: true);
         if (itemId == 0)
         {
+            ValidateBagValue(current.Pocket, itemId, quantity, allowEmpty: true);
             WriteBagRange(saveOffset, new byte[4]);
             _currentBag.RemoveAt(index);
             _expectedBag[saveOffset] = (0, 0);
             ReindexBagEntries();
             return null;
         }
+
+        if (itemId == current.ItemId)
+            ValidateBagQuantity(current.Pocket, quantity);
+        else
+            ValidateBagValue(current.Pocket, itemId, quantity, allowEmpty: false);
 
         var storedQuantity = current.QuantityXor ? _strategy.EncodeStoredQuantity(quantity, current.QuantityKey) : (ushort)0;
         WriteBagRecord(saveOffset, itemId, storedQuantity);
@@ -163,8 +168,9 @@ public sealed class Gen3SaveDocument
         var existing = _currentBag.FirstOrDefault(entry => entry.Pocket == pocket && entry.ItemId == itemId);
         if (existing is not null)
         {
+            var maxQuantity = MaxBagQuantityForPocket(pocket);
             var after = existing.QuantityXor
-                ? (ushort)Math.Min(255, existing.Quantity + quantity)
+                ? (ushort)Math.Min(maxQuantity, existing.Quantity + quantity)
                 : (ushort)1;
             return ReplaceBagEntry(existing.SaveOffset, itemId, after)
                    ?? throw new InvalidOperationException("更新现有背包道具失败。");
@@ -762,9 +768,20 @@ public sealed class Gen3SaveDocument
         var actualPocket = _strategy.PocketOfItem(this, itemId);
         if (actualPocket != pocket)
             throw new InvalidOperationException($"道具 {itemId} 不属于{_strategy.PocketName(pocket)}。");
-        if (quantity is < 1 or > 255)
-            throw new InvalidOperationException("存档道具数量必须在 1..255 范围内。");
+        var maxQuantity = MaxBagQuantityForPocket(pocket);
+        if (quantity < 1 || quantity > maxQuantity)
+            throw new InvalidOperationException($"存档道具数量必须在 1..{maxQuantity} 范围内。");
     }
+
+    private void ValidateBagQuantity(int pocket, ushort quantity)
+    {
+        var maxQuantity = MaxBagQuantityForPocket(pocket);
+        if (quantity < 1 || quantity > maxQuantity)
+            throw new InvalidOperationException($"存档道具数量必须在 1..{maxQuantity} 范围内。");
+    }
+
+    private ushort MaxBagQuantityForPocket(int pocket)
+        => (ushort)(_profile?.Limits.MaxBagQuantityForPocket(pocket) ?? 255);
 
     private static void UpdateSectionChecksum(Span<byte> raw, Gen3SaveSectionLayout section)
     {

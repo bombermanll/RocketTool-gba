@@ -54,7 +54,8 @@ public sealed record DexInfoRow(string Label, string Value, string? Tooltip = nu
 {
     public bool HasTooltip => !string.IsNullOrWhiteSpace(Tooltip);
     public bool HasTypeBadges => TypeBadges is { Count: > 0 };
-    public bool IsTextVisible => !HasTypeBadges;
+    public bool IsTextVisible => !HasTypeBadges && !HasTooltip;
+    public bool IsTooltipTextVisible => !HasTypeBadges && HasTooltip;
 }
 public sealed record DexStatRow(string Name, string Base, string Level50, string Level100, string MaxLevel);
 public sealed record DexLevelMoveRow(string Level, string Move, string Type, string Category, string Power, string Accuracy, string Pp);
@@ -131,7 +132,6 @@ public partial class MainWindow : Window
     private const int SpanishMachinePocket = 7;
     private const int MaxPokemonLevel = PokemonExperienceTable.MaxLevel;
     private const int DexImportLevel = 5;
-    private const ushort MaxBagWriteQuantity = 255;
     private const ushort BagBatchQuantity = 240;
     private const int MaxTrainerMoney = 99999999;
     private sealed record PlayerTrainerIdentity(uint OtId, byte[] OtName);
@@ -537,7 +537,7 @@ public partial class MainWindow : Window
                      BagQuantityBox,
                      TeleportXBox, TeleportYBox
                  })
-            box.MaxLength = 3; // byte-sized fields, and bag quantity is intentionally capped at 255.
+            box.MaxLength = 3; // current supported bag quantity limits are all 3-digit values.
 
         foreach (var box in new[] { IvHpBox, IvAtkBox, IvDefBox, IvSpeBox, IvSpaBox, IvSpdBox, BoxIvHpBox, BoxIvAtkBox, BoxIvDefBox, BoxIvSpeBox, BoxIvSpaBox, BoxIvSpdBox })
             box.MaxLength = 2; // IVs are 0..31.
@@ -1655,8 +1655,9 @@ public partial class MainWindow : Window
                     var item = ParseChoiceUShortOrNull(row.ItemBox, row.Choices);
                     if (item is null or 0) continue;
                     var quantity = ParseUShortRequired(row.QuantityBox.Text, $"{PocketNameZh(row.Pocket)}数量");
-                    if (quantity is 0 or > MaxBagWriteQuantity)
-                        throw new InvalidOperationException($"{PocketNameZh(row.Pocket)}数量必须在 1..{MaxBagWriteQuantity}。");
+                    var maxQuantity = MaxBagWriteQuantityForPocket(row.Pocket);
+                    if (quantity is 0 || quantity > maxQuantity)
+                        throw new InvalidOperationException($"{PocketNameZh(row.Pocket)}数量必须在 1..{maxQuantity}。");
                     requests.Add(new BagCalibrationRequest(row.Pocket, item.Value, quantity));
                 }
 
@@ -1731,7 +1732,7 @@ public partial class MainWindow : Window
 
                 if (PocketOfItem(slotItem) != request.Pocket) break;
                 var slotQuantity = (ushort)(rawQuantity ^ quantityKey);
-                if (slotQuantity is 0 or > BagScanner.DefaultMaxQuantity) break;
+                if (slotQuantity is 0 || slotQuantity > MaxBagWriteQuantityForPocket(request.Pocket)) break;
                 score += slotItem == request.ItemId && slotQuantity == request.Quantity ? 60 : 30;
                 slots.Add(new BagSlot(
                     PartyScanner.EwramBase + (uint)slotOff,
@@ -1831,10 +1832,11 @@ public partial class MainWindow : Window
             box.Text = "1";
             return;
         }
-        if (!ushort.TryParse(box.Text?.Trim(), out var quantity) || quantity is < 1 or > MaxBagWriteQuantity)
+        var maxQuantity = MaxBagWriteQuantityForPocket(editable.Row.Pocket);
+        if (!ushort.TryParse(box.Text?.Trim(), out var quantity) || quantity < 1 || quantity > maxQuantity)
         {
             box.Text = editable.Row.Quantity.ToString();
-            ShowToast($"数量必须在 1..{MaxBagWriteQuantity} 之间。", success: false);
+            ShowToast($"数量必须在 1..{maxQuantity} 之间。", success: false);
             return;
         }
 
@@ -1864,8 +1866,8 @@ public partial class MainWindow : Window
             var addr = ParseUIntRequired(BagAddressBox.Text, "背包槽地址");
             var definition = ResolveBagDefinition(bridge, addr);
             var slot = definition is null
-                ? BagScanner.ReadSlot(bridge, addr, MaxItemId(), BagScanner.DefaultMaxQuantity)
-                : BagScanner.ReadSlot(bridge, addr, definition);
+                ? BagScanner.ReadSlot(bridge, addr, MaxItemId(), MaxBagScanQuantity())
+                : BagScanner.ReadSlot(bridge, addr, definition, MaxBagWriteQuantityForPocket(definition.Pocket));
             SetBagItemChoicesForPocket(definition?.Pocket ?? PocketOfItem(slot.ItemId), slot.ItemId);
             BagQuantityBox.Text = slot.Quantity.ToString();
             UpdateBagNameText();
@@ -1959,7 +1961,7 @@ public partial class MainWindow : Window
                 throw new InvalidOperationException("请先切换到具体背包分类，或先选中一个背包槽。");
             var item = ParseBagItemRequired(selectedPocket, allowEmpty: false);
             var qty = ParseBagQuantityRequired(item, allowZero: false);
-            var target = BagScanner.FindAddTarget(ewram, _bagBase, selectedPocket, item, qty, PocketOfItem, MaxBagWriteQuantity);
+            var target = BagScanner.FindAddTarget(ewram, _bagBase, selectedPocket, item, qty, PocketOfItem, MaxBagWriteQuantityForPocket(selectedPocket));
             bridge.WriteRangeVerified(target.Address, BagScanner.EncodeSlot(target.ItemId, target.AfterQuantity, target.QuantityKey, quantityXor: true));
             SetWriteNotice($"背包添加成功：{ItemName(item)} {target.BeforeQuantity} -> {target.AfterQuantity}（{target.Note}）。");
             LoadBagRows(bridge);
@@ -1986,10 +1988,10 @@ public partial class MainWindow : Window
             {
                 targetIndex = i;
                 beforeQuantity = (ushort)(ReadU16(raw, i * 4 + 2) ^ key);
-                quantity = (ushort)Math.Min(MaxBagWriteQuantity, beforeQuantity + quantity);
+                quantity = (ushort)Math.Min(MaxBagWriteQuantityForPocket(selectedPocket), beforeQuantity + quantity);
                 break;
             }
-            if (existing != 0 && existing <= MaxItemId() && PocketOfItem(existing) == selectedPocket)
+            if (existing != 0 && existing <= MaxItemId())
                 lastUsedIndex = i;
         }
         if (targetIndex < 0)
@@ -2065,7 +2067,7 @@ public partial class MainWindow : Window
                 var document = _loadedSave ?? throw new InvalidOperationException("请先读取存档。");
                 var writableItems = items.Where(item => MachineMoveName(item) is not null).ToArray();
                 var skipped = items.Count - writableItems.Length;
-                var result = document.SetBagItems(MachinePocket, writableItems, BagBatchQuantity);
+                var result = document.SetBagItems(MachinePocket, writableItems, BatchQuantityForPocket(MachinePocket));
                 LoadSaveBagRows(document.CurrentBag);
                 BagPocketTabs.SelectedItem = _bagPocketChoices.FirstOrDefault(choice => choice.Id == MachinePocket) ?? BagPocketTabs.SelectedItem;
                 SelectSaveBagRow(_bagRows.FirstOrDefault(row => writableItems.Contains(row.ItemId))?.Address);
@@ -2108,13 +2110,13 @@ public partial class MainWindow : Window
                     continue;
                 }
 
-                machines[item] = BagBatchQuantity;
+                machines[item] = BatchQuantityForPocket(MachinePocket);
             }
 
             if (machines.Count > definition.SlotCount)
                 throw new InvalidOperationException($"机器口袋容量不足：需要 {machines.Count} 格，容量 {definition.SlotCount} 格。");
 
-            var rewritten = EncodeMachinePocket(machines, definition.SlotCount, quantityKey);
+            var rewritten = EncodeMachinePocket(machines, definition.SlotCount, quantityKey, MaxBagWriteQuantityForPocket(MachinePocket));
             bridge.WriteRangeVerified(startAddress, rewritten);
             var added = Math.Max(0, items.Count - existingBefore - skipped);
 
@@ -2134,7 +2136,7 @@ public partial class MainWindow : Window
             await RunUiTask(label, () =>
             {
                 var document = _loadedSave ?? throw new InvalidOperationException("请先读取存档。");
-                var quantity = IsKeyItemPocket(pocket) ? (ushort)1 : BagBatchQuantity;
+                var quantity = BatchQuantityForPocket(pocket);
                 var result = document.SetBagItems(pocket, items, quantity);
                 LoadSaveBagRows(document.CurrentBag);
                 BagPocketTabs.SelectedItem = _bagPocketChoices.FirstOrDefault(choice => choice.Id == pocket) ?? BagPocketTabs.SelectedItem;
@@ -2157,7 +2159,7 @@ public partial class MainWindow : Window
             _bagBase = TryLocateBagBase(bridge);
             var ewram = PartyScanner.ReadEwram(bridge);
             var quantityKey = BagScanner.InferQuantityKey(ewram);
-            var run = BagScanner.FindLivePockets(ewram, _bagBase, PocketOfItem, MaxBagWriteQuantity)
+            var run = BagScanner.FindLivePockets(ewram, _bagBase, PocketOfItem, MaxBagScanQuantity())
                 .FirstOrDefault(candidate => candidate.Pocket == pocket)
                 ?? throw new InvalidOperationException($"当前{PocketNameZh(pocket)}尚未定位。请先读取背包，或在游戏内至少获得该分类一个道具后再试。");
 
@@ -2224,7 +2226,7 @@ public partial class MainWindow : Window
             {
                 var offset = i * 4;
                 var item = ReadU16(raw, offset);
-                if (item != 0 && item <= MaxItemId() && PocketOfItem(item) == pocket)
+                if (item != 0 && item <= MaxItemId())
                     lastUsedIndex = i;
                 if (wanted.Contains(item) && !existing.ContainsKey(item))
                     existing[item] = i;
@@ -4095,7 +4097,7 @@ public partial class MainWindow : Window
         root.Children.Add(new TextBlock
         {
             Text = _dataSourceMode == DataSourceMode.SaveFile
-                ? $"已有机器和新增机器的数量都会设为 {BagBatchQuantity}。此步骤只更新待保存副本，尚未写回原存档。"
+                ? $"已有机器和新增机器的数量都会设为 {BatchQuantityForPocket(MachinePocket)}。此步骤只更新待保存副本，尚未写回原存档。"
                 : "已有机器会跳过，不会叠加数量。写入前建议先保存 mGBA 即时存档；写入后需要在游戏中手动存档才会保留。",
             TextWrapping = TextWrapping.Wrap,
             Foreground = new SolidColorBrush(Color.FromRgb(108, 98, 85))
@@ -4152,8 +4154,8 @@ public partial class MainWindow : Window
                     ? "重要物品会影响剧情标记和流程状态，可能导致剧情卡住、NPC 不触发或进程无法继续，不建议使用。此步骤只更新待保存副本。"
                     : "重要物品会直接影响剧情标记和流程状态，可能导致剧情卡住、NPC 不触发或进程无法继续，不建议使用。继续前务必保存 mGBA 即时存档。"
                 : _dataSourceMode == DataSourceMode.SaveFile
-                    ? $"已有道具会把数量改为 {BagBatchQuantity}，缺失道具会写入空槽。此步骤只更新待保存副本。"
-                    : $"已有道具会把数量改为 {BagBatchQuantity}，缺失道具会写入空槽。写入后需要在游戏中手动存档才会保留。",
+                    ? $"已有道具会把数量改为 {BatchQuantityForPocket(pocket)}，缺失道具会写入空槽。此步骤只更新待保存副本。"
+                    : $"已有道具会把数量改为 {BatchQuantityForPocket(pocket)}，缺失道具会写入空槽。写入后需要在游戏中手动存档才会保留。",
             TextWrapping = TextWrapping.Wrap,
             Foreground = new SolidColorBrush(isKeyItems ? Color.FromRgb(150, 43, 43) : Color.FromRgb(108, 98, 85)),
             FontWeight = isKeyItems ? FontWeight.SemiBold : FontWeight.Normal
@@ -4602,7 +4604,7 @@ public partial class MainWindow : Window
             {
                 var item = ReadU16(raw, i * 4);
                 if (item == 0) continue;
-                if (item > MaxItemId() || PocketOfItem(item) != area.Pocket) continue;
+                if (item > MaxItemId()) continue;
                 var quantity = (ushort)(ReadU16(raw, i * 4 + 2) ^ quantityKey);
                 if (quantity == 0) quantity = 1;
                 var definition = new BagPocketDefinition(area.Pocket, area.Name, 0, area.Capacity, true, quantityKey);
@@ -5017,11 +5019,26 @@ public partial class MainWindow : Window
             BagItemNameText.Text = item == 0
                 ? "道具：无"
                 : $"道具：{ItemName(item)}  口袋：{PocketNameZh(itemPocket)}{warning}";
+            BagQuantityLimitText.Text = BagQuantityLimitTextFor(item, editPocket);
         }
         catch
         {
             BagItemNameText.Text = "道具ID无法解析。";
+            BagQuantityLimitText.Text = "无法解析当前道具。";
         }
+    }
+
+    private string BagQuantityLimitTextFor(int item, int editPocket)
+    {
+        if (item == 0)
+            return "清空槽位时数量必须为 0。";
+
+        var pocket = IsConcreteBagPocket(editPocket) ? editPocket : PocketOfItem(item);
+        if (IsKeyItemPocket(pocket))
+            return "1（重要物品固定数量）";
+
+        var maxQuantity = MaxBagWriteQuantityForPocket(pocket);
+        return $"1..{maxQuantity}（已按当前版本 ROM 逆向确认）";
     }
 
     private void UpdateBoxNameText()
@@ -5100,8 +5117,24 @@ public partial class MainWindow : Window
     private bool IsKeyItemPocket(int pocket)
         => UsesUnboundCfruLayout ? pocket == 2 : pocket == 8;
 
+    private int MaxBagScanQuantity()
+        => _profile.Limits.MaxBagQuantity;
+
+    private ushort MaxBagWriteQuantityForPocket(int pocket)
+        => (ushort)_profile.Limits.MaxBagQuantityForPocket(pocket);
+
+    private ushort MaxBagWriteQuantityForItem(ushort item)
+    {
+        var pocket = CurrentBagEditPocket();
+        if (!IsConcreteBagPocket(pocket))
+            pocket = PocketOfItem(item);
+        return MaxBagWriteQuantityForPocket(pocket);
+    }
+
     private ushort BatchQuantityForPocket(int pocket)
-        => IsKeyItemPocket(pocket) ? (ushort)1 : BagBatchQuantity;
+        => IsKeyItemPocket(pocket)
+            ? (ushort)1
+            : (ushort)Math.Min(BagBatchQuantity, MaxBagWriteQuantityForPocket(pocket));
 
     private bool IsBulkImportableItem(int item)
     {
@@ -5138,8 +5171,9 @@ public partial class MainWindow : Window
 
         if (!allowZero && quantity == 0)
             throw new InvalidOperationException("背包道具数量必须大于 0。");
-        if (quantity > MaxBagWriteQuantity)
-            throw new InvalidOperationException($"背包道具数量最多只能写入 {MaxBagWriteQuantity}。");
+        var maxQuantity = MaxBagWriteQuantityForItem(item);
+        if (quantity > maxQuantity)
+            throw new InvalidOperationException($"背包道具数量最多只能写入 {maxQuantity}。");
         return quantity;
     }
 
@@ -6671,7 +6705,7 @@ public partial class MainWindow : Window
         return false;
     }
 
-    private static Dictionary<ushort, ushort> ReadMachinePocketQuantities(
+    private Dictionary<ushort, ushort> ReadMachinePocketQuantities(
         ReadOnlySpan<byte> ewram,
         int startOffset,
         int slotCount,
@@ -6684,13 +6718,13 @@ public partial class MainWindow : Window
             var item = ReadU16(ewram, offset);
             if (!IsBagMachineItem(item)) continue;
             var rawQuantity = ReadU16(ewram, offset + 2);
-            machines[item] = DecodeMachineQuantity(rawQuantity, quantityKey);
+            machines[item] = DecodeMachineQuantity(rawQuantity, quantityKey, MaxBagWriteQuantityForPocket(MachinePocket));
         }
 
         return machines;
     }
 
-    private static byte[] EncodeMachinePocket(IReadOnlyDictionary<ushort, ushort> machines, int slotCount, ushort quantityKey)
+    private static byte[] EncodeMachinePocket(IReadOnlyDictionary<ushort, ushort> machines, int slotCount, ushort quantityKey, ushort maxQuantity)
     {
         var bytes = new byte[slotCount * 4];
         var index = 0;
@@ -6698,7 +6732,7 @@ public partial class MainWindow : Window
         {
             var safeQuantity = quantity;
             if (safeQuantity == 0) safeQuantity = 1;
-            if (safeQuantity > MaxBagWriteQuantity) safeQuantity = MaxBagWriteQuantity;
+            if (safeQuantity > maxQuantity) safeQuantity = maxQuantity;
             var slot = BagScanner.EncodeSlot(item, safeQuantity, quantityKey, quantityXor: true);
             slot.CopyTo(bytes.AsSpan(index * 4, 4));
             index++;
@@ -6707,16 +6741,16 @@ public partial class MainWindow : Window
         return bytes;
     }
 
-    private static ushort DecodeMachineQuantity(ushort rawQuantity, ushort quantityKey)
+    private static ushort DecodeMachineQuantity(ushort rawQuantity, ushort quantityKey, ushort maxQuantity)
     {
         if (quantityKey != 0)
         {
             var decoded = (ushort)(rawQuantity ^ quantityKey);
-            if (decoded is > 0 and <= MaxBagWriteQuantity)
+            if (decoded > 0 && decoded <= maxQuantity)
                 return decoded;
         }
 
-        return rawQuantity is > 0 and <= MaxBagWriteQuantity ? rawQuantity : (ushort)1;
+        return rawQuantity > 0 && rawQuantity <= maxQuantity ? rawQuantity : (ushort)1;
     }
 
     private static int BagBatchCapacity(int pocket) => pocket switch
@@ -6737,7 +6771,7 @@ public partial class MainWindow : Window
             ? BagScanner.EncodeSlot(item, BatchQuantityForPocket(pocket), quantityKey, quantityXor: true)
             : IsKeyItemPocket(pocket)
             ? BagScanner.EncodeSlot(item, 0, quantityKey, quantityXor: false)
-            : BagScanner.EncodeSlot(item, BagBatchQuantity, quantityKey, quantityXor: true);
+            : BagScanner.EncodeSlot(item, BatchQuantityForPocket(pocket), quantityKey, quantityXor: true);
 
     private BoxPokemon ReadSelectedBoxMon(MgbaBridgeClient bridge, BoxSlotRow row)
     {

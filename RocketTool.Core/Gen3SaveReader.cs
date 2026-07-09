@@ -49,7 +49,7 @@ public static class Gen3SaveReader
     private const int StandardPartyCountOffset = 0x234;
     private const int StandardPartyOffset = 0x238;
     private const int StandardPcBoxesOffset = 4;
-    private const int SaveBagMaxQuantity = 255;
+    private const int SpanishRocketSaveBagMaxQuantity = 255;
     private const int MachinePocket = 7;
     private const int MachineTmStartItem = 592;
     private const int MachineTmCount = 246;
@@ -189,7 +189,7 @@ public static class Gen3SaveReader
         var party = ReadUnboundParty(saveBlock1, profile, warnings);
         var boxes = ReadUnboundBoxes(saveBlock2, saveBlock1, pcStorage, parasite, profile, warnings);
         var itemPockets = ReadProfileItemPockets(profile);
-        var bag = ReadUnboundBag(parasite, saveBlock2, itemPockets, profile.Limits.MaxItem, warnings);
+        var bag = ReadUnboundBag(parasite, saveBlock2, itemPockets, profile.Limits.MaxItem, profile.Limits.MaxBagQuantity, warnings);
         var trainerName = saveBlock2.AsSpan(0, profile.Memory.PlayerNameLength).ToArray();
         var trainerOtId = ReadU32(saveBlock2, profile.Memory.SaveBlock2PlayerOtIdOffset);
         var moneyKey = ReadU32(saveBlock2, (int)profile.Memory.SaveBlock2EncryptionKeyOffset);
@@ -367,6 +367,7 @@ public static class Gen3SaveReader
         ReadOnlySpan<byte> saveBlock2,
         IReadOnlyDictionary<int, int> itemPockets,
         int maxItem,
+        int maxQuantity,
         List<string> warnings)
     {
         var quantityKey = (ushort)(ReadU32(saveBlock2, 0xF20) & 0xFFFF);
@@ -387,13 +388,20 @@ public static class Gen3SaveReader
                 var offset = area.Offset + i * 4;
                 var item = ReadU16(parasite, offset);
                 if (item == 0) continue;
-                if (item > maxItem || !itemPockets.TryGetValue(item, out var pocket) || pocket != area.Pocket)
+                if (item > maxItem)
                 {
-                    warnings.Add($"解放版{area.Name}槽 {i + 1} 的道具 {item} 与数据表不匹配，已忽略。");
+                    warnings.Add($"解放版{area.Name}槽 {i + 1} 的道具 {item} 超过当前 Profile 上限 {maxItem}，已忽略。");
                     continue;
                 }
+                if (itemPockets.TryGetValue(item, out var mappedPocket) && mappedPocket != area.Pocket)
+                    warnings.Add($"解放版{area.Name}槽 {i + 1} 的道具 {item} 按物理口袋读取；数据表口袋为 {mappedPocket}。");
                 var quantity = (ushort)(ReadU16(parasite, offset + 2) ^ quantityKey);
                 if (quantity == 0) quantity = 1;
+                if (quantity > maxQuantity)
+                {
+                    warnings.Add($"解放版{area.Name}槽 {i + 1} 的数量 {quantity} 超过已确认上限 {maxQuantity}，已忽略。");
+                    continue;
+                }
                 entries.Add(new Gen3SaveBagEntry(
                     UnboundParasiteOffsetMarker + offset, area.Pocket, ++displaySlot,
                     item, quantity, quantityKey, true, $"CFRU扩展区；{area.Name} {i + 1}"));
@@ -762,7 +770,7 @@ public static class Gen3SaveReader
 
                 var rawQty = ReadU16(saveBlock1, offset + 2);
                 var decoded = rawQty ^ quantityKey;
-                if (decoded >= SaveBagMaxQuantity) continue;
+                if (decoded >= SpanishRocketSaveBagMaxQuantity) continue;
                 var displaySlot = NextDisplaySlot(displaySlots, pocket.Value);
                 displayed++;
                 entries.Add(new Gen3SaveBagEntry(
@@ -867,11 +875,11 @@ public static class Gen3SaveReader
         if (quantityKey != 0)
         {
             var decoded = (ushort)(rawQuantity ^ quantityKey);
-            if (decoded >= SaveBagMaxQuantity) return false;
+            if (decoded >= SpanishRocketSaveBagMaxQuantity) return false;
             quantity = (ushort)(decoded + 1);
             quantityXor = true;
         }
-        else if (rawQuantity is > 0 and <= SaveBagMaxQuantity)
+        else if (rawQuantity is > 0 and <= SpanishRocketSaveBagMaxQuantity)
         {
             quantity = rawQuantity;
         }
