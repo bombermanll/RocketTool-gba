@@ -238,6 +238,7 @@ public static class Gen3SaveReader
         1 => 0xFF4,
         3 => 0xFF4,
         4 => 0xD98,
+        5 => 0xFF4,
         13 => 0x450,
         _ => SectionDataSize
     };
