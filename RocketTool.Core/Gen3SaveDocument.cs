@@ -23,6 +23,7 @@ public sealed class Gen3SaveDocument
     internal const int PcFirstSection = 5;
     internal const int PcStorageOffset = 4;
     internal const int UnboundParasiteOffsetMarker = 0x100000;
+    internal const int DestinyExtensionOffsetMarker = 0x200000;
     internal const int UnboundBoxRecordSize = BoxPokemon.UnboundCompressedSize;
     private const int MgbaRtcFooterOffset = 0x20000;
     private const int MgbaRtcFooterSize = 16;
@@ -792,6 +793,8 @@ public sealed class Gen3SaveDocument
             "standard" => SectionDataSize,
             "pc-tail" => PcTailChecksumSize,
             "pc-boxes" => PcBoxesChecksumSize,
+            "d98" => 0xD98,
+            "f24" => 0xF24,
             "extended" => SectionTrailerOffset,
             var mode when mode.StartsWith("unbound-", StringComparison.Ordinal) =>
                 Convert.ToInt32(mode["unbound-".Length..], 16),

@@ -131,7 +131,7 @@ static MoveData ReadMoveDataFromDb(ModifierDatabase db, int move)
 
     ushort U(int i) => ushort.Parse(parts[i]);
     byte B(int i) => byte.Parse(parts[i]);
-    sbyte S(int i) => sbyte.Parse(parts[i]);
+    sbyte S(int i) => unchecked((sbyte)byte.Parse(parts[i]));
     return new MoveData(move, U(0), B(1), B(2), B(3), B(4), U(5), S(6), U(7), B(8), U(9), []);
 }
 
@@ -691,7 +691,7 @@ static int SaveProbe(string[] args)
         throw new ArgumentException("Missing --save path");
 
     var profile = CurrentProfile();
-    var isUnbound = string.Equals(profile.Strategies.Save, "unbound-cfru-save-v1", StringComparison.Ordinal);
+    var usesFivePocketLayout = string.Equals(profile.Strategies.Pokemon, "unbound-cfru-pokemon-v1", StringComparison.Ordinal);
     var result = Gen3SaveReader.Read(path, profile);
     Console.WriteLine($"Save: {result.FileName}");
     Console.WriteLine($"  size={result.FileSize} slot={result.SaveSlot} saveIndex={result.SaveIndex} sections={result.ValidSectionCount}/14");
@@ -714,7 +714,7 @@ static int SaveProbe(string[] args)
     Console.WriteLine("\nBag:");
     foreach (var group in result.Bag.GroupBy(b => b.Pocket).OrderBy(g => g.Key))
     {
-        Console.WriteLine($"  {(isUnbound ? UnboundPocketNameZh(group.Key) : PocketNameZh(group.Key))} ({group.Count()}):");
+        Console.WriteLine($"  {(usesFivePocketLayout ? UnboundPocketNameZh(group.Key) : PocketNameZh(group.Key))} ({group.Count()}):");
         foreach (var entry in group.Take(80))
         {
             var qty = entry.Pocket == 8 ? "" : $" x{entry.Quantity}";
@@ -747,18 +747,34 @@ static int SaveVerifyWrite(string[] args)
 
     var profile = CurrentProfile();
     var document = Gen3SaveReader.Open(path, profile);
-    if (document.Snapshot.Party.Count == 0)
-        throw new InvalidOperationException("测试存档没有队伍宝可梦。");
-    var source = document.Snapshot.Party[0];
-    var clone = new PartyPokemon(source.Raw, source.Layout);
-    var info = clone.GetInfo();
-    clone.SetGrowth(friendship: (byte)(info.Friendship == 255 ? 254 : info.Friendship + 1));
-    document.ReplacePartyPokemon(1, clone);
+    PartyMonInfo? info = null;
+    if (document.Snapshot.Party.Count > 0)
+    {
+        var source = document.Snapshot.Party[0];
+        var clone = new PartyPokemon(source.Raw, source.Layout);
+        info = clone.GetInfo();
+        clone.SetGrowth(friendship: (byte)(info.Friendship == 255 ? 254 : info.Friendship + 1));
+        document.ReplacePartyPokemon(1, clone);
+    }
 
     if (document.Snapshot.Bag.FirstOrDefault() is { } bag)
-        document.ReplaceBagEntry(bag.SaveOffset, bag.ItemId, bag.Quantity);
+    {
+        var targetQuantity = bag.QuantityXor && bag.Quantity < profile.Limits.MaxBagQuantityForPocket(bag.Pocket)
+            ? (ushort)(bag.Quantity + 1)
+            : bag.Quantity;
+        document.ReplaceBagEntry(bag.SaveOffset, bag.ItemId, targetQuantity);
+    }
 
-    if (string.Equals(profile.Strategies.Save, "unbound-cfru-save-v1", StringComparison.Ordinal))
+    if (string.Equals(profile.Strategies.Save, "pokemon-destiny-save-v1", StringComparison.Ordinal) &&
+        document.Snapshot.Bag.All(entry => entry.ItemId != 13))
+    {
+        document.AddBagItem(1, 13, 1);
+    }
+
+    if (!document.HasChanges)
+        throw new InvalidOperationException("测试存档没有可验证的队伍、背包、箱子或训练家字段。");
+
+    if (string.Equals(profile.Strategies.Save, "unbound-cfru-save-v1", StringComparison.Ordinal) && info is not null)
     {
         if (document.Snapshot.Trainer is { } trainer)
         {
@@ -777,6 +793,44 @@ static int SaveVerifyWrite(string[] args)
 
     var result = document.SaveAs(output);
     Console.WriteLine($"Verified write: {result.FileName} sections={result.ValidSectionCount}/14 party={result.Party.Count} bag={result.Bag.Count} boxes={result.Boxes.Count} trainer={(result.Trainer is null ? "n/a" : "ok")}");
+    return 0;
+}
+
+static int SaveDestinyRepairBag(string[] args)
+{
+    var path = GetArg(args, "--save", "");
+    if (string.IsNullOrWhiteSpace(path))
+        throw new ArgumentException("Missing --save path");
+    if (!HasArg(args, "--yes"))
+        throw new InvalidOperationException("该命令会备份并修复命运存档的招式机盒；确认后请加 --yes。");
+
+    var profile = CurrentProfile();
+    if (!string.Equals(profile.Strategies.Save, "pokemon-destiny-save-v1", StringComparison.Ordinal))
+        throw new InvalidOperationException("该修复命令只支持宝可梦命运 Profile。");
+
+    var document = Gen3SaveReader.Open(path, profile);
+    var machineEntries = document.CurrentBag
+        .Where(entry => entry.Pocket == 4 && entry.SaveOffset < 0x10000)
+        .OrderBy(entry => entry.SaveOffset)
+        .ToArray();
+    ushort[] expectedMachines = [305, 336];
+    if (machineEntries.Length < expectedMachines.Length ||
+        expectedMachines.Any(item => machineEntries.All(entry => entry.ItemId != item)))
+        throw new InvalidOperationException("当前招式机盒中没有同时找到 TM017 和 TM048，已取消自动修复。");
+
+    for (var i = 0; i < machineEntries.Length; i++)
+    {
+        var entry = machineEntries[i];
+        if (i < expectedMachines.Length)
+            document.ReplaceBagEntry(entry.SaveOffset, expectedMachines[i], 1);
+        else
+            document.ReplaceBagEntry(entry.SaveOffset, 0, 0);
+    }
+
+    var result = document.SaveInPlaceWithBackup();
+    Console.WriteLine($"Repaired Destiny machine box: {result.DestinationPath}");
+    Console.WriteLine($"  backup={result.BackupPath} created={result.BackupCreated}");
+    Console.WriteLine($"  sections={result.Snapshot.ValidSectionCount}/14 bag={result.Snapshot.Bag.Count}");
     return 0;
 }
 
@@ -800,6 +854,7 @@ if (args.Length == 0)
     Console.WriteLine("  RocketTool.Cli bag-set --addr 0x02000000 --item N --qty N [--yes]");
     Console.WriteLine("  RocketTool.Cli save-probe --save path/to/file.sav");
     Console.WriteLine("  RocketTool.Cli save-verify-write --save input.sav --output output.sav --yes");
+    Console.WriteLine("  RocketTool.Cli save-destiny-repair-bag --save input.srm --yes");
     return 1;
 }
 
@@ -822,5 +877,6 @@ return args[0] switch
     "bag-set" => BagSet(args[1..]),
     "save-probe" => SaveProbe(args[1..]),
     "save-verify-write" => SaveVerifyWrite(args[1..]),
+    "save-destiny-repair-bag" => SaveDestinyRepairBag(args[1..]),
     _ => throw new ArgumentException($"Unknown command: {args[0]}")
 };

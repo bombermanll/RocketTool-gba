@@ -1,0 +1,93 @@
+{
+  "id": "pokemon-destiny-training-house-fix-cn",
+  "displayName": "宝可梦命运（培训屋bug修复）",
+  "description": "宝可梦命运（培训屋bug修复）独立配置；已启用本 ROM 验证过的实时队伍，以及存档道具、精灵球和招式机盒读写；箱子和训练家仍待验证。",
+  "strategies": {
+    "pokemon": "unbound-cfru-pokemon-v1",
+    "partyScanner": "unbound-fixed-party-v1",
+    "boxScanner": "unbound-cfru-boxes-v1",
+    "bag": "unbound-cfru-bag-v1",
+    "save": "pokemon-destiny-save-v1"
+  },
+  "memory": {
+    "ewramBase": "0x02000000",
+    "ewramSize": "0x40000",
+    "defaultPartyBase": "0x02024284",
+    "partyCountOffsetFromPartyBase": -603,
+    "saveBlock1PointerAddress": "0x03005008",
+    "saveBlock2PointerAddress": "0x0300500C",
+    "saveBlock1MoneyOffset": "0x290",
+    "saveBlock2EncryptionKeyOffset": "0xF20",
+    "saveBlock2PlayerOtIdOffset": "0x0A",
+    "saveBlock2HeaderLength": "0x0E",
+    "playerNameLength": 8,
+    "pokemonOtNameOffset": "0x14",
+    "pokemonOtNameLength": 7,
+    "pcBoxCount": 14,
+    "pcBoxSlots": 30,
+    "pcBoxRecordSize": 80,
+    "pcBoxRegions": []
+  },
+  "romTables": {
+    "baseStats": {
+      "offset": "0x1A05D78",
+      "entrySize": 28,
+      "count": 512
+    },
+    "moves": {
+      "offset": "0x900000",
+      "entrySize": 12,
+      "count": 512
+    },
+    "items": {
+      "offset": "0x3DB028",
+      "entrySize": 44,
+      "count": 374
+    },
+    "evolutions": {
+      "offset": "0x1ADEC88",
+      "entrySize": 8,
+      "count": 512,
+      "entriesPerRecord": 16
+    },
+    "levelMoves": {
+      "offset": "0x1A0E0B8",
+      "entrySize": 2,
+      "count": 512
+    },
+    "experience": {
+      "offset": "0x253AE4",
+      "entrySize": 404,
+      "count": 6
+    }
+  },
+  "graphics": {
+    "spritesVerified": true,
+    "spriteAssetRoot": "Profiles/pokemon-destiny-training-house-fix-cn/Pokemon/front",
+    "frontSpriteTableOffset": "0x1A0F378",
+    "normalPaletteTableOffset": "0x1A13E78",
+    "spriteIndexAdjustment": 0,
+    "paletteIndexAdjustment": 0,
+    "eggSpeciesId": 0
+  },
+  "limits": {
+    "maxSpecies": 511,
+    "maxMove": 511,
+    "maxItem": 373,
+    "maxAbility": 151,
+    "maxLevel": 100,
+    "maxBagQuantity": 999,
+    "maxBagQuantityByPocket": {
+      "4": 1
+    }
+  },
+  "features": {
+    "liveEditing": true,
+    "saveEditing": true,
+    "party": true,
+    "boxes": false,
+    "bag": true,
+    "trainer": false,
+    "experiments": false
+  }
+}

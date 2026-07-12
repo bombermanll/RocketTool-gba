@@ -197,6 +197,10 @@ public partial class MainWindow : Window
         _profile.Strategies.Pokemon,
         "unbound-cfru-pokemon-v1",
         StringComparison.Ordinal);
+    private bool UsesDestinySaveLayout => string.Equals(
+        _profile.Strategies.Save,
+        "pokemon-destiny-save-v1",
+        StringComparison.Ordinal);
     private int MachinePocket => UsesUnboundCfruLayout ? 4 : SpanishMachinePocket;
     private PokemonDataLayout ActivePokemonLayout => UsesUnboundCfruLayout
         ? PokemonDataLayout.UnboundCfruPlainParty
@@ -285,7 +289,15 @@ public partial class MainWindow : Window
             new(1, "特殊"),
             new(2, "变化")
         ];
-        _bagPocketChoices = UsesUnboundCfruLayout
+        _bagPocketChoices = UsesDestinySaveLayout
+            ?
+            [
+                new(1, "道具"),
+                new(3, "精灵球"),
+                new(4, "招式机器"),
+                new(0, "全部口袋")
+            ]
+            : UsesUnboundCfruLayout
             ?
             [
                 new(1, "道具"),
@@ -385,7 +397,7 @@ public partial class MainWindow : Window
             ["partyScanner"] = new HashSet<string>(["spanish-rocket-party-v1", "unbound-fixed-party-v1"], StringComparer.Ordinal),
             ["boxScanner"] = new HashSet<string>(["spanish-rocket-box-v1", "unbound-cfru-boxes-v1"], StringComparer.Ordinal),
             ["bag"] = new HashSet<string>(["spanish-rocket-bag-v1", "unbound-cfru-bag-v1"], StringComparer.Ordinal),
-            ["save"] = new HashSet<string>(["spanish-rocket-save-v1", "unbound-cfru-save-v1"], StringComparer.Ordinal)
+            ["save"] = new HashSet<string>(["spanish-rocket-save-v1", "unbound-cfru-save-v1", "pokemon-destiny-save-v1"], StringComparer.Ordinal)
         };
         var selected = new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -2932,6 +2944,15 @@ public partial class MainWindow : Window
             LearnGameTextName(name, raw, encode, decode);
         }
 
+        foreach (var (code, text) in _db.Table("game_text_chars"))
+        {
+            if (string.IsNullOrEmpty(text) || code is < 0 or > 0xFFFF) continue;
+            var value = (ushort)code;
+            decode[value] = text;
+            if (text.Length == 1)
+                encode[text[0]] = [(byte)(value >> 8), (byte)value];
+        }
+
         _gameTextEncodeMap = encode;
         _gameTextDecodeMap = decode;
     }
@@ -3612,7 +3633,10 @@ public partial class MainWindow : Window
         => new[]
         {
             new DexEvolutionSegment(prefix),
-            new DexEvolutionSegment(EvolutionSpeciesText(species, selectedSpecies), species, species == selectedSpecies)
+            new DexEvolutionSegment(
+                EvolutionSpeciesText(species, selectedSpecies),
+                _db.Table("species").ContainsKey(species) ? species : null,
+                species == selectedSpecies)
         };
 
     private void SetDexEvolutionPlainText(string text)
@@ -4884,9 +4908,7 @@ public partial class MainWindow : Window
         }
 
         var pocket = selectedPocket ?? SelectedChoiceId(BagPocketTabs) ?? 0;
-        var isConcretePocket = UsesUnboundCfruLayout
-            ? pocket is >= 1 and <= 5
-            : pocket is >= 1 and <= 8;
+        var isConcretePocket = IsConcreteBagPocket(pocket);
         var isMachinePocket = pocket == MachinePocket;
         if (UsesUnboundCfruLayout && _dataSourceMode == DataSourceMode.Live)
         {
@@ -5082,20 +5104,27 @@ public partial class MainWindow : Window
 
     private void SetBagItemChoicesForPocket(int pocket, int? selectedItem = null)
     {
-        _bagItemChoices = BagItemChoicesForPocket(pocket);
+        _bagItemChoices = BagItemChoicesForPocket(pocket, selectedItem);
         _searchableChoices[BagItemBox] = _bagItemChoices;
         ResetSearchableComboItems(BagItemBox, _bagItemChoices, preserveSelection: selectedItem is null);
         if (selectedItem is not null)
             SetChoice(BagItemBox, _bagItemChoices, selectedItem.Value);
     }
 
-    private ChoiceRow[] BagItemChoicesForPocket(int pocket)
+    private ChoiceRow[] BagItemChoicesForPocket(int pocket, int? selectedItem = null)
     {
         if (!IsConcreteBagPocket(pocket))
             return _itemChoices;
-        return _itemChoices
+        var choices = _itemChoices
             .Where(choice => choice.Id == 0 || PocketOfItem(choice.Id) == pocket)
             .ToArray();
+        if (selectedItem is > 0 &&
+            choices.All(choice => choice.Id != selectedItem.Value) &&
+            _itemChoices.FirstOrDefault(choice => choice.Id == selectedItem.Value) is { } current)
+        {
+            return choices.Concat([current]).OrderBy(choice => choice.Id).ToArray();
+        }
+        return choices;
     }
 
     private int CurrentBagEditPocket()
@@ -5112,7 +5141,11 @@ public partial class MainWindow : Window
     }
 
     private bool IsConcreteBagPocket(int pocket)
-        => UsesUnboundCfruLayout ? pocket is >= 1 and <= 5 : pocket is >= 1 and <= 8;
+        => UsesDestinySaveLayout
+            ? pocket is 1 or 3 or 4
+            : UsesUnboundCfruLayout
+                ? pocket is >= 1 and <= 5
+                : pocket is >= 1 and <= 8;
 
     private bool IsKeyItemPocket(int pocket)
         => UsesUnboundCfruLayout ? pocket == 2 : pocket == 8;
@@ -5243,7 +5276,12 @@ public partial class MainWindow : Window
     private string SpeciesDisplayName(int species, string fallback)
     {
         var table = _db.Table("species");
-        if (!table.TryGetValue(species, out var name)) return fallback;
+        if (!table.TryGetValue(species, out var name))
+        {
+            if (!_db.Table("species_evolution_names").TryGetValue(species, out name)) return fallback;
+            var extendedForm = KnownSpeciesFormLabel(species);
+            return string.IsNullOrWhiteSpace(extendedForm) ? name : $"{name}（{extendedForm}）";
+        }
         var duplicateIds = table
             .Where(kv => kv.Value == name)
             .Select(kv => kv.Key)
@@ -6039,7 +6077,7 @@ public partial class MainWindow : Window
         {
             ushort U(int index) => ushort.Parse(parts[index]);
             byte B(int index) => byte.Parse(parts[index]);
-            sbyte S(int index) => sbyte.Parse(parts[index]);
+            sbyte S(int index) => unchecked((sbyte)byte.Parse(parts[index]));
             data = new MoveData(move, U(0), B(1), B(2), B(3), B(4), U(5), S(6), U(7), B(8), U(9), []);
             return true;
         }
@@ -6407,7 +6445,7 @@ public partial class MainWindow : Window
     {
         var name = AbilityName(ability);
         if (ability == 0) return "无特性。";
-        return _db.Table("ability_descriptions").TryGetValue(ability, out var description)
+        return _db.Table("ability_descriptions").TryGetValue(ability, out var description) && !string.IsNullOrWhiteSpace(description)
             ? $"{name}：{description}"
             : $"{name}：暂无特性说明。";
     }
@@ -6486,6 +6524,17 @@ public partial class MainWindow : Window
             13 => $"{evolution.Parameter}级，分裂进化1",
             14 => $"{evolution.Parameter}级，分裂进化2",
             15 => $"美丽度{evolution.Parameter}",
+            16 => $"使用{paramItem}",
+            17 => $"白天携带{paramItem}升级",
+            18 => $"夜晚携带{paramItem}升级",
+            19 => $"{evolution.Parameter}级（白天）",
+            20 => $"{evolution.Parameter}级（夜晚）",
+            21 => $"{evolution.Parameter}级（公）",
+            22 => $"{evolution.Parameter}级（母）",
+            25 => $"学会{MoveName(evolution.Parameter)}后升级",
+            26 => $"队伍中有{SpeciesName(evolution.Parameter)}时升级",
+            254 => $"使用{paramItem}（特殊形态）",
+            0 when evolution.Parameter != 0 => $"使用{paramItem}（特殊形态）",
             0xFFFF => paramItem,
             0xFFFE => $"特殊形态，使用{EvolutionParameterItemText(evolution.Parameter)}",
             0xFFFD => $"特殊形态，使用{EvolutionParameterItemText(evolution.Parameter)}",
@@ -6513,6 +6562,17 @@ public partial class MainWindow : Window
             13 => $"{evolution.Parameter}级，分裂进化1",
             14 => $"{evolution.Parameter}级，分裂进化2",
             15 => $"美丽度达到{evolution.Parameter}",
+            16 => $"使用{paramItem}",
+            17 => $"白天携带{paramItem}升级",
+            18 => $"夜晚携带{paramItem}升级",
+            19 => $"达到{evolution.Parameter}级（白天）",
+            20 => $"达到{evolution.Parameter}级（夜晚）",
+            21 => $"达到{evolution.Parameter}级且为公",
+            22 => $"达到{evolution.Parameter}级且为母",
+            25 => $"学会{MoveName(evolution.Parameter)}后升级",
+            26 => $"队伍中有{SpeciesName(evolution.Parameter)}时升级",
+            254 => $"使用{paramItem}进入特殊形态",
+            0 when evolution.Parameter != 0 => $"使用{paramItem}进入特殊形态",
             0xFFFF => $"特殊形态，使用{paramItem}",
             0xFFFE => $"特殊形态，使用{EvolutionParameterItemText(evolution.Parameter)}",
             0xFFFD => $"特殊形态，使用{EvolutionParameterItemText(evolution.Parameter)}",

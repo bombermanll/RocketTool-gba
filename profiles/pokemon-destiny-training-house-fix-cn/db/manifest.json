@@ -1,0 +1,79 @@
+{
+  "sourceRom": "rom/宝可梦命运（培训屋bug修复）.gba",
+  "romTitle": "POKEMON FIRE",
+  "gameCode": "BPRE",
+  "romSha256": "687c93b8f723f21521dfddd995bbaab1eb5ff17bfd49a819804185816fc05aa9",
+  "notes": "Profile generated from this ROM's CFRU config pointers. Live party plus Destiny item, ball, and machine-box save regions have ROM/sample evidence; box and trainer writes stay disabled.",
+  "rowCounts": {
+    "species": 511,
+    "moves": 511,
+    "items": 374,
+    "decodedItemNames": 358,
+    "abilities": 152,
+    "evolutionTargetNames": 100
+  },
+  "dataStatus": {
+    "romVerified": [
+      "species_stats.tsv",
+      "species_name_bytes.tsv ids 1..511 from Destiny species-name table 0x1A029E8",
+      "species_nickname_bytes.tsv ids 1..511 from Destiny species-name table 0x1A029E8",
+      "game_text_chars.tsv manual verified OT glyphs",
+      "item_name_bytes.tsv",
+      "item_data.tsv",
+      "item_pockets.tsv",
+      "item_description_pointers.tsv",
+      "item_description_bytes.tsv",
+      "item_effects.tsv ids are derived from ROM item hold-effect bytes",
+      "move_data.tsv",
+      "move_name_bytes.tsv",
+      "ability_name_bytes.tsv",
+      "machine_moves.tsv from active table 0x45A80C (58 u16 entries; TM17=Protect, TM48=Work Up)",
+      "species_evolutions.tsv from 0x1ADED08 (16 8-byte slots per species)",
+      "species_evolution_names.tsv names all extended targets referenced by the Destiny evolution table",
+      "species_level_moves.tsv from pointer table 0x1A0E0BC (packed u16 level/move entries; 0x1A0E0C0 is species 2)",
+      "front sprites from 0x1A0F378 and normal palettes from 0x1A13E78",
+      "ability_description_pointers.tsv",
+      "ability_description_bytes.tsv",
+      "ability_descriptions.tsv decoded from those Destiny pointers/raw bytes",
+      "maps.tsv/map_warps.tsv topology from map group table 0x3526A8 (43 groups)",
+      "experience.tsv levels 0..100 match ROM bytes at 0x253AE4"
+    ],
+    "displayHints": [
+      "species.tsv uses complete raw-name byte matches where available; ids 252..276 are omitted because their raw names are unused markers",
+      "moves.tsv has 492 names matched by complete raw bytes, 3 additional names decoded from Destiny bytes, and explicit unresolved labels for the remainder",
+      "abilities.tsv uses Destiny raw bytes and cross-checked ability candidates; id 140 remains unresolved",
+      "items.tsv retains explicit unresolved labels where Destiny item glyphs are not fully decoded",
+      "item_effects.tsv uses generic effect labels until hold-effect names are decoded",
+      "ability_descriptions.tsv is decoded from Destiny ROM pointers and raw text bytes",
+      "map_sections.tsv names are generated region labels until Destiny map section text is decoded",
+      "species_forms.tsv maps Unown, Riolu/Lucario, Mega, corrosion, Alolan, and other evolution-target forms"
+    ],
+    "disabledOrPlaceholder": [
+      "13 custom move names remain unresolved",
+      "16 custom item names remain unresolved",
+      "0 ability names remain unresolved",
+      "0 ability descriptions remain unresolved",
+      "85 map-section display names remain generated labels",
+      "76 nonzero item-effect names remain generic labels"
+    ]
+  },
+  "tables": {
+    "baseStats": "0x1A05D78",
+    "speciesNames": "0x1A029E8",
+    "legacySpeciesNames": "0x950000",
+    "abilityNames": "0x950000",
+    "abilityDescriptions": "0x9507F0",
+    "items": "0x3DB028",
+    "moves": "0x900000",
+    "moveNames": "0x901800",
+    "machineMoves": "0x45A80C",
+    "evolutions": "0x1ADED08",
+    "levelMoves": "0x1A0E0BC",
+    "mapGroups": "0x3526A8",
+    "experience": "0x253AE4",
+    "frontSprites": "0x1A0F378",
+    "normalPalettes": "0x1A13E78",
+    "iconSpriteCandidates": "0x26056C",
+    "iconPaletteCandidates": "0x2605CC"
+  }
+}

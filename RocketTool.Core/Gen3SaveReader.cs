@@ -49,6 +49,9 @@ public static class Gen3SaveReader
     private const int StandardPartyCountOffset = 0x234;
     private const int StandardPartyOffset = 0x238;
     private const int StandardPcBoxesOffset = 4;
+    private const int DestinyPartyCountOffset = 0x34;
+    private const int DestinyPartyOffset = 0x38;
+    private const int DestinyMoneyOffset = 0x290;
     private const int SpanishRocketSaveBagMaxQuantity = 255;
     private const int MachinePocket = 7;
     private const int MachineTmStartItem = 592;
@@ -183,7 +186,7 @@ public static class Gen3SaveReader
         var pcStorage = new byte[0x83D0];
         for (var id = 5; id <= 12; id++)
             CopyUnboundSection(best, id, pcStorage, (id - 5) * SectionDataSize, SectionDataSize, warnings);
-        CopyUnboundSection(best, 13, pcStorage, 8 * SectionDataSize, 0x450, warnings);
+        CopyUnboundSection(best, 13, pcStorage, 8 * SectionDataSize, 0x7D0, warnings);
 
         var parasite = BuildUnboundParasite(raw, best);
         var party = ReadUnboundParty(saveBlock1, profile, warnings);
@@ -199,6 +202,7 @@ public static class Gen3SaveReader
         var trainer = new Gen3SaveTrainerInfo(trainerName, trainerOtId, money);
 
         warnings.Add($"解放版存档：使用 save index {best.SaveIndex}；队伍为 100 字节明文结构，箱子为 58 字节 CFRU 压缩结构，共 {profile.Memory.PcBoxCount} 箱。");
+        warnings.Add("PC storage 已按 section 5-13 重组；section 13 checksum 只覆盖 0x450，但 PC 尾段读取保留到 0x7D0。");
         warnings.Add("扩展数据已按 CFRU parasite 映射从 section 0/4/13、原始扇区 30/31 和 section 1 尾部重组。");
         var snapshot = new Gen3SaveReadResult(
             Path.GetFileName(path), raw.Length, best.Ordinal + 1, best.SaveIndex,
@@ -414,6 +418,85 @@ public static class Gen3SaveReader
     public static Gen3SaveDocument Open(string path)
         => SpanishRocketSaveStrategy.Instance.Open(path, null);
 
+    internal static Gen3SaveDocument OpenDestiny(string path, GameProfile profile)
+    {
+        var raw = File.ReadAllBytes(path);
+        var warnings = new List<string>();
+        var slots = FindSlots(raw).ToArray();
+        if (slots.Length == 0)
+            throw new InvalidOperationException("没有识别到有效的《宝可梦命运》Gen 3 存档 section。请确认文件是原始 .sav/.srm 电池存档。");
+
+        var best = slots
+            .OrderByDescending(s => s.ValidSections.Count)
+            .ThenByDescending(s => s.SaveIndex)
+            .First();
+        best = SupplementMissingSections(raw, best, warnings);
+
+        var f24ChecksumSections = best.ValidSections.Values
+            .Where(s => s.ChecksumMode == "f24")
+            .Select(s => s.Id)
+            .OrderBy(id => id)
+            .ToArray();
+        if (f24ChecksumSections.Length > 0)
+            warnings.Add($"存档校验：section {string.Join(",", f24ChecksumSections)} 使用 checksum 范围 0xF24。");
+
+        var d98ChecksumSections = best.ValidSections.Values
+            .Where(s => s.ChecksumMode == "d98")
+            .Select(s => s.Id)
+            .OrderBy(id => id)
+            .ToArray();
+        if (d98ChecksumSections.Length > 0)
+            warnings.Add($"存档校验：section {string.Join(",", d98ChecksumSections)} 使用 checksum 范围 0xD98。");
+
+        var extendedChecksumSections = best.ValidSections.Values
+            .Where(s => s.ChecksumMode == "extended")
+            .Select(s => s.Id)
+            .OrderBy(id => id)
+            .ToArray();
+        if (extendedChecksumSections.Length > 0)
+            warnings.Add($"存档校验：section {string.Join(",", extendedChecksumSections)} 使用扩展 checksum 范围 0xFF4。");
+
+        warnings.Add("命运存档副本候选：" + string.Join("；", slots
+            .OrderByDescending(s => s.ValidSections.Count)
+            .ThenByDescending(s => s.SaveIndex)
+            .Take(8)
+            .Select(s => $"offset=0x{s.Offset:X}, sections={s.ValidSections.Count}/{SectionsPerSlot}, index={s.SaveIndex}, ids={SectionIdList(s)}")));
+        if (best.ValidSections.Count < SectionsPerSlot)
+            warnings.Add($"只识别到 {best.ValidSections.Count}/{SectionsPerSlot} 个有效 section，已禁用安全写回。");
+
+        var saveBlock1 = BuildBlock(best, 1, 4, warnings, "SaveBlock1");
+        var pcStorage = BuildBlock(best, 5, 13, warnings, "PC 箱子");
+        var party = ReadDestinyParty(saveBlock1, profile, warnings);
+        var itemPockets = ReadProfileItemPockets(profile);
+        var bag = ReadDestinyBag(saveBlock1, pcStorage, itemPockets, profile.Limits.MaxItem, profile.Limits.MaxBagQuantity, warnings);
+        var boxes = ReadDestinyBoxes(pcStorage, profile, warnings);
+
+        if (party.Count == 0)
+            warnings.Add("命运存档队伍数量为 0；队伍结构偏移已定位，但当前样本不能验证非空队伍 round-trip。");
+        if (boxes.Count == 0)
+            warnings.Add("命运存档标准 PC 区域当前没有非空宝可梦；箱子写回保持禁用。");
+
+        var money = ReadU32(saveBlock1, DestinyMoneyOffset);
+        warnings.Add($"命运存档金钱线索：SaveBlock1+0x{DestinyMoneyOffset:X}= {money}（当前仅记录，不启用训练家页写回）。");
+        warnings.Add("命运存档：道具/精灵球位于 section 13 扩展区，招式机盒位于 SaveBlock1+0x310；0x298 是电脑道具区域。");
+
+        var snapshot = new Gen3SaveReadResult(
+            Path.GetFileName(path),
+            raw.Length,
+            best.Ordinal + 1,
+            best.SaveIndex,
+            best.ValidSections.Count,
+            party,
+            bag,
+            boxes,
+            null,
+            warnings);
+        var sections = best.ValidSections.ToDictionary(
+            pair => pair.Key,
+            pair => new Gen3SaveSectionLayout(pair.Key, pair.Value.Offset, pair.Value.SaveIndex, pair.Value.ChecksumMode));
+        return new Gen3SaveDocument(path, raw, sections, DestinyPartyOffset, snapshot, profile, itemPockets, DestinyFireRedSaveStrategy.Instance);
+    }
+
     internal static Gen3SaveDocument OpenSpanishRocket(string path, GameProfile? profile)
     {
         var raw = File.ReadAllBytes(path);
@@ -524,6 +607,8 @@ public static class Gen3SaveReader
             var standard = Checksum(section[..SectionDataSize]);
             var pcTail = id == PcTailSectionId ? Checksum(section[..PcTailChecksumSize]) : (ushort?)null;
             var pcBoxes = id == PcTailSectionId ? Checksum(section[..PcBoxesChecksumSize]) : (ushort?)null;
+            var d98 = id == 4 ? Checksum(section[..0xD98]) : (ushort?)null;
+            var f24 = id == 0 ? Checksum(section[..0xF24]) : (ushort?)null;
             var extended = Checksum(section[..0xFF4]);
             if (standard == checksum)
                 sections.Add(new SaveSection((int)id, offset, saveIndex, section[..SectionDataSize].ToArray(), "standard"));
@@ -531,6 +616,10 @@ public static class Gen3SaveReader
                 sections.Add(new SaveSection((int)id, offset, saveIndex, section[..SectionDataSize].ToArray(), "pc-tail"));
             else if (pcBoxes == checksum)
                 sections.Add(new SaveSection((int)id, offset, saveIndex, section[..SectionDataSize].ToArray(), "pc-boxes"));
+            else if (d98 == checksum)
+                sections.Add(new SaveSection((int)id, offset, saveIndex, section[..SectionDataSize].ToArray(), "d98"));
+            else if (f24 == checksum)
+                sections.Add(new SaveSection((int)id, offset, saveIndex, section[..SectionDataSize].ToArray(), "f24"));
             else if (extended == checksum)
                 sections.Add(new SaveSection((int)id, offset, saveIndex, section[..SectionDataSize].ToArray(), "extended"));
         }
@@ -620,6 +709,164 @@ public static class Gen3SaveReader
         }
 
         return output;
+    }
+
+    private static IReadOnlyList<PartyPokemon> ReadDestinyParty(ReadOnlySpan<byte> saveBlock1, GameProfile profile, List<string> warnings)
+    {
+        var count = saveBlock1[DestinyPartyCountOffset];
+        warnings.Add($"命运队伍偏移：count@0x{DestinyPartyCountOffset:X}=0x{count:X2}，party@0x{DestinyPartyOffset:X}，槽大小 100。");
+        if (count > Gen3Constants.PartySlots)
+        {
+            warnings.Add($"命运队伍数量异常：{count}。");
+            return [];
+        }
+
+        var result = new List<PartyPokemon>();
+        for (var slot = 0; slot < count; slot++)
+        {
+            var mon = new PartyPokemon(saveBlock1.Slice(DestinyPartyOffset + slot * PartyPokemon.Size, PartyPokemon.Size), PokemonDataLayout.UnboundCfruPlainParty);
+            if (mon.IsEmpty)
+            {
+                warnings.Add($"命运队伍槽 {slot + 1} 为空，已停止读取后续槽位。");
+                break;
+            }
+            var info = mon.GetInfo();
+            if (info.Species == 0 || info.Species > profile.Limits.MaxSpecies || info.Level is < 1 or > 250)
+            {
+                warnings.Add($"命运队伍槽 {slot + 1} 数据无效（species={info.Species}, level={info.Level}），已停止读取后续槽位。");
+                break;
+            }
+            result.Add(mon);
+        }
+        return result;
+    }
+
+    private static IReadOnlyList<Gen3SaveBagEntry> ReadDestinyBag(
+        ReadOnlySpan<byte> saveBlock1,
+        ReadOnlySpan<byte> pcStorage,
+        IReadOnlyDictionary<int, int> itemPockets,
+        int maxItem,
+        int maxQuantity,
+        List<string> warnings)
+    {
+        var entries = new List<Gen3SaveBagEntry>();
+        var section13Base = 8 * SectionDataSize;
+        ReadDestinyPocket(
+            pcStorage,
+            section13Base + DestinyFireRedSaveStrategy.ItemPocketExtensionOffset,
+            Gen3SaveDocument.DestinyExtensionOffsetMarker + DestinyFireRedSaveStrategy.ItemPocketExtensionOffset,
+            DestinyFireRedSaveStrategy.ItemPocketCapacity,
+            1,
+            "道具",
+            itemPockets,
+            maxItem,
+            maxQuantity,
+            entries,
+            warnings);
+        ReadDestinyPocket(
+            pcStorage,
+            section13Base + DestinyFireRedSaveStrategy.BallPocketExtensionOffset,
+            Gen3SaveDocument.DestinyExtensionOffsetMarker + DestinyFireRedSaveStrategy.BallPocketExtensionOffset,
+            DestinyFireRedSaveStrategy.BallPocketCapacity,
+            3,
+            "精灵球",
+            itemPockets,
+            maxItem,
+            maxQuantity,
+            entries,
+            warnings);
+        ReadDestinyPocket(
+            saveBlock1,
+            DestinyFireRedSaveStrategy.MachineBoxOffset,
+            DestinyFireRedSaveStrategy.MachineBoxOffset,
+            DestinyFireRedSaveStrategy.MachineBoxCapacity,
+            4,
+            "招式机盒",
+            itemPockets,
+            maxItem,
+            maxQuantity,
+            entries,
+            warnings);
+
+        if (entries.Count == 0)
+            warnings.Add("命运背包读取：三个已确认区域中没有识别到可显示道具。");
+        return entries;
+    }
+
+    private static void ReadDestinyPocket(
+        ReadOnlySpan<byte> data,
+        int dataOffset,
+        int saveOffset,
+        int capacity,
+        int pocket,
+        string name,
+        IReadOnlyDictionary<int, int> itemPockets,
+        int maxItem,
+        int maxQuantity,
+        List<Gen3SaveBagEntry> entries,
+        List<string> warnings)
+    {
+        var displayed = 0;
+        for (var i = 0; i < capacity; i++)
+        {
+            var offset = dataOffset + i * 4;
+            if (offset + 4 > data.Length) break;
+            var item = ReadU16(data, offset);
+            if (item == 0) break;
+            var quantity = ReadU16(data, offset + 2);
+            if (item > maxItem || quantity == 0 || quantity > maxQuantity)
+            {
+                warnings.Add($"命运{name}槽 {i + 1} 数据异常（item={item}, quantity={quantity}）。");
+            }
+            else if (itemPockets.TryGetValue(item, out var mappedPocket) && mappedPocket != pocket)
+            {
+                warnings.Add($"命运{name}槽 {i + 1} 含错误分类道具 {item}；保留显示以便修复。");
+            }
+
+            entries.Add(new Gen3SaveBagEntry(
+                saveOffset + i * 4,
+                pocket,
+                ++displayed,
+                item,
+                quantity,
+                0,
+                true,
+                $"命运存档；{name}槽 {i + 1}"));
+        }
+
+        warnings.Add($"命运背包读取：{name}显示 {displayed} 格，容量 {capacity} 格。");
+    }
+
+    private static IReadOnlyList<Gen3SaveBoxEntry> ReadDestinyBoxes(ReadOnlySpan<byte> pcStorage, GameProfile profile, List<string> warnings)
+    {
+        var entries = new List<Gen3SaveBoxEntry>();
+        var required = StandardPcBoxesOffset + profile.Memory.PcBoxCount * profile.Memory.PcBoxSlots * BoxPokemon.Size;
+        if (pcStorage.Length < required)
+        {
+            warnings.Add("命运 PC 箱子 section 数据长度不足。");
+            return entries;
+        }
+
+        for (var globalSlot = 0; globalSlot < profile.Memory.PcBoxCount * profile.Memory.PcBoxSlots; globalSlot++)
+        {
+            var offset = StandardPcBoxesOffset + globalSlot * BoxPokemon.Size;
+            var mon = new BoxPokemon(pcStorage.Slice(offset, BoxPokemon.Size));
+            if (mon.IsEmpty) continue;
+            if (!IsValidBoxMon(mon))
+            {
+                var boxNumber = globalSlot / profile.Memory.PcBoxSlots + 1;
+                var slotInBox = globalSlot % profile.Memory.PcBoxSlots + 1;
+                warnings.Add($"命运箱{boxNumber:00}-{slotInBox:00}存在非空但未通过标准 80 字节结构校验的数据，箱子功能保持禁用。");
+                continue;
+            }
+            entries.Add(new Gen3SaveBoxEntry(
+                globalSlot + 1,
+                globalSlot / profile.Memory.PcBoxSlots + 1,
+                globalSlot % profile.Memory.PcBoxSlots + 1,
+                offset,
+                mon));
+        }
+        return entries;
     }
 
     private static PartyReadResult ReadParty(ReadOnlySpan<byte> saveBlock1, List<string> warnings)
