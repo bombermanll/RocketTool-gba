@@ -771,6 +771,30 @@ static int SaveVerifyWrite(string[] args)
         document.AddBagItem(1, 13, 1);
     }
 
+    if (string.Equals(profile.Strategies.Save, "pokemon-destiny-save-v1", StringComparison.Ordinal))
+    {
+        var replaceable = document.CurrentBag.FirstOrDefault(entry => entry.Pocket == 1 && entry.ItemId is 13 or 14);
+        if (replaceable is not null)
+        {
+            var replacement = replaceable.ItemId == 13 ? (ushort)14 : (ushort)13;
+            if (document.CurrentBag.All(entry => entry.Pocket != 1 || entry.ItemId != replacement))
+                document.ReplaceBagEntry(replaceable.SaveOffset, replacement, replaceable.Quantity);
+        }
+
+        foreach (var (pocket, item) in new[] { (1, (ushort)86), (3, (ushort)10), (4, (ushort)289) })
+            if (document.CurrentBag.All(entry => entry.ItemId != item))
+                document.AddBagItem(pocket, item, 1);
+    }
+
+    if (string.Equals(profile.Strategies.Save, "pokemon-destiny-save-v1", StringComparison.Ordinal) &&
+        document.Snapshot.Boxes.FirstOrDefault() is { } destinyBox)
+    {
+        var box = new BoxPokemon(destinyBox.Mon.Raw, destinyBox.Mon.Layout);
+        var boxInfo = box.GetInfo();
+        box.SetGrowth(friendship: (byte)(boxInfo.Friendship == 255 ? 254 : boxInfo.Friendship + 1));
+        document.ReplaceBoxPokemon(destinyBox.GlobalSlot, box);
+    }
+
     if (!document.HasChanges)
         throw new InvalidOperationException("测试存档没有可验证的队伍、背包、箱子或训练家字段。");
 

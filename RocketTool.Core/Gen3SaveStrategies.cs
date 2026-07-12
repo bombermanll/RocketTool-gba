@@ -187,6 +187,7 @@ internal sealed class DestinyFireRedSaveStrategy : IGen3SaveStrategy
     internal const int BallPocketCapacity = 28;
     internal const int ItemPocketExtensionOffset = 0xA5C;
     internal const int ItemPocketCapacity = (0xFF4 - ItemPocketExtensionOffset) / 4;
+    internal const int SafeBoxSlotCount = 408;
     public static DestinyFireRedSaveStrategy Instance { get; } = new();
     public string Id => StrategyId;
 
@@ -206,7 +207,20 @@ internal sealed class DestinyFireRedSaveStrategy : IGen3SaveStrategy
         => throw new InvalidOperationException("宝可梦命运尚未验证训练家/金钱写回 UI。");
 
     public void WriteBoxPokemon(Gen3SaveDocument document, int globalSlot, ReadOnlySpan<byte> data)
-        => throw new InvalidOperationException("宝可梦命运尚未验证箱子结构和写回路径。");
+    {
+        if (data.Length != BoxPokemon.Size)
+            throw new InvalidOperationException($"宝可梦命运箱子记录必须为 {BoxPokemon.Size} 字节。");
+        var profile = document.Profile ?? throw new InvalidOperationException("宝可梦命运箱子写回需要 Profile。");
+        var maxSlots = Math.Min(
+            SafeBoxSlotCount,
+            profile.Memory.PcBoxCount * profile.Memory.PcBoxSlots);
+        if (globalSlot < 1 || globalSlot > maxSlots)
+            throw new ArgumentOutOfRangeException(nameof(globalSlot));
+        document.WriteLogicalRange(
+            Gen3SaveDocument.PcFirstSection,
+            4 + (globalSlot - 1) * BoxPokemon.Size,
+            data);
+    }
 
     public ushort EncodeStoredQuantity(ushort quantity, ushort quantityKey)
         => quantity;
@@ -224,7 +238,16 @@ internal sealed class DestinyFireRedSaveStrategy : IGen3SaveStrategy
     }
 
     public int? PocketOfItem(Gen3SaveDocument document, ushort itemId)
-        => document.ItemPockets.TryGetValue(itemId, out var mappedPocket) ? mappedPocket : null;
+    {
+        if (!document.ItemPockets.TryGetValue(itemId, out var mappedPocket))
+            return 1;
+        return mappedPocket switch
+        {
+            3 => 3,
+            4 => 4,
+            _ => 1
+        };
+    }
 
     public string PocketName(int pocket)
         => pocket switch

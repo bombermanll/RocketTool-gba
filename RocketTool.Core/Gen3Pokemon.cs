@@ -3,7 +3,8 @@ namespace RocketTool.Core;
 public enum PokemonDataLayout
 {
     SpanishRocketEncrypted,
-    UnboundCfruPlainParty
+    UnboundCfruPlainParty,
+    DestinyCfruPlainBox
 }
 
 public static class Gen3Constants

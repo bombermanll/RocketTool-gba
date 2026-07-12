@@ -201,7 +201,7 @@ public partial class MainWindow : Window
         _profile.Strategies.Save,
         "pokemon-destiny-save-v1",
         StringComparison.Ordinal);
-    private int MachinePocket => UsesUnboundCfruLayout ? 4 : SpanishMachinePocket;
+    private int MachinePocket => UsesUnboundCfruLayout || UsesDestinySaveLayout ? 4 : SpanishMachinePocket;
     private PokemonDataLayout ActivePokemonLayout => UsesUnboundCfruLayout
         ? PokemonDataLayout.UnboundCfruPlainParty
         : PokemonDataLayout.SpanishRocketEncrypted;
@@ -448,8 +448,8 @@ public partial class MainWindow : Window
         ReadPartyButton.IsVisible = live && _profile.Features.Party;
         PartyTab.IsVisible = _profile.Features.Party;
         BagTab.IsVisible = _profile.Features.Bag;
-        BoxTab.IsVisible = _profile.Features.Boxes;
-        BoxReadButton.IsVisible = live && _profile.Features.Boxes;
+        BoxTab.IsVisible = _profile.Features.Boxes && (!UsesDestinySaveLayout || !live);
+        BoxReadButton.IsVisible = live && _profile.Features.Boxes && !UsesDestinySaveLayout;
         ExperimentTab.IsVisible = live && _profile.Features.Experiments;
         TrainerTab.IsVisible = _profile.Features.Trainer &&
                                (live || _loadedSave?.Snapshot.Trainer is not null);
@@ -474,7 +474,8 @@ public partial class MainWindow : Window
         BagReadButton.IsVisible = live;
         BagSnapshotButton.IsVisible = live && !UsesUnboundCfruLayout;
         BagAddButton.IsVisible = live || _loadedSave?.CanWrite == true;
-        BagApplyButton.IsVisible = live;
+        BagApplyButton.IsVisible = live || _loadedSave?.CanWrite == true;
+        BagApplyButton.Content = live ? "写入当前槽" : "应用到当前槽";
         BagList.IsVisible = live;
         SaveBagList.IsVisible = !live;
         BagEditorTitleText.Text = live ? "背包槽编辑" : "添加道具与详情";
@@ -483,9 +484,9 @@ public partial class MainWindow : Window
             : "左侧可直接修改现有道具；选择完成或数量输入失焦/回车后自动更新待保存副本。右侧用于添加道具和查看详情。";
         BagAddButton.Content = live ? "添加到当前背包" : "添加到当前分类";
         DexImportPartyButton.IsVisible = live;
-        DexImportBoxButton.IsVisible = live;
+        DexImportBoxButton.IsVisible = live && !UsesDestinySaveLayout;
         DexImportPartyButton.IsEnabled = live;
-        DexImportBoxButton.IsEnabled = live;
+        DexImportBoxButton.IsEnabled = live && !UsesDestinySaveLayout;
         BagModeHintText.Text = live
             ? "请先对比下方道具列表是否和游戏中一致；如不一致，请先校准背包。"
             : _loadedSave is null
@@ -1889,7 +1890,10 @@ public partial class MainWindow : Window
 
     private async void OnBagApplyClicked(object? sender, RoutedEventArgs e)
     {
-        if (BagList.SelectedItem is not BagSlotRow row)
+        var row = _dataSourceMode == DataSourceMode.SaveFile
+            ? (SaveBagList.SelectedItem as SaveBagEditableRow)?.Row
+            : BagList.SelectedItem as BagSlotRow;
+        if (row is null)
         {
             ShowToast("请先选择一个背包槽。", success: false);
             return;
@@ -2350,7 +2354,7 @@ public partial class MainWindow : Window
             await RunUiTask("更新存档箱子", () =>
             {
                 var document = _loadedSave ?? throw new InvalidOperationException("当前没有已读取的存档。");
-                var mon = new BoxPokemon(row.Mon.Raw, ActivePokemonLayout);
+                var mon = new BoxPokemon(row.Mon.Raw, row.Mon.Layout);
                 var (species, evTotal) = ApplyBoxEditor(mon);
                 document.ReplaceBoxPokemon(row.Slot, mon);
                 var info = mon.GetInfo();
@@ -5242,6 +5246,7 @@ public partial class MainWindow : Window
 
     private ChoiceRow[] ItemChoiceRows()
         => _db.Table("items")
+            .Where(kv => kv.Key != 0 && !string.Equals(kv.Value, "未使用", StringComparison.Ordinal))
             .OrderBy(kv => kv.Key)
             .Select(kv =>
             {
@@ -6699,13 +6704,20 @@ public partial class MainWindow : Window
     {
         if (item == 0) return -1;
         if (item < 0 || item > MaxItemId()) return -1;
-        if (!UsesUnboundCfruLayout && item is >= MachineTmStartItem and <= 845)
+        if (!UsesUnboundCfruLayout && !UsesDestinySaveLayout && item is >= MachineTmStartItem and <= 845)
             return IsBagMachineItem(item) ? 7 : -1;
 
         if (_db.Table("item_pockets").TryGetValue(item, out var pocketText) &&
             int.TryParse(pocketText, out var embeddedPocket) &&
             embeddedPocket is >= 1 and <= 8)
-            return embeddedPocket;
+            return UsesDestinySaveLayout
+                ? embeddedPocket switch
+                {
+                    3 => 3,
+                    4 => 4,
+                    _ => 1
+                }
+                : embeddedPocket;
 
         try
         {
@@ -6714,6 +6726,7 @@ public partial class MainWindow : Window
         }
         catch
         {
+            if (UsesDestinySaveLayout) return 1;
             if (UsesUnboundCfruLayout) return -1;
             var fromOriginalRanges = PocketOfItemByOriginalRanges(item);
             return fromOriginalRanges ?? -1;

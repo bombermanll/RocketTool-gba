@@ -3,20 +3,20 @@
   "romTitle": "POKEMON FIRE",
   "gameCode": "BPRE",
   "romSha256": "687c93b8f723f21521dfddd995bbaab1eb5ff17bfd49a819804185816fc05aa9",
-  "notes": "Profile generated from this ROM's CFRU config pointers. Live party plus Destiny item, ball, and machine-box save regions have ROM/sample evidence; box and trainer writes stay disabled.",
+  "notes": "Profile generated from this ROM's CFRU config pointers. Party, three save bag categories, and existing safe save-box slots have ROM/sample evidence; live box, empty-slot creation, and trainer writes stay disabled.",
   "rowCounts": {
-    "species": 511,
+    "species": 1092,
     "moves": 511,
     "items": 374,
-    "decodedItemNames": 358,
+    "decodedItemNames": 374,
     "abilities": 152,
-    "evolutionTargetNames": 100
+    "evolutionTargetNames": 293
   },
   "dataStatus": {
     "romVerified": [
       "species_stats.tsv",
-      "species_name_bytes.tsv ids 1..511 from Destiny species-name table 0x1A029E8",
-      "species_nickname_bytes.tsv ids 1..511 from Destiny species-name table 0x1A029E8",
+      "species_name_bytes.tsv ids 1..1199 from Destiny species-name table 0x1A029E8",
+      "species_nickname_bytes.tsv ids 1..1199 from Destiny species-name table 0x1A029E8",
       "game_text_chars.tsv manual verified OT glyphs",
       "item_name_bytes.tsv",
       "item_data.tsv",
@@ -39,10 +39,11 @@
       "experience.tsv levels 0..100 match ROM bytes at 0x253AE4"
     ],
     "displayHints": [
-      "species.tsv uses complete raw-name byte matches where available; ids 252..276 are omitted because their raw names are unused markers",
+      "species.tsv uses complete raw-name byte matches where available; zero-base-stat and raw unused slots are omitted",
+      "English engine form names are exposed as Chinese base names plus Chinese species_forms.tsv labels while raw bytes remain preserved",
       "moves.tsv has 492 names matched by complete raw bytes, 3 additional names decoded from Destiny bytes, and explicit unresolved labels for the remainder",
-      "abilities.tsv uses Destiny raw bytes and cross-checked ability candidates; id 140 remains unresolved",
-      "items.tsv retains explicit unresolved labels where Destiny item glyphs are not fully decoded",
+      "abilities.tsv uses Destiny raw bytes and cross-checked ability candidates; all 152 rows have display names",
+      "items.tsv combines Destiny raw names and item-description evidence; all rows now have display names and raw bytes remain preserved",
       "item_effects.tsv uses generic effect labels until hold-effect names are decoded",
       "ability_descriptions.tsv is decoded from Destiny ROM pointers and raw text bytes",
       "map_sections.tsv names are generated region labels until Destiny map section text is decoded",
@@ -50,7 +51,7 @@
     ],
     "disabledOrPlaceholder": [
       "13 custom move names remain unresolved",
-      "16 custom item names remain unresolved",
+      "0 custom item names remain unresolved",
       "0 ability names remain unresolved",
       "0 ability descriptions remain unresolved",
       "85 map-section display names remain generated labels",

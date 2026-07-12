@@ -847,16 +847,19 @@ public static class Gen3SaveReader
             return entries;
         }
 
-        for (var globalSlot = 0; globalSlot < profile.Memory.PcBoxCount * profile.Memory.PcBoxSlots; globalSlot++)
+        var safeSlotCount = Math.Min(
+            DestinyFireRedSaveStrategy.SafeBoxSlotCount,
+            profile.Memory.PcBoxCount * profile.Memory.PcBoxSlots);
+        for (var globalSlot = 0; globalSlot < safeSlotCount; globalSlot++)
         {
             var offset = StandardPcBoxesOffset + globalSlot * BoxPokemon.Size;
-            var mon = new BoxPokemon(pcStorage.Slice(offset, BoxPokemon.Size));
+            var mon = new BoxPokemon(pcStorage.Slice(offset, BoxPokemon.Size), PokemonDataLayout.DestinyCfruPlainBox);
             if (mon.IsEmpty) continue;
             if (!IsValidBoxMon(mon))
             {
                 var boxNumber = globalSlot / profile.Memory.PcBoxSlots + 1;
                 var slotInBox = globalSlot % profile.Memory.PcBoxSlots + 1;
-                warnings.Add($"命运箱{boxNumber:00}-{slotInBox:00}存在非空但未通过标准 80 字节结构校验的数据，箱子功能保持禁用。");
+                warnings.Add($"命运箱{boxNumber:00}-{slotInBox:00}存在非空但未通过 CFRU 明文 80 字节结构校验的数据。");
                 continue;
             }
             entries.Add(new Gen3SaveBoxEntry(
@@ -866,6 +869,7 @@ public static class Gen3SaveReader
                 offset,
                 mon));
         }
+        warnings.Add($"命运箱子读取：已验证前 {safeSlotCount} 个完整 80 字节槽；箱14后12格与箱名元数据重叠，保持不可写。");
         return entries;
     }
 

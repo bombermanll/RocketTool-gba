@@ -131,22 +131,22 @@
 130	命中率提升
 131	水系招式引到身上不受伤提高特攻.
 132	全体的恶属性招式变强.
-133	Powers up Fairy-type moves.
-134	Reverses "Aura" abilities.
-135	Normal-type moves become Ice-type.
-136	Normal-type moves become Fairy-type.
-137	Normal-type moves become Flying-type.
-138	All moves become Normal-type.
-139	Parent and child each attacks.
+133	妖精属性招式的威力提高。
+134	反转气场类特性的效果。
+135	一般属性招式变为冰属性。
+136	一般属性招式变为妖精属性。
+137	一般属性招式变为飞行属性。
+138	所有招式都变为一般属性。
+139	亲子会各自进行一次攻击。
 140	满HP时受到的伤害减少.
-141	Halves physical move damage.
-142	Halves physical move damage.
-143	Lowers the foe's Speed if hit.
-144	Status moves miss more often.
-145	Normal moves become Electric.
-146	Boosts Sp. Atk when stats are lowered.
-147	Boosts Attack when stats are lowered.
-148	Raises speed if a held item is used.
-149	Changes type to current move type.
-150	Ignores foe's stat changes.
-151	Raises speed when flinching.
+141	受到的物理招式伤害减半。
+142	受到的物理招式伤害减半。
+143	受到攻击时会降低对手的速度。
+144	更容易避开变化招式。
+145	一般属性招式变为电属性。
+146	能力降低时提高特攻。
+147	能力降低时提高攻击。
+148	消耗携带道具后提高速度。
+149	自身属性变为当前使用招式的属性。
+150	无视对手的能力变化。
+151	畏缩时提高速度。

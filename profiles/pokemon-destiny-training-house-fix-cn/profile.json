@@ -32,7 +32,7 @@
     "baseStats": {
       "offset": "0x1A05D78",
       "entrySize": 28,
-      "count": 512
+      "count": 1200
     },
     "moves": {
       "offset": "0x900000",
@@ -47,13 +47,13 @@
     "evolutions": {
       "offset": "0x1ADEC88",
       "entrySize": 8,
-      "count": 512,
+      "count": 1200,
       "entriesPerRecord": 16
     },
     "levelMoves": {
       "offset": "0x1A0E0B8",
       "entrySize": 2,
-      "count": 512
+      "count": 1200
     },
     "experience": {
       "offset": "0x253AE4",
@@ -71,7 +71,7 @@
     "eggSpeciesId": 0
   },
   "limits": {
-    "maxSpecies": 511,
+    "maxSpecies": 1199,
     "maxMove": 511,
     "maxItem": 373,
     "maxAbility": 151,
@@ -85,7 +85,7 @@
     "liveEditing": true,
     "saveEditing": true,
     "party": true,
-    "boxes": false,
+    "boxes": true,
     "bag": true,
     "trainer": false,
     "experiments": false
