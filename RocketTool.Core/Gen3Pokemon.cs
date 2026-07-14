@@ -11,9 +11,6 @@ public static class Gen3Constants
 {
     public const int PartyMonSize = 100;
     public const int PartySlots = 6;
-    public const uint DefaultPartyBase = 0x02025170;
-    public const int PartyCountOffsetFromPartyBase = -3;
-    public const uint DefaultPartyCountAddress = 0x0202516D;
     public static readonly string[] StatNames = ["hp", "atk", "def", "spe", "spa", "spd"];
 
     public static readonly int[][] SubstructureOrders =
@@ -81,7 +78,7 @@ public sealed class PartyPokemon
     private readonly byte[] _raw;
     private readonly PokemonDataLayout _layout;
 
-    public PartyPokemon(ReadOnlySpan<byte> raw, PokemonDataLayout layout = PokemonDataLayout.SpanishRocketEncrypted)
+    public PartyPokemon(ReadOnlySpan<byte> raw, PokemonDataLayout layout)
     {
         if (raw.Length != Size) throw new ArgumentException($"Party Pokemon must be {Size} bytes");
         _raw = raw.ToArray();
@@ -97,7 +94,7 @@ public sealed class PartyPokemon
     public bool IsEmpty => Pid == 0 && OtId == 0;
     public bool IsShiny => IsShinyPid(Pid, OtId);
 
-    public static PartyPokemon Create(uint pid, uint otId, PokemonDataLayout layout = PokemonDataLayout.SpanishRocketEncrypted)
+    public static PartyPokemon Create(uint pid, uint otId, PokemonDataLayout layout)
     {
         if (pid == 0) throw new ArgumentOutOfRangeException(nameof(pid), "PID must be non-zero.");
         var raw = new byte[Size];

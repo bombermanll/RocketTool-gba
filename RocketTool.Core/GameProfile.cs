@@ -9,12 +9,14 @@ public sealed record GameProfile
     public required string Id { get; init; }
     public required string DisplayName { get; init; }
     public string Description { get; init; } = string.Empty;
+    public required GameProfileRomIdentity RomIdentity { get; init; }
     public required GameProfileStrategies Strategies { get; init; }
     public required GameProfileMemory Memory { get; init; }
     public required GameProfileRomTables RomTables { get; init; }
     public required GameProfileGraphics Graphics { get; init; }
     public required GameProfileLimits Limits { get; init; }
     public required GameProfileFeatures Features { get; init; }
+    public required GameProfileRuntime Runtime { get; init; }
 
     [JsonIgnore]
     public string ProfileDirectory { get; init; } = string.Empty;
@@ -30,11 +32,30 @@ public sealed record GameProfile
 
 public sealed record GameProfileStrategies
 {
+    public required string Runtime { get; init; }
     public required string Pokemon { get; init; }
     public required string PartyScanner { get; init; }
     public required string BoxScanner { get; init; }
     public required string Bag { get; init; }
     public required string Save { get; init; }
+}
+
+public sealed record GameProfileRomIdentity
+{
+    public required string FileName { get; init; }
+    public required string Sha256 { get; init; }
+    public required string HeaderTitle { get; init; }
+    public required string GameCode { get; init; }
+    public int RomSize { get; init; }
+    public IReadOnlyList<GameProfileRomFingerprint> LiveFingerprints { get; init; } = [];
+}
+
+public sealed record GameProfileRomFingerprint
+{
+    [JsonConverter(typeof(FlexibleInt32JsonConverter))]
+    public int Offset { get; init; }
+
+    public required string Hex { get; init; }
 }
 
 public sealed record GameProfileMemory
@@ -81,6 +102,13 @@ public sealed record GameProfileMemory
     public int PcBoxCount { get; init; } = 14;
     public int PcBoxSlots { get; init; } = 30;
     public int PcBoxRecordSize { get; init; } = BoxPokemon.Size;
+
+    [JsonConverter(typeof(FlexibleUInt32JsonConverter))]
+    public uint PcBoxStoragePointerAddress { get; init; }
+
+    public int PcBoxDataOffset { get; init; }
+    public int LivePcBoxWritableSlotCount { get; init; }
+    public int SavePcBoxWritableSlotCount { get; init; }
     public IReadOnlyList<GameProfileBoxRegion> PcBoxRegions { get; init; } = [];
 }
 
@@ -120,9 +148,13 @@ public sealed record GameProfileGraphics
 {
     public bool SpritesVerified { get; init; }
     public required string SpriteAssetRoot { get; init; }
+    public string IconAssetRoot { get; init; } = "";
 
     [JsonConverter(typeof(FlexibleInt32JsonConverter))]
     public int FrontSpriteTableOffset { get; init; }
+
+    [JsonConverter(typeof(FlexibleInt32JsonConverter))]
+    public int IconSpriteTableOffset { get; init; }
 
     [JsonConverter(typeof(FlexibleInt32JsonConverter))]
     public int NormalPaletteTableOffset { get; init; }
@@ -150,11 +182,140 @@ public sealed record GameProfileFeatures
 {
     public bool LiveEditing { get; init; }
     public bool SaveEditing { get; init; }
-    public bool Party { get; init; }
-    public bool Boxes { get; init; }
-    public bool Bag { get; init; }
-    public bool Trainer { get; init; }
+    public required GameProfileFeatureAccess LiveParty { get; init; }
+    public required GameProfileFeatureAccess SaveParty { get; init; }
+    public required GameProfileFeatureAccess LiveBoxes { get; init; }
+    public required GameProfileFeatureAccess SaveBoxes { get; init; }
+    public required GameProfileFeatureAccess LiveBag { get; init; }
+    public required GameProfileFeatureAccess SaveBag { get; init; }
+    public required GameProfileFeatureAccess LiveTrainer { get; init; }
+    public required GameProfileFeatureAccess SaveTrainer { get; init; }
+    public bool BuiltInDex { get; init; }
+    public bool MoveDex { get; init; }
+    public bool ImportToParty { get; init; }
+    public bool ImportToBoxes { get; init; }
+    public bool ImportToSaveParty { get; init; }
+    public bool ImportToSaveBoxes { get; init; }
     public bool Experiments { get; init; }
+
+    [JsonIgnore]
+    public bool Party => LiveParty.Read || SaveParty.Read;
+
+    [JsonIgnore]
+    public bool Boxes => LiveBoxes.Read || SaveBoxes.Read;
+
+    [JsonIgnore]
+    public bool Bag => LiveBag.Read || SaveBag.Read;
+
+    [JsonIgnore]
+    public bool Trainer => LiveTrainer.Read || SaveTrainer.Read;
+}
+
+public sealed record GameProfileFeatureAccess
+{
+    public bool Read { get; init; }
+    public bool Write { get; init; }
+}
+
+public sealed record GameProfileRuntime
+{
+    public required GameProfileLiveBag LiveBag { get; init; }
+    public required IReadOnlyList<GameProfileBagPocket> LiveBagPockets { get; init; }
+    public required IReadOnlyList<GameProfileBagPocket> SaveBagPockets { get; init; }
+    public IReadOnlyList<GameProfileItemPocketRange> ItemPocketFallbackRanges { get; init; } = [];
+    public Dictionary<int, int> ItemPocketRemap { get; init; } = [];
+    public int DefaultItemPocket { get; init; } = -1;
+    public required GameProfileMachineRules Machines { get; init; }
+    public required GameProfileShopProbe ShopProbe { get; init; }
+    public required string BridgeExperimentProfile { get; init; }
+    public bool ExperimentNeedsSaveBaseForNoEncounter { get; init; }
+    public bool ExperimentBattleAssist { get; init; }
+    public bool ExperimentTeleport { get; init; }
+    public bool ExperimentNoEncounter { get; init; }
+    public bool ExperimentWalkThroughWalls { get; init; }
+    public int MaxTrainerMoney { get; init; } = 99_999_999;
+    public int BagBatchQuantity { get; init; } = 240;
+}
+
+public sealed record GameProfileShopProbe
+{
+    public bool Enabled { get; init; }
+
+    [JsonConverter(typeof(FlexibleUInt32JsonConverter))]
+    public uint ShopPriceAddress { get; init; }
+
+    [JsonConverter(typeof(FlexibleUInt32JsonConverter))]
+    public uint ShopFirstItemAddress { get; init; }
+
+    [JsonConverter(typeof(FlexibleUInt32JsonConverter))]
+    public uint SellPricePrimaryAddress { get; init; }
+
+    [JsonConverter(typeof(FlexibleUInt32JsonConverter))]
+    public uint SellPriceFallbackAddress { get; init; }
+}
+
+public sealed record GameProfileItemPocketRange
+{
+    public int Start { get; init; }
+    public int End { get; init; }
+    public int Pocket { get; init; }
+}
+
+public sealed record GameProfileLiveBag
+{
+    public required string Mode { get; init; }
+
+    [JsonConverter(typeof(FlexibleUInt32JsonConverter))]
+    public uint BaseAddress { get; init; }
+
+    public required string QuantityKeyMode { get; init; }
+    public IReadOnlyList<GameProfileLiveBagArea> Areas { get; init; } = [];
+    public IReadOnlyList<GameProfileScannedBagArea> ScannedAreas { get; init; } = [];
+}
+
+public sealed record GameProfileScannedBagArea
+{
+    public int Pocket { get; init; }
+    public required string Name { get; init; }
+
+    [JsonConverter(typeof(FlexibleUInt32JsonConverter))]
+    public uint Offset { get; init; }
+
+    public int Capacity { get; init; }
+
+    [JsonConverter(typeof(FlexibleUInt32JsonConverter))]
+    public uint QuantityKey { get; init; }
+}
+
+public sealed record GameProfileLiveBagArea
+{
+    public int Pocket { get; init; }
+    public required string Name { get; init; }
+
+    [JsonConverter(typeof(FlexibleUInt32JsonConverter))]
+    public uint Address { get; init; }
+
+    public int Capacity { get; init; }
+}
+
+public sealed record GameProfileBagPocket
+{
+    public int Id { get; init; }
+    public required string Name { get; init; }
+    public bool IsKeyItem { get; init; }
+    public int BatchCapacity { get; init; }
+}
+
+public sealed record GameProfileMachineRules
+{
+    public int Pocket { get; init; }
+    public required string Mode { get; init; }
+    public int TmStartItem { get; init; }
+    public int TmCount { get; init; }
+    public int HmStartItem { get; init; }
+    public int HmCount { get; init; }
+    public int HmMoveStartIndex { get; init; }
+    public IReadOnlyList<int> FallbackMoveIds { get; init; } = [];
 }
 
 public static class GameProfileCatalog
@@ -225,16 +386,46 @@ public static class GameProfileCatalog
             throw new InvalidOperationException("版本配置 ID 只能包含英文字母、数字、短横线和下划线。");
         if (string.IsNullOrWhiteSpace(profile.DisplayName))
             throw new InvalidOperationException($"版本配置 {profile.Id} 缺少 displayName。");
-        if (profile.Strategies is null || profile.Memory is null || profile.RomTables is null || profile.Graphics is null || profile.Limits is null || profile.Features is null)
+        if (profile.RomIdentity is null || profile.Strategies is null || profile.Memory is null || profile.RomTables is null || profile.Graphics is null || profile.Limits is null || profile.Features is null || profile.Runtime is null)
             throw new InvalidOperationException($"版本配置 {profile.Id} 缺少必需的配置分组。");
+        if (profile.RomIdentity.RomSize <= 0 ||
+            profile.RomIdentity.Sha256.Length != 64 ||
+            string.IsNullOrWhiteSpace(profile.RomIdentity.HeaderTitle) ||
+            profile.RomIdentity.GameCode.Length != 4 ||
+            profile.RomIdentity.LiveFingerprints.Count == 0)
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的 ROM 身份无效。");
+        foreach (var fingerprint in profile.RomIdentity.LiveFingerprints)
+        {
+            if (fingerprint.Offset < 0 || fingerprint.Hex.Length == 0 || (fingerprint.Hex.Length & 1) != 0 ||
+                fingerprint.Offset + fingerprint.Hex.Length / 2 > profile.RomIdentity.RomSize ||
+                !fingerprint.Hex.All(Uri.IsHexDigit))
+                throw new InvalidOperationException($"版本配置 {profile.Id} 的实时 ROM 指纹无效。");
+        }
         if (profile.Memory.EwramSize <= 0 || profile.Memory.DefaultPartyBase == 0)
             throw new InvalidOperationException($"版本配置 {profile.Id} 的实时内存参数无效。");
         if (profile.Memory.PcBoxCount <= 0 || profile.Memory.PcBoxSlots <= 0 || profile.Memory.PcBoxRecordSize <= 0)
             throw new InvalidOperationException($"版本配置 {profile.Id} 的箱子参数无效。");
         foreach (var region in profile.Memory.PcBoxRegions)
         {
-            if (region.FirstBox <= 0 || region.BoxCount <= 0 || region.Address < profile.Memory.EwramBase)
+            var regionBytes = checked((uint)(region.BoxCount * profile.Memory.PcBoxSlots * profile.Memory.PcBoxRecordSize));
+            var regionEwramEnd = profile.Memory.EwramBase + checked((uint)profile.Memory.EwramSize);
+            if (region.FirstBox <= 0 || region.BoxCount <= 0 ||
+                region.FirstBox + region.BoxCount - 1 > profile.Memory.PcBoxCount ||
+                region.Address < profile.Memory.EwramBase ||
+                (ulong)region.Address + regionBytes > regionEwramEnd)
                 throw new InvalidOperationException($"版本配置 {profile.Id} 的箱子区域无效。");
+        }
+        if (profile.Features.LiveBoxes.Read &&
+            profile.Memory.PcBoxStoragePointerAddress == 0 &&
+            profile.Memory.PcBoxRegions.Count > 0)
+        {
+            var coveredBoxes = profile.Memory.PcBoxRegions
+                .SelectMany(region => Enumerable.Range(region.FirstBox, region.BoxCount))
+                .OrderBy(box => box)
+                .ToArray();
+            var expectedBoxes = Enumerable.Range(1, profile.Memory.PcBoxCount).ToArray();
+            if (!coveredBoxes.SequenceEqual(expectedBoxes))
+                throw new InvalidOperationException($"版本配置 {profile.Id} 已启用实时箱子读取，但箱子区域没有无重叠地覆盖全部箱子。");
         }
         if (profile.Limits.MaxSpecies <= 0 || profile.Limits.MaxMove <= 0 || profile.Limits.MaxItem <= 0)
             throw new InvalidOperationException($"版本配置 {profile.Id} 的数据上限无效。");
@@ -247,6 +438,46 @@ public static class GameProfileCatalog
         }
         if (!profile.Features.LiveEditing && !profile.Features.SaveEditing)
             throw new InvalidOperationException($"版本配置 {profile.Id} 没有启用任何编辑模式。");
+        foreach (var (name, access) in new[]
+                 {
+                     ("liveParty", profile.Features.LiveParty),
+                     ("saveParty", profile.Features.SaveParty),
+                     ("liveBoxes", profile.Features.LiveBoxes),
+                     ("saveBoxes", profile.Features.SaveBoxes),
+                     ("liveBag", profile.Features.LiveBag),
+                     ("saveBag", profile.Features.SaveBag),
+                     ("liveTrainer", profile.Features.LiveTrainer),
+                     ("saveTrainer", profile.Features.SaveTrainer)
+                 })
+        {
+            if (access is null || access.Write && !access.Read)
+                throw new InvalidOperationException($"版本配置 {profile.Id} 的功能能力 {name} 无效：写入必须建立在已验证读取上。");
+        }
+        if (!profile.Features.LiveEditing &&
+            new[] { profile.Features.LiveParty, profile.Features.LiveBoxes, profile.Features.LiveBag, profile.Features.LiveTrainer }.Any(access => access.Read || access.Write))
+            throw new InvalidOperationException($"版本配置 {profile.Id} 已关闭实时模式，但仍启用了实时能力。");
+        if (!profile.Features.SaveEditing &&
+            new[] { profile.Features.SaveParty, profile.Features.SaveBoxes, profile.Features.SaveBag, profile.Features.SaveTrainer }.Any(access => access.Read || access.Write))
+            throw new InvalidOperationException($"版本配置 {profile.Id} 已关闭存档模式，但仍启用了存档能力。");
+        if (profile.Features.ImportToParty && !profile.Features.LiveParty.Write)
+            throw new InvalidOperationException($"版本配置 {profile.Id} 启用了导入队伍，但未启用实时队伍写入。");
+        if (profile.Features.ImportToBoxes && !profile.Features.LiveBoxes.Write)
+            throw new InvalidOperationException($"版本配置 {profile.Id} 启用了导入箱子，但未启用实时箱子写入。");
+        if (profile.Features.ImportToSaveParty && !profile.Features.SaveParty.Write)
+            throw new InvalidOperationException($"版本配置 {profile.Id} 启用了存档导入队伍，但未启用存档队伍写入。");
+        if (profile.Features.ImportToSaveBoxes && !profile.Features.SaveBoxes.Write)
+            throw new InvalidOperationException($"版本配置 {profile.Id} 启用了存档导入箱子，但未启用存档箱子写入。");
+        if (profile.Features.Experiments &&
+            string.Equals(profile.Runtime.BridgeExperimentProfile, "disabled", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"版本配置 {profile.Id} 启用了实验功能，但 bridgeExperimentProfile 仍为 disabled。");
+        if (profile.Features.Experiments &&
+            !profile.Runtime.ExperimentBattleAssist &&
+            !profile.Runtime.ExperimentTeleport &&
+            !profile.Runtime.ExperimentNoEncounter &&
+            !profile.Runtime.ExperimentWalkThroughWalls)
+            throw new InvalidOperationException($"版本配置 {profile.Id} 启用了实验功能，但没有声明任何已验证的实验能力。");
+        if (profile.Strategies.Save == DisabledSaveStrategy.StrategyId && profile.Features.SaveEditing)
+            throw new InvalidOperationException($"版本配置 {profile.Id} 使用 disabled 存档策略时不能启用存档模式。");
         if (profile.Graphics.SpritesVerified &&
             (string.IsNullOrWhiteSpace(profile.Graphics.SpriteAssetRoot) ||
              profile.Graphics.FrontSpriteTableOffset <= 0 ||
@@ -254,6 +485,7 @@ public static class GameProfileCatalog
             throw new InvalidOperationException($"版本配置 {profile.Id} 的精灵图片配置无效。");
         foreach (var (name, value) in new[]
                  {
+                     ("runtime", profile.Strategies.Runtime),
                      ("pokemon", profile.Strategies.Pokemon),
                      ("partyScanner", profile.Strategies.PartyScanner),
                      ("boxScanner", profile.Strategies.BoxScanner),
@@ -265,6 +497,39 @@ public static class GameProfileCatalog
                 throw new InvalidOperationException($"版本配置 {profile.Id} 缺少策略 {name}。");
         }
 
+        if (profile.Runtime.LiveBag is null || profile.Runtime.LiveBagPockets is null || profile.Runtime.SaveBagPockets is null || profile.Runtime.Machines is null || profile.Runtime.ShopProbe is null)
+            throw new InvalidOperationException($"版本配置 {profile.Id} 缺少运行时隔离参数。");
+        if (profile.Runtime.LiveBag.Mode is not ("disabled" or "scanned" or "fixed"))
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的 liveBag.mode 无效。");
+        if (profile.Runtime.LiveBag.Mode == "fixed" &&
+            (profile.Runtime.LiveBag.BaseAddress == 0 || profile.Runtime.LiveBag.Areas.Count == 0))
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的固定实时背包区域为空。");
+        if (profile.Runtime.LiveBag.Mode == "scanned" && profile.Runtime.LiveBag.ScannedAreas.Count == 0)
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的扫描实时背包区域为空。");
+        if (profile.Runtime.LiveBag.ScannedAreas.Any(area => area.Pocket <= 0 || area.Capacity <= 0 || area.QuantityKey > ushort.MaxValue))
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的扫描背包口袋定义无效。");
+        var ewramEnd = profile.Memory.EwramBase + checked((uint)profile.Memory.EwramSize);
+        var totalBoxSlots = checked(profile.Memory.PcBoxCount * profile.Memory.PcBoxSlots);
+        if (profile.Memory.PcBoxStoragePointerAddress != 0 &&
+            profile.Memory.PcBoxStoragePointerAddress is < 0x03000000 or >= 0x03008000)
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的 PC 箱子指针地址不在 IWRAM 范围内。");
+        if (profile.Memory.PcBoxDataOffset < 0 ||
+            profile.Memory.LivePcBoxWritableSlotCount is < 0 ||
+            profile.Memory.LivePcBoxWritableSlotCount > totalBoxSlots ||
+            profile.Memory.SavePcBoxWritableSlotCount is < 0 ||
+            profile.Memory.SavePcBoxWritableSlotCount > totalBoxSlots)
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的 PC 箱子可写槽位范围无效。");
+        if (profile.Runtime.LiveBag.Areas.Any(area =>
+                area.Pocket <= 0 || area.Capacity <= 0 || area.Address < profile.Memory.EwramBase ||
+                area.Address + checked((uint)area.Capacity * 4U) > ewramEnd))
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的固定背包区域超出 EWRAM。");
+        if (profile.Runtime.LiveBagPockets.Concat(profile.Runtime.SaveBagPockets).Any(pocket => pocket.Id <= 0 || string.IsNullOrWhiteSpace(pocket.Name)))
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的背包口袋定义无效。");
+        if (profile.Runtime.ItemPocketFallbackRanges.Any(range => range.Start <= 0 || range.End < range.Start || range.Pocket <= 0))
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的道具口袋回退范围无效。");
+        if (profile.Runtime.ShopProbe.Enabled &&
+            new[] { profile.Runtime.ShopProbe.ShopPriceAddress, profile.Runtime.ShopProbe.ShopFirstItemAddress, profile.Runtime.ShopProbe.SellPricePrimaryAddress, profile.Runtime.ShopProbe.SellPriceFallbackAddress }.Any(address => address == 0))
+            throw new InvalidOperationException($"版本配置 {profile.Id} 已启用商店探测，但地址不完整。");
         foreach (var (name, table) in new[]
                  {
                      ("baseStats", profile.RomTables.BaseStats),

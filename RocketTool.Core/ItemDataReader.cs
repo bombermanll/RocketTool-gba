@@ -20,13 +20,11 @@ public sealed record ItemData(
 
 public sealed class ItemDataReader
 {
-    public const int DefaultItemTableOffset = 0xC3D558;
-    public const int DefaultEntrySize = 44;
     private readonly byte[] _rom;
     private readonly int _tableOffset;
     private readonly int _entrySize;
 
-    public ItemDataReader(string romPath, int tableOffset = DefaultItemTableOffset, int entrySize = DefaultEntrySize)
+    public ItemDataReader(string romPath, int tableOffset, int entrySize)
     {
         _rom = File.ReadAllBytes(romPath);
         _tableOffset = tableOffset;

@@ -24,6 +24,7 @@ public sealed class Gen3SaveDocument
     internal const int PcStorageOffset = 4;
     internal const int UnboundParasiteOffsetMarker = 0x100000;
     internal const int DestinyExtensionOffsetMarker = 0x200000;
+    internal const int RadicalRedExtensionOffsetMarker = 0x300000;
     internal const int UnboundBoxRecordSize = BoxPokemon.UnboundCompressedSize;
     private const int MgbaRtcFooterOffset = 0x20000;
     private const int MgbaRtcFooterSize = 16;
@@ -31,6 +32,7 @@ public sealed class Gen3SaveDocument
     private readonly byte[] _raw;
     private readonly byte[] _originalRaw;
     private readonly IReadOnlyDictionary<int, Gen3SaveSectionLayout> _sections;
+    private readonly int _partyCountOffset;
     private readonly int _partyOffset;
     private readonly HashSet<int> _touchedSectionIds = [];
     private readonly Dictionary<int, byte[]> _expectedParty = [];
@@ -39,7 +41,7 @@ public sealed class Gen3SaveDocument
     private byte[]? _expectedTrainerName;
     private uint? _expectedMoney;
     private readonly List<Gen3SaveBagEntry> _currentBag;
-    private readonly GameProfile? _profile;
+    private readonly GameProfile _profile;
     private readonly IReadOnlyDictionary<int, int> _itemPockets;
     private readonly IGen3SaveStrategy _strategy;
     private bool _hasRawChanges;
@@ -48,22 +50,25 @@ public sealed class Gen3SaveDocument
         string sourcePath,
         byte[] raw,
         IReadOnlyDictionary<int, Gen3SaveSectionLayout> sections,
+        int partyCountOffset,
         int partyOffset,
         Gen3SaveReadResult snapshot,
-        GameProfile? profile = null,
-        IReadOnlyDictionary<int, int>? itemPockets = null,
-        IGen3SaveStrategy? strategy = null)
+        GameProfile profile,
+        IReadOnlyDictionary<int, int>? itemPockets,
+        IGen3SaveStrategy strategy)
     {
         SourcePath = Path.GetFullPath(sourcePath);
         _originalRaw = raw.ToArray();
         _raw = raw.ToArray();
         _sections = sections;
+        _partyCountOffset = partyCountOffset;
         _partyOffset = partyOffset;
         Snapshot = snapshot;
+        CurrentPartyCount = snapshot.Party.Count;
         _currentBag = snapshot.Bag.ToList();
-        _profile = profile;
+        _profile = profile ?? throw new ArgumentNullException(nameof(profile));
         _itemPockets = itemPockets ?? new Dictionary<int, int>();
-        _strategy = strategy ?? SpanishRocketSaveStrategy.Instance;
+        _strategy = strategy ?? throw new ArgumentNullException(nameof(strategy));
 
         var missing = Enumerable.Range(0, SectionsPerSlot).Where(id => !_sections.ContainsKey(id)).ToArray();
         var relaxed = _sections.Values.Where(s => s.ChecksumMode == "relaxed").Select(s => s.Id).OrderBy(id => id).ToArray();
@@ -78,17 +83,19 @@ public sealed class Gen3SaveDocument
     public bool CanWrite => string.IsNullOrEmpty(WriteBlockReason);
     public string? WriteBlockReason { get; }
     public bool HasChanges => _touchedSectionIds.Count > 0 || _hasRawChanges;
+    public int CurrentPartyCount { get; private set; }
     public int ModifiedPartyCount => _expectedParty.Count;
     public int ModifiedBoxCount => _expectedBoxes.Count;
     public int ModifiedBagCount => _expectedBag.Count;
     public bool TrainerModified => _expectedTrainerName is not null || _expectedMoney.HasValue;
     public IReadOnlyList<Gen3SaveBagEntry> CurrentBag => _currentBag;
-    internal GameProfile? Profile => _profile;
+    internal GameProfile Profile => _profile;
     internal IReadOnlyDictionary<int, int> ItemPockets => _itemPockets;
 
     public void ReplaceTrainerName(ReadOnlySpan<byte> nameBytes)
     {
         EnsureWritable();
+        EnsureProfileWrite(GameDataSurface.Trainer);
         _strategy.ReplaceTrainerName(this, nameBytes);
         _expectedTrainerName = nameBytes.ToArray();
     }
@@ -96,6 +103,7 @@ public sealed class Gen3SaveDocument
     public void ReplaceTrainerMoney(uint money)
     {
         EnsureWritable();
+        EnsureProfileWrite(GameDataSurface.Trainer);
         _strategy.ReplaceTrainerMoney(this, money);
         _expectedMoney = money;
     }
@@ -104,25 +112,80 @@ public sealed class Gen3SaveDocument
     {
         if (_partyOffset < 0)
             throw new InvalidOperationException("存档队伍仅通过不确定结构读取，不能定位写回位置。");
-        if (slot < 1 || slot > Snapshot.Party.Count)
-            throw new ArgumentOutOfRangeException(nameof(slot), $"队伍槽位必须在 1..{Snapshot.Party.Count} 之间。");
+        if (slot < 1 || slot > CurrentPartyCount)
+            throw new ArgumentOutOfRangeException(nameof(slot), $"队伍槽位必须在 1..{CurrentPartyCount} 之间。");
         return _partyOffset + (slot - 1) * PartyPokemon.Size;
     }
 
     public void ReplacePartyPokemon(int slot, PartyPokemon mon)
     {
         EnsureWritable();
+        EnsureProfileWrite(GameDataSurface.Party);
         ValidatePartyPokemon(mon);
         var saveOffset = PartySaveOffset(slot);
         WriteLogicalRange(SaveBlock1FirstSection, saveOffset, mon.Raw);
         _expectedParty[slot] = mon.Raw.ToArray();
     }
 
+    public int AppendPartyPokemon(PartyPokemon mon)
+    {
+        EnsureWritable();
+        EnsureProfileWrite(GameDataSurface.Party);
+        if (_partyCountOffset < 0 || _partyOffset < 0)
+            throw new InvalidOperationException("存档队伍没有已验证的数量和数组偏移，不能新增宝可梦。");
+        if (CurrentPartyCount >= Gen3Constants.PartySlots)
+            throw new InvalidOperationException("队伍已满，无法导入新的宝可梦。");
+
+        ValidatePartyPokemon(mon);
+        var slot = CurrentPartyCount + 1;
+        var saveOffset = _partyOffset + (slot - 1) * PartyPokemon.Size;
+        WriteLogicalRange(SaveBlock1FirstSection, saveOffset, mon.Raw);
+        WriteLogicalRange(SaveBlock1FirstSection, _partyCountOffset, [(byte)slot]);
+        _expectedParty[slot] = mon.Raw.ToArray();
+        CurrentPartyCount = slot;
+        return slot;
+    }
+
+    public void RemovePartyPokemon(int slot)
+    {
+        EnsureWritable();
+        EnsureProfileWrite(GameDataSurface.Party);
+        if (_partyCountOffset < 0 || _partyOffset < 0)
+            throw new InvalidOperationException("存档队伍没有已验证的数量和数组偏移，不能删除宝可梦。");
+        if (slot < 1 || slot > CurrentPartyCount)
+            throw new ArgumentOutOfRangeException(nameof(slot), $"队伍槽位必须在 1..{CurrentPartyCount} 之间。");
+
+        for (var sourceSlot = slot + 1; sourceSlot <= CurrentPartyCount; sourceSlot++)
+        {
+            var raw = new byte[PartyPokemon.Size];
+            ReadLogicalRange(
+                SaveBlock1FirstSection,
+                _partyOffset + (sourceSlot - 1) * PartyPokemon.Size,
+                raw);
+            WriteLogicalRange(
+                SaveBlock1FirstSection,
+                _partyOffset + (sourceSlot - 2) * PartyPokemon.Size,
+                raw);
+            _expectedParty[sourceSlot - 1] = raw;
+        }
+
+        var oldLastSlot = CurrentPartyCount;
+        WriteLogicalRange(
+            SaveBlock1FirstSection,
+            _partyOffset + (oldLastSlot - 1) * PartyPokemon.Size,
+            new byte[PartyPokemon.Size]);
+        var newCount = oldLastSlot - 1;
+        WriteLogicalRange(SaveBlock1FirstSection, _partyCountOffset, [(byte)newCount]);
+        _expectedParty[oldLastSlot] = new byte[PartyPokemon.Size];
+        CurrentPartyCount = newCount;
+    }
+
     public void ReplaceBoxPokemon(int globalSlot, BoxPokemon mon)
     {
         EnsureWritable();
-        var boxCount = _profile?.Memory.PcBoxCount ?? BoxScanner.MaxBoxes;
-        var boxSlots = _profile?.Memory.PcBoxSlots ?? BoxScanner.BoxSlots;
+        EnsureProfileWrite(GameDataSurface.Boxes);
+        var boxCount = _profile.Memory.PcBoxCount;
+        var boxSlots = _profile.Memory.PcBoxSlots;
         if (globalSlot < 1 || globalSlot > boxCount * boxSlots)
             throw new ArgumentOutOfRangeException(nameof(globalSlot), "箱子槽位超出范围。");
         ValidateBoxPokemon(mon);
@@ -130,9 +193,22 @@ public sealed class Gen3SaveDocument
         _expectedBoxes[globalSlot] = mon.Raw.ToArray();
     }
 
+    public void ClearBoxPokemon(int globalSlot)
+    {
+        EnsureWritable();
+        EnsureProfileWrite(GameDataSurface.Boxes);
+        var totalSlots = _profile.Memory.PcBoxCount * _profile.Memory.PcBoxSlots;
+        if (globalSlot < 1 || globalSlot > totalSlots)
+            throw new ArgumentOutOfRangeException(nameof(globalSlot), "箱子槽位超出范围。");
+        var empty = new byte[_profile.Memory.PcBoxRecordSize];
+        _strategy.WriteBoxPokemon(this, globalSlot, empty);
+        _expectedBoxes[globalSlot] = empty;
+    }
+
     public Gen3SaveBagEntry? ReplaceBagEntry(int saveOffset, ushort itemId, ushort quantity)
     {
         EnsureWritable();
+        EnsureProfileWrite(GameDataSurface.Bag);
         var index = _currentBag.FindIndex(entry => entry.SaveOffset == saveOffset);
         if (index < 0)
             throw new InvalidOperationException($"存档背包中找不到偏移 0x{saveOffset:X} 的道具格。请重新读取存档。");
@@ -164,6 +240,7 @@ public sealed class Gen3SaveDocument
     public Gen3SaveBagEntry AddBagItem(int pocket, ushort itemId, ushort quantity)
     {
         EnsureWritable();
+        EnsureProfileWrite(GameDataSurface.Bag);
         ValidateBagValue(pocket, itemId, quantity, allowEmpty: false);
 
         var existing = _currentBag.FirstOrDefault(entry => entry.Pocket == pocket && entry.ItemId == itemId);
@@ -242,6 +319,7 @@ public sealed class Gen3SaveDocument
     public (int Added, int Updated) SetBagItems(int pocket, IEnumerable<ushort> itemIds, ushort quantity)
     {
         EnsureWritable();
+        EnsureProfileWrite(GameDataSurface.Bag);
         var items = itemIds.Distinct().ToArray();
         var rawBackup = _raw.ToArray();
         var bagBackup = _currentBag.ToList();
@@ -481,7 +559,104 @@ public sealed class Gen3SaveDocument
         throw new InvalidOperationException($"解放版没有箱子 {box}。");
     }
 
+    internal void WriteRadicalRedBox(int globalSlot, ReadOnlySpan<byte> data)
+    {
+        if (data.Length != UnboundBoxRecordSize)
+            throw new InvalidOperationException($"激进红箱子记录必须为 {UnboundBoxRecordSize} 字节。");
+        var box = (globalSlot - 1) / 30 + 1;
+        var slot = (globalSlot - 1) % 30;
+        if (box <= 19)
+        {
+            var logicalOffset = PcStorageOffset + (box - 1) * 30 * UnboundBoxRecordSize + slot * UnboundBoxRecordSize;
+            WriteRadicalRedLogicalRange(PcFirstSection, logicalOffset, data);
+            return;
+        }
+        if (box <= 22)
+        {
+            var boxOffset = box switch { 20 => 0x19D0, 21 => 0x209C, _ => 0x2768 };
+            WriteRadicalRedExtensionRange(boxOffset + slot * UnboundBoxRecordSize, data);
+            return;
+        }
+        if (box <= 24)
+        {
+            var boxOffset = box == 23 ? 0x1F08 : 0x25D4;
+            WriteRadicalRedLogicalRange(SaveBlock1FirstSection, boxOffset + slot * UnboundBoxRecordSize, data);
+            return;
+        }
+        if (box == 25)
+        {
+            WriteSectionRange(0, 0xB0 + slot * UnboundBoxRecordSize, data);
+            return;
+        }
+        throw new InvalidOperationException($"激进红没有箱子 {box}。");
+    }
+
+    internal void WriteRadicalRedLogicalRange(int firstSectionId, int logicalOffset, ReadOnlySpan<byte> data)
+    {
+        const int sectionDataSize = 0xFF0;
+        var sourceOffset = 0;
+        while (sourceOffset < data.Length)
+        {
+            var sectionIndex = logicalOffset / sectionDataSize;
+            var sectionId = firstSectionId + sectionIndex;
+            var sectionRelativeOffset = logicalOffset % sectionDataSize;
+            if (!_sections.TryGetValue(sectionId, out var section))
+                throw new InvalidOperationException($"激进红写回需要 section {sectionId}，但当前存档中不存在。");
+
+            var count = Math.Min(data.Length - sourceOffset, sectionDataSize - sectionRelativeOffset);
+            data.Slice(sourceOffset, count).CopyTo(_raw.AsSpan(section.FileOffset + sectionRelativeOffset, count));
+            _touchedSectionIds.Add(sectionId);
+            logicalOffset += count;
+            sourceOffset += count;
+        }
+    }
+
     internal void WriteUnboundParasiteRange(int parasiteOffset, ReadOnlySpan<byte> data)
+        => WriteCfruExtensionRange(parasiteOffset, data);
+
+    internal void WriteRadicalRedExtensionRange(int extensionOffset, ReadOnlySpan<byte> data)
+    {
+        var sourceOffset = 0;
+        while (sourceOffset < data.Length)
+        {
+            var current = extensionOffset + sourceOffset;
+            int length;
+            if (current < 0xCC)
+            {
+                length = Math.Min(data.Length - sourceOffset, 0xCC - current);
+                WriteSectionRange(0, 0xF24 + current, data.Slice(sourceOffset, length));
+            }
+            else if (current < 0x324)
+            {
+                length = Math.Min(data.Length - sourceOffset, 0x324 - current);
+                WriteSectionRange(4, 0xD98 + current - 0xCC, data.Slice(sourceOffset, length));
+            }
+            else if (current < 0xEC4)
+            {
+                length = Math.Min(data.Length - sourceOffset, 0xEC4 - current);
+                WriteSectionRange(13, 0x450 + current - 0x324, data.Slice(sourceOffset, length));
+            }
+            else if (current < 0x1EB4)
+            {
+                length = Math.Min(data.Length - sourceOffset, 0x1EB4 - current);
+                data.Slice(sourceOffset, length).CopyTo(_raw.AsSpan(0x1E000 + current - 0xEC4, length));
+                _hasRawChanges = true;
+            }
+            else if (current < 0x2EA4)
+            {
+                length = Math.Min(data.Length - sourceOffset, 0x2EA4 - current);
+                data.Slice(sourceOffset, length).CopyTo(_raw.AsSpan(0x1F000 + current - 0x1EB4, length));
+                _hasRawChanges = true;
+            }
+            else
+            {
+                throw new InvalidOperationException($"激进红 CFRU 扩展区偏移 0x{current:X} 超出已验证范围。");
+            }
+            sourceOffset += length;
+        }
+    }
+
+    private void WriteCfruExtensionRange(int parasiteOffset, ReadOnlySpan<byte> data)
     {
         var sourceOffset = 0;
         while (sourceOffset < data.Length)
@@ -554,6 +729,12 @@ public sealed class Gen3SaveDocument
 
         foreach (var (slot, expected) in _expectedParty)
         {
+            if (expected.All(value => value == 0))
+            {
+                if (slot <= verified.Snapshot.Party.Count)
+                    throw new InvalidOperationException($"导出后的队伍槽位 {slot} 未正确删除。");
+                continue;
+            }
             if (slot > verified.Snapshot.Party.Count ||
                 !verified.Snapshot.Party[slot - 1].Raw.SequenceEqual(expected))
                 throw new InvalidOperationException($"导出后的队伍槽位 {slot} 校验失败。");
@@ -562,8 +743,20 @@ public sealed class Gen3SaveDocument
         foreach (var (globalSlot, expected) in _expectedBoxes)
         {
             var actual = verified.Snapshot.Boxes.FirstOrDefault(entry => entry.GlobalSlot == globalSlot);
+            if (expected.All(value => value == 0))
+            {
+                if (actual is not null)
+                    throw new InvalidOperationException($"导出后的箱子槽位 {globalSlot} 未正确清空。");
+                continue;
+            }
             if (actual is null || !actual.Mon.Raw.SequenceEqual(expected))
-                throw new InvalidOperationException($"导出后的箱子槽位 {globalSlot} 校验失败。");
+            {
+                var detail = actual is null
+                    ? "读回为空或头部无效"
+                    : $"读回物种 {actual.Mon.GetInfo().Species}，raw={Convert.ToHexString(actual.Mon.Raw)}";
+                throw new InvalidOperationException(
+                    $"导出后的箱子槽位 {globalSlot} 校验失败：{detail}；expected={Convert.ToHexString(expected)}。");
+            }
         }
 
         var verifiedBag = verified.Snapshot.Bag.ToDictionary(entry => entry.SaveOffset);
@@ -669,6 +862,49 @@ public sealed class Gen3SaveDocument
         => _strategy.ReadBagU16(this, saveOffset);
 
     internal void ReadUnboundParasiteRange(int parasiteOffset, Span<byte> destination)
+        => ReadCfruExtensionRange(parasiteOffset, destination);
+
+    internal void ReadRadicalRedExtensionRange(int extensionOffset, Span<byte> destination)
+    {
+        var destinationOffset = 0;
+        while (destinationOffset < destination.Length)
+        {
+            var current = extensionOffset + destinationOffset;
+            int length;
+            if (current < 0xCC)
+            {
+                length = Math.Min(destination.Length - destinationOffset, 0xCC - current);
+                ReadSectionRange(0, 0xF24 + current, destination.Slice(destinationOffset, length));
+            }
+            else if (current < 0x324)
+            {
+                length = Math.Min(destination.Length - destinationOffset, 0x324 - current);
+                ReadSectionRange(4, 0xD98 + current - 0xCC, destination.Slice(destinationOffset, length));
+            }
+            else if (current < 0xEC4)
+            {
+                length = Math.Min(destination.Length - destinationOffset, 0xEC4 - current);
+                ReadSectionRange(13, 0x450 + current - 0x324, destination.Slice(destinationOffset, length));
+            }
+            else if (current < 0x1EB4)
+            {
+                length = Math.Min(destination.Length - destinationOffset, 0x1EB4 - current);
+                _raw.AsSpan(0x1E000 + current - 0xEC4, length).CopyTo(destination.Slice(destinationOffset, length));
+            }
+            else if (current < 0x2EA4)
+            {
+                length = Math.Min(destination.Length - destinationOffset, 0x2EA4 - current);
+                _raw.AsSpan(0x1F000 + current - 0x1EB4, length).CopyTo(destination.Slice(destinationOffset, length));
+            }
+            else
+            {
+                throw new InvalidOperationException("激进红 CFRU 扩展区读取范围无效。");
+            }
+            destinationOffset += length;
+        }
+    }
+
+    private void ReadCfruExtensionRange(int parasiteOffset, Span<byte> destination)
     {
         var destinationOffset = 0;
         while (destinationOffset < destination.Length)
@@ -782,7 +1018,7 @@ public sealed class Gen3SaveDocument
     }
 
     private ushort MaxBagQuantityForPocket(int pocket)
-        => (ushort)(_profile?.Limits.MaxBagQuantityForPocket(pocket) ?? 255);
+        => (ushort)_profile.Limits.MaxBagQuantityForPocket(pocket);
 
     private static void UpdateSectionChecksum(Span<byte> raw, Gen3SaveSectionLayout section)
     {
@@ -795,6 +1031,8 @@ public sealed class Gen3SaveDocument
             "pc-boxes" => PcBoxesChecksumSize,
             "d98" => 0xD98,
             "f24" => 0xF24,
+            var mode when mode.StartsWith("radical-red-", StringComparison.Ordinal) =>
+                Convert.ToInt32(mode["radical-red-".Length..], 16),
             "extended" => SectionTrailerOffset,
             var mode when mode.StartsWith("unbound-", StringComparison.Ordinal) =>
                 Convert.ToInt32(mode["unbound-".Length..], 16),
@@ -834,6 +1072,12 @@ public sealed class Gen3SaveDocument
     {
         if (!CanWrite)
             throw new InvalidOperationException(WriteBlockReason ?? "当前存档不能安全写回。");
+    }
+
+    private void EnsureProfileWrite(GameDataSurface surface)
+    {
+        var profile = _profile ?? throw new InvalidOperationException("存档操作必须显式绑定一个 Profile，禁止使用跨版本默认策略。");
+        GameRuntimeAdapterCatalog.ForProfile(profile).EnsureCanWrite(surface, live: false);
     }
 
     private static uint ReadU32(ReadOnlySpan<byte> data, int offset)

@@ -1,13 +1,5 @@
 namespace RocketTool.Core;
 
-public static class LiveMemoryAddresses
-{
-    public const uint ShopPriceAddress = 0x020051B0;
-    public const uint ShopFirstItemAddress = 0x02005274;
-    public const uint SellPricePrimaryAddress = 0x030052D8;
-    public const uint SellPriceFallbackAddress = 0x020052D8;
-}
-
 public sealed record ShopMemorySnapshot(
     ushort ShopPrice,
     ushort ShopFirstItem,
@@ -16,12 +8,17 @@ public sealed record ShopMemorySnapshot(
 
 public static class LiveMemoryProbe
 {
-    public static ShopMemorySnapshot ReadShopSnapshot(MgbaBridgeClient bridge)
-        => new(
-            ReadU16(bridge, LiveMemoryAddresses.ShopPriceAddress),
-            ReadU16(bridge, LiveMemoryAddresses.ShopFirstItemAddress),
-            ReadU16(bridge, LiveMemoryAddresses.SellPricePrimaryAddress),
-            ReadU16(bridge, LiveMemoryAddresses.SellPriceFallbackAddress));
+    public static ShopMemorySnapshot ReadShopSnapshot(MgbaBridgeClient bridge, GameProfileShopProbe probe)
+    {
+        if (!probe.Enabled)
+            throw new InvalidOperationException("当前 Profile 未验证商店内存探测，已拒绝读取。");
+
+        return new ShopMemorySnapshot(
+            ReadU16(bridge, probe.ShopPriceAddress),
+            ReadU16(bridge, probe.ShopFirstItemAddress),
+            ReadU16(bridge, probe.SellPricePrimaryAddress),
+            ReadU16(bridge, probe.SellPriceFallbackAddress));
+    }
 
     private static ushort ReadU16(MgbaBridgeClient bridge, uint address)
     {

@@ -3,7 +3,7 @@
   "romTitle": "POKEMON FIRE",
   "gameCode": "BPRE",
   "romSha256": "687c93b8f723f21521dfddd995bbaab1eb5ff17bfd49a819804185816fc05aa9",
-  "notes": "Profile generated from this ROM's CFRU config pointers. Party, three save bag categories, and existing safe save-box slots have ROM/sample evidence; live box, empty-slot creation, and trainer writes stay disabled.",
+  "notes": "Profile generated from this ROM's CFRU config pointers. Party, bag, pointer-based live boxes, safe save boxes, and profile-gated imports have ROM/sample evidence; trainer writes stay disabled.",
   "rowCounts": {
     "species": 1092,
     "moves": 511,
@@ -31,8 +31,10 @@
       "species_evolutions.tsv from 0x1ADED08 (16 8-byte slots per species)",
       "species_evolution_names.tsv names all extended targets referenced by the Destiny evolution table",
       "species_level_moves.tsv from pointer table 0x1A0E0BC (packed u16 level/move entries; 0x1A0E0C0 is species 2)",
-      "front sprites for valid species ids 1..912 from 0x1A0F378 and normal palettes from 0x1A13E78; higher special-form graphics need a separate mapping",
-      "front_sprite_overrides.tsv maps verified Destiny Mega ids 1001..1014 to the ROM's separate LZ77 form-asset pack",
+      "front sprites for valid species ids 1..912 come from 0x1A0F378 and normal palettes from 0x1A13E78",
+      "front_sprite_overrides.tsv maps 14 Mega and 142 other form ids to visually verified LZ77 sprite/palette assets in this ROM",
+      "species 412 is this ROM's visually verified 64x64 egg front sprite",
+      "egg_icon_assets.tsv records species 412 icon data from pointer table 0x1AD93A8 and its ROM palette",
       "ability_description_pointers.tsv",
       "ability_description_bytes.tsv",
       "ability_descriptions.tsv decoded from those Destiny pointers/raw bytes",
@@ -42,7 +44,7 @@
     "displayHints": [
       "species.tsv uses complete raw-name byte matches where available; zero-base-stat and raw unused slots are omitted",
       "English engine form names are exposed as Chinese base names plus Chinese species_forms.tsv labels while raw bytes remain preserved",
-      "moves.tsv has 492 names matched by complete raw bytes, 3 additional names decoded from Destiny bytes, and explicit unresolved labels for the remainder",
+      "moves.tsv has 508 resolved display names from complete raw-byte matches or Destiny byte decoding; 3 names remain explicitly unresolved",
       "abilities.tsv uses Destiny raw bytes and cross-checked ability candidates; all 152 rows have display names",
       "items.tsv combines Destiny raw names and item-description evidence; all rows now have display names and raw bytes remain preserved",
       "item_effects.tsv uses generic effect labels until hold-effect names are decoded",
@@ -51,7 +53,7 @@
       "species_forms.tsv maps Unown, Riolu/Lucario, Mega, corrosion, Alolan, and other evolution-target forms"
     ],
     "disabledOrPlaceholder": [
-      "13 custom move names remain unresolved",
+      "3 custom move names remain unresolved",
       "0 custom item names remain unresolved",
       "0 ability names remain unresolved",
       "0 ability descriptions remain unresolved",
@@ -75,7 +77,8 @@
     "experience": "0x253AE4",
     "frontSprites": "0x1A0F378",
     "normalPalettes": "0x1A13E78",
-    "iconSpriteCandidates": "0x26056C",
-    "iconPaletteCandidates": "0x2605CC"
+    "iconSpritePointerTable": "0x1AD93A8",
+    "eggIconData": "0xE7BB88",
+    "eggIconPalette": "0x3D3760"
   }
 }

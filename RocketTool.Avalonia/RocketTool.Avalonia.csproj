@@ -19,6 +19,8 @@
       <IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
       <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
     </PackageReference>
+    <!-- Avalonia.FreeDesktop 11.3.11 resolves 0.21.2; 0.21.3 contains the CVE-2026-39959 backport. -->
+    <PackageReference Include="Tmds.DBus.Protocol" Version="0.21.3" />
   </ItemGroup>
 
   <ItemGroup>
@@ -27,7 +29,6 @@
 
   <ItemGroup>
     <AvaloniaResource Include="Assets\AppIcon.ico" />
-    <AvaloniaResource Include="Assets\Pokemon\front\*.png" />
     <AvaloniaResource Include="Assets\Profiles\**\*.png" />
     <EmbeddedResource Include="..\profiles\**\profile.json" LogicalName="profiles.%(RecursiveDir)%(Filename)%(Extension)" />
     <EmbeddedResource Include="..\profiles\**\db\*.tsv" LogicalName="profiles.%(RecursiveDir)%(Filename)%(Extension)" />

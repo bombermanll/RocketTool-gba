@@ -12,17 +12,16 @@ public sealed record MoveData(
     ushort Flags,
     byte Category,
     ushort ZMovePower,
+    byte Effect,
     byte[] Raw);
 
 public sealed class MoveDataReader
 {
-    public const int DefaultMoveTableOffset = 0x5ACD5E;
-    public const int DefaultEntrySize = 20;
     private readonly byte[] _rom;
     private readonly int _tableOffset;
     private readonly int _entrySize;
 
-    public MoveDataReader(string romPath, int tableOffset = DefaultMoveTableOffset, int entrySize = DefaultEntrySize)
+    public MoveDataReader(string romPath, int tableOffset, int entrySize)
     {
         _rom = File.ReadAllBytes(romPath);
         _tableOffset = tableOffset;
@@ -53,6 +52,7 @@ public sealed class MoveDataReader
                 e[8],
                 e[10],
                 e[9],
+                e[0],
                 e.ToArray());
         }
         return new MoveData(
@@ -67,6 +67,7 @@ public sealed class MoveDataReader
             U16(e, 10),
             e[14],
             U16(e, 16),
+            0,
             e.ToArray());
     }
 

@@ -42,7 +42,7 @@ public sealed class BoxPokemon
     private readonly byte[] _raw;
     private readonly PokemonDataLayout _layout;
 
-    public BoxPokemon(ReadOnlySpan<byte> raw, PokemonDataLayout layout = PokemonDataLayout.SpanishRocketEncrypted)
+    public BoxPokemon(ReadOnlySpan<byte> raw, PokemonDataLayout layout)
     {
         var expectedSize = layout == PokemonDataLayout.UnboundCfruPlainParty ? UnboundCompressedSize : Size;
         if (raw.Length != expectedSize) throw new ArgumentException($"Box Pokemon must be {expectedSize} bytes for {layout}");
@@ -83,23 +83,22 @@ public sealed class BoxPokemon
                (sanity & 0x02) != 0 && (sanity & ~0x07) == 0;
     }
 
-    public static BoxPokemon Create(uint pid, uint otId, PokemonDataLayout layout = PokemonDataLayout.SpanishRocketEncrypted)
+    public static BoxPokemon Create(uint pid, uint otId, PokemonDataLayout layout)
     {
         if (pid == 0) throw new ArgumentOutOfRangeException(nameof(pid), "PID must be non-zero.");
         var raw = new byte[layout == PokemonDataLayout.UnboundCfruPlainParty ? UnboundCompressedSize : Size];
         WriteU32(raw, 0x00, pid);
         WriteU32(raw, 0x04, otId);
-        raw[0x12] = layout == PokemonDataLayout.UnboundCfruPlainParty ? (byte)2 : (byte)0x12;
-        if (layout == PokemonDataLayout.UnboundCfruPlainParty)
+        if (layout is PokemonDataLayout.UnboundCfruPlainParty or PokemonDataLayout.DestinyCfruPlainBox)
         {
+            raw[0x12] = 2;
             raw[0x13] = 2;
             raw.AsSpan(0x14, OtNameLength).Fill(0xFF);
             return new BoxPokemon(raw, layout);
         }
-        else
-        {
-            raw.AsSpan(OtNameOffset, OtNameLength).Fill(0xFF);
-        }
+
+        raw[0x12] = 0x12;
+        raw.AsSpan(OtNameOffset, OtNameLength).Fill(0xFF);
         var key = pid ^ otId;
         for (var i = 0x20; i < 0x50; i += 4)
             WriteU32(raw, i, key);

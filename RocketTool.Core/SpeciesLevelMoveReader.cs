@@ -4,9 +4,7 @@ public sealed record SpeciesLevelMove(int Species, ushort Level, ushort Move);
 
 public sealed class SpeciesLevelMoveReader
 {
-    public const int DefaultPointerTableOffset = 0x614AC4;
     public const int DefaultMaxEntriesPerSpecies = 128;
-    public const int DefaultEntrySize = 4;
     private const uint GbaRomBase = 0x08000000;
 
     private readonly byte[] _rom;
@@ -16,9 +14,9 @@ public sealed class SpeciesLevelMoveReader
 
     public SpeciesLevelMoveReader(
         string romPath,
-        int pointerTableOffset = DefaultPointerTableOffset,
-        int maxEntriesPerSpecies = DefaultMaxEntriesPerSpecies,
-        int entrySize = DefaultEntrySize)
+        int pointerTableOffset,
+        int maxEntriesPerSpecies,
+        int entrySize)
     {
         _rom = File.ReadAllBytes(romPath);
         _pointerTableOffset = pointerTableOffset;

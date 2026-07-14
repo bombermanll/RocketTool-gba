@@ -44,6 +44,8 @@ public static class Gen3SaveReader
     private const int UnboundMainBoxCount = 19;
     private const int UnboundParasiteOffsetMarker = 0x100000;
     private const int UnboundParasiteSize = 0x2E38;
+    private const int RadicalRedSectionDataSize = 0xFF0;
+    private const int RadicalRedExtensionSize = 0x2EA4;
     private const int MaxSpecies = 2000;
     private const int MaxItem = 922;
     private const int StandardPartyCountOffset = 0x234;
@@ -154,8 +156,6 @@ public static class Gen3SaveReader
         ("宝物", 0x2BF0)
     ];
 
-    public static Gen3SaveReadResult Read(string path) => Open(path).Snapshot;
-
     public static Gen3SaveReadResult Read(string path, GameProfile profile) => Open(path, profile).Snapshot;
 
     public static Gen3SaveDocument Open(string path, GameProfile profile)
@@ -210,7 +210,263 @@ public static class Gen3SaveReader
         var sections = best.ValidSections.ToDictionary(
             pair => pair.Key,
             pair => new Gen3SaveSectionLayout(pair.Key, pair.Value.Offset, pair.Value.SaveIndex, pair.Value.ChecksumMode));
-        return new Gen3SaveDocument(path, raw, sections, UnboundPartyOffset, snapshot, profile, itemPockets, UnboundCfruSaveStrategy.Instance);
+        return new Gen3SaveDocument(path, raw, sections, UnboundPartyCountOffset, UnboundPartyOffset, snapshot, profile, itemPockets, UnboundCfruSaveStrategy.Instance);
+    }
+
+    internal static Gen3SaveDocument OpenRadicalRed(string path, GameProfile profile)
+    {
+        var raw = File.ReadAllBytes(path);
+        var warnings = new List<string>();
+        var slots = FindRadicalRedSlots(raw).ToArray();
+        if (slots.Length == 0)
+            throw new InvalidOperationException("没有识别到有效的《宝可梦激进红》存档 section（签名 0x08012025）。");
+
+        var best = slots
+            .OrderByDescending(slot => slot.ValidSections.Count)
+            .ThenByDescending(slot => slot.SaveIndex)
+            .First();
+        if (best.ValidSections.Count < SectionsPerSlot)
+            warnings.Add($"只识别到 {best.ValidSections.Count}/{SectionsPerSlot} 个有效 section，已禁用安全写回。");
+
+        var saveBlock2 = RequiredRadicalRedSection(best, 0).Data.AsSpan(0, 0xF24).ToArray();
+        var saveBlock1 = new byte[0x3D68];
+        CopyRadicalRedSection(best, 1, saveBlock1, 0x0000, 0xFF0, warnings);
+        CopyRadicalRedSection(best, 2, saveBlock1, 0x0FF0, 0xFF0, warnings);
+        CopyRadicalRedSection(best, 3, saveBlock1, 0x1FE0, 0xFF0, warnings);
+        CopyRadicalRedSection(best, 4, saveBlock1, 0x2FD0, 0xD98, warnings);
+
+        var pcStorage = new byte[0x83D0];
+        for (var id = 5; id <= 12; id++)
+            CopyRadicalRedSection(best, id, pcStorage, (id - 5) * RadicalRedSectionDataSize, RadicalRedSectionDataSize, warnings);
+        CopyRadicalRedSection(best, 13, pcStorage, 0x7F80, 0x450, warnings);
+
+        var extension = BuildRadicalRedExtension(raw, best);
+        var party = ReadRadicalRedParty(saveBlock1, profile, warnings);
+        var boxes = ReadRadicalRedBoxes(saveBlock2, saveBlock1, pcStorage, extension, profile, warnings);
+        var itemPockets = ReadProfileItemPockets(profile);
+        var bag = ReadRadicalRedBag(extension, saveBlock2, itemPockets, profile, warnings);
+
+        var trainerName = saveBlock2.AsSpan(0, profile.Memory.PlayerNameLength).ToArray();
+        var trainerOtId = ReadU32(saveBlock2, profile.Memory.SaveBlock2PlayerOtIdOffset);
+        var moneyKey = ReadU32(saveBlock2, (int)profile.Memory.SaveBlock2EncryptionKeyOffset);
+        var money = ReadU32(saveBlock1, (int)profile.Memory.SaveBlock1MoneyOffset) ^ moneyKey;
+        if (money > profile.Runtime.MaxTrainerMoney)
+            throw new InvalidOperationException($"激进红存档金钱字段解密为 {money}，超出当前 ROM 已确认范围。已停止读取，避免误写。");
+        var trainer = new Gen3SaveTrainerInfo(trainerName, trainerOtId, money);
+
+        warnings.Add($"激进红存档：使用 save index {best.SaveIndex}；队伍为 100 字节 CFRU 明文结构，箱子为 58 字节压缩结构，共 {profile.Memory.PcBoxCount} 箱。");
+        warnings.Add("section 描述按当前 ROM 0x09148BF0 重组：SaveBlock1/PC 主段步长 0xFF0，section 0/4/13 校验长度分别为 0xF24/0xD98/0x450。");
+        warnings.Add("CFRU 扩展区按当前 ROM 0x0203B174..0x0203E018 映射，从 section 0/4/13 和原始扇区 30/31 重组；文件尾及 RTC 数据原样保留到导出阶段。");
+        var snapshot = new Gen3SaveReadResult(
+            Path.GetFileName(path), raw.Length, best.Ordinal + 1, best.SaveIndex,
+            best.ValidSections.Count, party, bag, boxes, trainer, warnings);
+        var sections = best.ValidSections.ToDictionary(
+            pair => pair.Key,
+            pair => new Gen3SaveSectionLayout(pair.Key, pair.Value.Offset, pair.Value.SaveIndex, pair.Value.ChecksumMode));
+        return new Gen3SaveDocument(
+            path, raw, sections, UnboundPartyCountOffset, UnboundPartyOffset,
+            snapshot, profile, itemPockets, RadicalRedCfruSaveStrategy.Instance);
+    }
+
+    private static IEnumerable<SaveSlot> FindRadicalRedSlots(byte[] raw)
+    {
+        var sections = new List<SaveSection>();
+        for (var offset = 0; offset + SectionSize <= raw.Length; offset += SectionSize)
+        {
+            var data = raw.AsSpan(offset, SectionSize);
+            var id = ReadU16(data, 0xFF4);
+            if (id >= SectionsPerSlot || ReadU32(data, 0xFF8) != SectionSignature) continue;
+            var length = RadicalRedChecksumLength(id);
+            if (Checksum(data[..length]) != ReadU16(data, 0xFF6)) continue;
+            sections.Add(new SaveSection(id, offset, ReadU32(data, 0xFFC), data[..0xFF4].ToArray(), $"radical-red-{length:X}"));
+        }
+
+        var ordinal = 0;
+        foreach (var group in sections.GroupBy(section => section.SaveIndex).OrderBy(group => group.Min(section => section.Offset)))
+        {
+            var byId = group.GroupBy(section => section.Id)
+                .ToDictionary(sameId => sameId.Key, sameId => sameId.OrderBy(section => section.Offset).First());
+            if (byId.Count > 0)
+                yield return new SaveSlot(ordinal++, byId.Values.Min(section => section.Offset), byId);
+        }
+    }
+
+    private static int RadicalRedChecksumLength(int sectionId) => sectionId switch
+    {
+        0 => 0xF24,
+        4 => 0xD98,
+        13 => 0x450,
+        _ => RadicalRedSectionDataSize
+    };
+
+    private static SaveSection RequiredRadicalRedSection(SaveSlot slot, int id)
+        => slot.ValidSections.TryGetValue(id, out var section)
+            ? section
+            : throw new InvalidOperationException($"激进红存档缺少 section {id}。");
+
+    private static void CopyRadicalRedSection(
+        SaveSlot slot,
+        int id,
+        Span<byte> destination,
+        int destinationOffset,
+        int count,
+        List<string> warnings)
+    {
+        if (!slot.ValidSections.TryGetValue(id, out var section))
+        {
+            warnings.Add($"激进红存档缺少 section {id}，对应区域已按空数据只读解析；保存写回已禁用。");
+            destination.Slice(destinationOffset, count).Clear();
+            return;
+        }
+        section.Data.AsSpan(0, count).CopyTo(destination[destinationOffset..]);
+    }
+
+    private static byte[] BuildRadicalRedExtension(byte[] raw, SaveSlot slot)
+    {
+        if (raw.Length < 0x20000)
+            throw new InvalidOperationException("激进红存档缺少 CFRU 扩展扇区 30/31。");
+        var extension = new byte[RadicalRedExtensionSize];
+        RequiredRadicalRedSection(slot, 0).Data.AsSpan(0xF24, 0xCC).CopyTo(extension.AsSpan(0x0000));
+        RequiredRadicalRedSection(slot, 4).Data.AsSpan(0xD98, 0x258).CopyTo(extension.AsSpan(0x00CC));
+        RequiredRadicalRedSection(slot, 13).Data.AsSpan(0x450, 0xBA0).CopyTo(extension.AsSpan(0x0324));
+        raw.AsSpan(0x1E000, 0xFF0).CopyTo(extension.AsSpan(0x0EC4));
+        raw.AsSpan(0x1F000, 0xFF0).CopyTo(extension.AsSpan(0x1EB4));
+        return extension;
+    }
+
+    private static IReadOnlyList<PartyPokemon> ReadRadicalRedParty(
+        ReadOnlySpan<byte> saveBlock1,
+        GameProfile profile,
+        List<string> warnings)
+    {
+        var count = saveBlock1[UnboundPartyCountOffset];
+        if (count > Gen3Constants.PartySlots)
+        {
+            warnings.Add($"激进红队伍数量异常：{count}。");
+            return [];
+        }
+        var result = new List<PartyPokemon>();
+        for (var slot = 0; slot < count; slot++)
+        {
+            var mon = new PartyPokemon(
+                saveBlock1.Slice(UnboundPartyOffset + slot * PartyPokemon.Size, PartyPokemon.Size),
+                PokemonDataLayout.UnboundCfruPlainParty);
+            var info = mon.GetInfo();
+            if (mon.IsEmpty || info.Species == 0 || info.Species > profile.Limits.MaxSpecies || info.Level is < 1 or > 100)
+            {
+                warnings.Add($"激进红队伍槽 {slot + 1} 数据无效，已停止读取后续槽位。");
+                break;
+            }
+            result.Add(mon);
+        }
+        return result;
+    }
+
+    private static IReadOnlyList<Gen3SaveBoxEntry> ReadRadicalRedBoxes(
+        ReadOnlySpan<byte> saveBlock2,
+        ReadOnlySpan<byte> saveBlock1,
+        ReadOnlySpan<byte> pcStorage,
+        ReadOnlySpan<byte> extension,
+        GameProfile profile,
+        List<string> warnings)
+    {
+        var entries = new List<Gen3SaveBoxEntry>();
+        for (var box = 1; box <= profile.Memory.PcBoxCount; box++)
+        {
+            ReadOnlySpan<byte> region;
+            int syntheticOffset;
+            if (box <= 19)
+            {
+                var offset = 4 + (box - 1) * UnboundBoxSlots * UnboundBoxRecordSize;
+                region = pcStorage.Slice(offset, UnboundBoxSlots * UnboundBoxRecordSize);
+                syntheticOffset = offset;
+            }
+            else if (box <= 22)
+            {
+                var offset = box switch { 20 => 0x19D0, 21 => 0x209C, _ => 0x2768 };
+                region = extension.Slice(offset, UnboundBoxSlots * UnboundBoxRecordSize);
+                syntheticOffset = Gen3SaveDocument.RadicalRedExtensionOffsetMarker + offset;
+            }
+            else if (box <= 24)
+            {
+                var offset = box == 23 ? 0x1F08 : 0x25D4;
+                region = saveBlock1.Slice(offset, UnboundBoxSlots * UnboundBoxRecordSize);
+                syntheticOffset = 0x400000 + offset;
+            }
+            else
+            {
+                region = saveBlock2.Slice(0xB0, UnboundBoxSlots * UnboundBoxRecordSize);
+                syntheticOffset = 0x5000B0;
+            }
+
+            for (var slot = 0; slot < UnboundBoxSlots; slot++)
+            {
+                var mon = new BoxPokemon(
+                    region.Slice(slot * UnboundBoxRecordSize, UnboundBoxRecordSize),
+                    PokemonDataLayout.UnboundCfruPlainParty);
+                if (mon.IsEmpty) continue;
+                var info = mon.GetInfo();
+                if (!mon.HasValidHeader(profile.Limits.MaxSpecies))
+                {
+                    warnings.Add($"激进红箱{box:00}-{slot + 1:00}存在无效非空记录（物种 {info.Species}），已忽略。");
+                    continue;
+                }
+                var globalSlot = (box - 1) * UnboundBoxSlots + slot + 1;
+                entries.Add(new Gen3SaveBoxEntry(
+                    globalSlot, box, slot + 1,
+                    syntheticOffset + slot * UnboundBoxRecordSize, mon));
+            }
+        }
+        return entries;
+    }
+
+    private static IReadOnlyList<Gen3SaveBagEntry> ReadRadicalRedBag(
+        ReadOnlySpan<byte> extension,
+        ReadOnlySpan<byte> saveBlock2,
+        IReadOnlyDictionary<int, int> itemPockets,
+        GameProfile profile,
+        List<string> warnings)
+    {
+        var quantityKey = (ushort)(ReadU32(saveBlock2, (int)profile.Memory.SaveBlock2EncryptionKeyOffset) & 0xFFFF);
+        var physical = new[]
+        {
+            (Pocket: 1, Offset: 0x09AC, Capacity: 450, Name: "道具"),
+            (Pocket: 2, Offset: 0x10B4, Capacity: 75, Name: "重要物品"),
+            (Pocket: 3, Offset: 0x11E0, Capacity: 50, Name: "精灵球"),
+            (Pocket: 4, Offset: 0x12A8, Capacity: 128, Name: "招式机器"),
+            (Pocket: 5, Offset: 0x14A8, Capacity: 75, Name: "树果")
+        };
+        var entries = new List<Gen3SaveBagEntry>();
+        foreach (var area in physical)
+        {
+            var displaySlot = 0;
+            for (var i = 0; i < area.Capacity; i++)
+            {
+                var offset = area.Offset + i * 4;
+                var item = ReadU16(extension, offset);
+                if (item == 0) continue;
+                if (item > profile.Limits.MaxItem)
+                {
+                    warnings.Add($"激进红{area.Name}槽 {i + 1} 的道具 {item} 超过当前 Profile 上限，已忽略。");
+                    continue;
+                }
+                if (itemPockets.TryGetValue(item, out var mappedPocket) && mappedPocket != area.Pocket)
+                    warnings.Add($"激进红{area.Name}槽 {i + 1} 的道具 {item} 按物理口袋读取；数据表口袋为 {mappedPocket}。");
+                var quantity = (ushort)(ReadU16(extension, offset + 2) ^ quantityKey);
+                if (quantity == 0) quantity = 1;
+                var maxQuantity = profile.Limits.MaxBagQuantityForPocket(area.Pocket);
+                if (quantity > maxQuantity)
+                {
+                    warnings.Add($"激进红{area.Name}槽 {i + 1} 的数量 {quantity} 超过已确认上限 {maxQuantity}，已忽略。");
+                    continue;
+                }
+                entries.Add(new Gen3SaveBagEntry(
+                    Gen3SaveDocument.RadicalRedExtensionOffsetMarker + offset,
+                    area.Pocket, ++displaySlot, item, quantity, quantityKey, true,
+                    $"激进红 CFRU 扩展区；{area.Name} {i + 1}"));
+            }
+        }
+        return entries;
     }
 
     private static IEnumerable<SaveSlot> FindUnboundSlots(byte[] raw)
@@ -360,12 +616,28 @@ public static class Gen3SaveReader
 
     private static IReadOnlyDictionary<int, int> ReadProfileItemPockets(GameProfile profile)
     {
-        var db = new ModifierDatabase(profile.DatabaseDirectory);
-        return db.Table("item_pockets")
+        var external = ParseItemPockets(new ModifierDatabase(profile.DatabaseDirectory).Table("item_pockets"));
+        if (external.Count > 0)
+            return external;
+
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            var embedded = ParseItemPockets(new ModifierDatabase(
+                profile.DatabaseDirectory,
+                assembly,
+                profile.DatabaseResourcePrefix).Table("item_pockets"));
+            if (embedded.Count > 0)
+                return embedded;
+        }
+
+        return external;
+    }
+
+    private static IReadOnlyDictionary<int, int> ParseItemPockets(IReadOnlyDictionary<int, string> table)
+        => table
             .Select(pair => (pair.Key, Value: int.TryParse(pair.Value, out var value) ? value : 0))
             .Where(pair => pair.Value > 0)
             .ToDictionary(pair => pair.Key, pair => pair.Value);
-    }
 
     private static IReadOnlyList<Gen3SaveBagEntry> ReadUnboundBag(
         ReadOnlySpan<byte> parasite,
@@ -415,9 +687,6 @@ public static class Gen3SaveReader
         return entries;
     }
 
-    public static Gen3SaveDocument Open(string path)
-        => SpanishRocketSaveStrategy.Instance.Open(path, null);
-
     internal static Gen3SaveDocument OpenDestiny(string path, GameProfile profile)
     {
         var raw = File.ReadAllBytes(path);
@@ -464,6 +733,7 @@ public static class Gen3SaveReader
         if (best.ValidSections.Count < SectionsPerSlot)
             warnings.Add($"只识别到 {best.ValidSections.Count}/{SectionsPerSlot} 个有效 section，已禁用安全写回。");
 
+        var saveBlock2 = BuildBlock(best, 0, 0, warnings, "SaveBlock2");
         var saveBlock1 = BuildBlock(best, 1, 4, warnings, "SaveBlock1");
         var pcStorage = BuildBlock(best, 5, 13, warnings, "PC 箱子");
         var party = ReadDestinyParty(saveBlock1, profile, warnings);
@@ -474,11 +744,16 @@ public static class Gen3SaveReader
         if (party.Count == 0)
             warnings.Add("命运存档队伍数量为 0；队伍结构偏移已定位，但当前样本不能验证非空队伍 round-trip。");
         if (boxes.Count == 0)
-            warnings.Add("命运存档标准 PC 区域当前没有非空宝可梦；箱子写回保持禁用。");
+            warnings.Add("命运存档标准 PC 区域当前没有非空宝可梦；仍可在已验证的安全槽位内从图鉴导入。");
 
         var money = ReadU32(saveBlock1, DestinyMoneyOffset);
         warnings.Add($"命运存档金钱线索：SaveBlock1+0x{DestinyMoneyOffset:X}= {money}（当前仅记录，不启用训练家页写回）。");
         warnings.Add("命运存档：道具/精灵球位于 section 13 扩展区，招式机盒位于 SaveBlock1+0x310；0x298 是电脑道具区域。");
+
+        var trainerName = saveBlock2.AsSpan(0, profile.Memory.PlayerNameLength).ToArray();
+        var trainerOtId = ReadU32(saveBlock2, profile.Memory.SaveBlock2PlayerOtIdOffset);
+        var trainer = new Gen3SaveTrainerInfo(trainerName, trainerOtId, money);
+        warnings.Add($"命运存档导入身份：SaveBlock2+0x0 玩家名字，OT ID@+0x{profile.Memory.SaveBlock2PlayerOtIdOffset:X}；仅用于新建宝可梦的初训家字段。");
 
         var snapshot = new Gen3SaveReadResult(
             Path.GetFileName(path),
@@ -489,15 +764,15 @@ public static class Gen3SaveReader
             party,
             bag,
             boxes,
-            null,
+            trainer,
             warnings);
         var sections = best.ValidSections.ToDictionary(
             pair => pair.Key,
             pair => new Gen3SaveSectionLayout(pair.Key, pair.Value.Offset, pair.Value.SaveIndex, pair.Value.ChecksumMode));
-        return new Gen3SaveDocument(path, raw, sections, DestinyPartyOffset, snapshot, profile, itemPockets, DestinyFireRedSaveStrategy.Instance);
+        return new Gen3SaveDocument(path, raw, sections, DestinyPartyCountOffset, DestinyPartyOffset, snapshot, profile, itemPockets, DestinyFireRedSaveStrategy.Instance);
     }
 
-    internal static Gen3SaveDocument OpenSpanishRocket(string path, GameProfile? profile)
+    internal static Gen3SaveDocument OpenSpanishRocket(string path, GameProfile profile)
     {
         var raw = File.ReadAllBytes(path);
         var warnings = new List<string>();
@@ -567,7 +842,16 @@ public static class Gen3SaveReader
         var sections = best.ValidSections.ToDictionary(
             pair => pair.Key,
             pair => new Gen3SaveSectionLayout(pair.Key, pair.Value.Offset, pair.Value.SaveIndex, pair.Value.ChecksumMode));
-        return new Gen3SaveDocument(path, raw, sections, partyRead.PartyOffset, snapshot, profile, strategy: SpanishRocketSaveStrategy.Instance);
+        return new Gen3SaveDocument(
+            path,
+            raw,
+            sections,
+            partyRead.CountOffset,
+            partyRead.PartyOffset,
+            snapshot,
+            profile,
+            ReadProfileItemPockets(profile),
+            SpanishRocketSaveStrategy.Instance);
     }
 
     private static IReadOnlyList<SaveSlot> FindSlots(byte[] raw)
@@ -847,9 +1131,10 @@ public static class Gen3SaveReader
             return entries;
         }
 
-        var safeSlotCount = Math.Min(
-            DestinyFireRedSaveStrategy.SafeBoxSlotCount,
-            profile.Memory.PcBoxCount * profile.Memory.PcBoxSlots);
+        var configuredSafeSlots = profile.Memory.SavePcBoxWritableSlotCount > 0
+            ? profile.Memory.SavePcBoxWritableSlotCount
+            : DestinyFireRedSaveStrategy.SafeBoxSlotCount;
+        var safeSlotCount = Math.Min(configuredSafeSlots, profile.Memory.PcBoxCount * profile.Memory.PcBoxSlots);
         for (var globalSlot = 0; globalSlot < safeSlotCount; globalSlot++)
         {
             var offset = StandardPcBoxesOffset + globalSlot * BoxPokemon.Size;
@@ -919,7 +1204,9 @@ public static class Gen3SaveReader
         var rows = new List<PartyPokemon>();
         for (var i = 0; i < count; i++)
         {
-            var mon = new PartyPokemon(data.Slice(partyOffset + i * Gen3Constants.PartyMonSize, Gen3Constants.PartyMonSize));
+            var mon = new PartyPokemon(
+                data.Slice(partyOffset + i * Gen3Constants.PartyMonSize, Gen3Constants.PartyMonSize),
+                PokemonDataLayout.SpanishRocketEncrypted);
             if (!IsValidPartyMon(mon)) return [];
             rows.Add(mon);
         }
@@ -941,7 +1228,7 @@ public static class Gen3SaveReader
         for (var globalSlot = 0; globalSlot < BoxScanner.MaxBoxes * BoxScanner.BoxSlots; globalSlot++)
         {
             var offset = StandardPcBoxesOffset + globalSlot * BoxPokemon.Size;
-            var mon = new BoxPokemon(pcStorage.Slice(offset, BoxPokemon.Size));
+            var mon = new BoxPokemon(pcStorage.Slice(offset, BoxPokemon.Size), PokemonDataLayout.SpanishRocketEncrypted);
             if (mon.IsEmpty) continue;
             var boxNumber = globalSlot / BoxScanner.BoxSlots + 1;
             var slotInBox = globalSlot % BoxScanner.BoxSlots + 1;
@@ -1267,7 +1554,9 @@ public static class Gen3SaveReader
         var candidates = new List<string>();
         for (var offset = 0; offset + Gen3Constants.PartyMonSize <= saveBlock1.Length; offset += 4)
         {
-            var mon = new PartyPokemon(saveBlock1.Slice(offset, Gen3Constants.PartyMonSize));
+            var mon = new PartyPokemon(
+                saveBlock1.Slice(offset, Gen3Constants.PartyMonSize),
+                PokemonDataLayout.SpanishRocketEncrypted);
             if (!IsValidPartyMon(mon)) continue;
             var info = mon.GetInfo();
             candidates.Add($"0x{offset:X}: species={info.Species}, level={info.Level}, hp={info.Hp}/{info.MaxHp}");

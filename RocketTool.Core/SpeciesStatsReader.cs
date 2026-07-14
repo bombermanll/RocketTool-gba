@@ -30,13 +30,11 @@ public sealed record SpeciesStats(
 
 public sealed class SpeciesStatsReader
 {
-    public const int DefaultBaseStatsOffset = 0x5B4764;
-    public const int DefaultEntrySize = 36;
     private readonly byte[] _rom;
     private readonly int _tableOffset;
     private readonly int _entrySize;
 
-    public SpeciesStatsReader(string romPath, int tableOffset = DefaultBaseStatsOffset, int entrySize = DefaultEntrySize)
+    public SpeciesStatsReader(string romPath, int tableOffset, int entrySize)
     {
         _rom = File.ReadAllBytes(romPath);
         _tableOffset = tableOffset;

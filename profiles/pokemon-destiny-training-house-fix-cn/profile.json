@@ -1,12 +1,23 @@
 {
   "id": "pokemon-destiny-training-house-fix-cn",
   "displayName": "宝可梦命运（培训屋bug修复）",
-  "description": "宝可梦命运（培训屋bug修复）独立配置；已启用本 ROM 验证过的实时队伍，以及存档道具、精灵球和招式机盒读写；箱子和训练家仍待验证。",
+  "description": "宝可梦命运（培训屋bug修复）独立配置；已启用本 ROM 验证过的实时/存档队伍、箱子、背包读写及图鉴导入；训练家和实验功能仍关闭。",
+  "romIdentity": {
+    "fileName": "宝可梦命运（培训屋bug修复）.gba",
+    "romSize": 33554432,
+    "sha256": "687c93b8f723f21521dfddd995bbaab1eb5ff17bfd49a819804185816fc05aa9",
+    "headerTitle": "POKEMON FIRE",
+    "gameCode": "BPRE",
+    "liveFingerprints": [
+      { "offset": "0x1000000", "hex": "5DFD9A559B6565659665966595555AA9" }
+    ]
+  },
   "strategies": {
-    "pokemon": "unbound-cfru-pokemon-v1",
-    "partyScanner": "unbound-fixed-party-v1",
-    "boxScanner": "unbound-cfru-boxes-v1",
-    "bag": "unbound-cfru-bag-v1",
+    "runtime": "pokemon-destiny-runtime-v1",
+    "pokemon": "pokemon-destiny-pokemon-v1",
+    "partyScanner": "pokemon-destiny-party-v1",
+    "boxScanner": "pokemon-destiny-box-v1",
+    "bag": "pokemon-destiny-bag-v1",
     "save": "pokemon-destiny-save-v1"
   },
   "memory": {
@@ -26,6 +37,10 @@
     "pcBoxCount": 14,
     "pcBoxSlots": 30,
     "pcBoxRecordSize": 80,
+    "pcBoxStoragePointerAddress": "0x03005010",
+    "pcBoxDataOffset": 4,
+    "livePcBoxWritableSlotCount": 420,
+    "savePcBoxWritableSlotCount": 408,
     "pcBoxRegions": []
   },
   "romTables": {
@@ -68,7 +83,7 @@
     "normalPaletteTableOffset": "0x1A13E78",
     "spriteIndexAdjustment": 0,
     "paletteIndexAdjustment": 0,
-    "eggSpeciesId": 0
+    "eggSpeciesId": 412
   },
   "limits": {
     "maxSpecies": 1199,
@@ -84,10 +99,69 @@
   "features": {
     "liveEditing": true,
     "saveEditing": true,
-    "party": true,
-    "boxes": true,
-    "bag": true,
-    "trainer": false,
+    "liveParty": { "read": true, "write": true },
+    "saveParty": { "read": true, "write": true },
+    "liveBoxes": { "read": true, "write": true },
+    "saveBoxes": { "read": true, "write": true },
+    "liveBag": { "read": true, "write": true },
+    "saveBag": { "read": true, "write": true },
+    "liveTrainer": { "read": false, "write": false },
+    "saveTrainer": { "read": false, "write": false },
+    "builtInDex": true,
+    "moveDex": true,
+    "importToParty": true,
+    "importToBoxes": true,
+    "importToSaveParty": true,
+    "importToSaveBoxes": true,
     "experiments": false
+  },
+  "runtime": {
+    "liveBag": {
+      "mode": "fixed",
+      "baseAddress": "0x0203B174",
+      "quantityKeyMode": "save-block2-key-low16",
+      "areas": [
+        { "pocket": 1, "name": "道具", "address": "0x0203BB20", "capacity": 450 },
+        { "pocket": 2, "name": "重要物品", "address": "0x0203C228", "capacity": 75 },
+        { "pocket": 3, "name": "精灵球", "address": "0x0203C354", "capacity": 50 },
+        { "pocket": 4, "name": "招式机器", "address": "0x0203C41C", "capacity": 128 },
+        { "pocket": 5, "name": "树果", "address": "0x0203C61C", "capacity": 75 }
+      ],
+      "scannedAreas": []
+    },
+    "liveBagPockets": [
+      { "id": 1, "name": "道具", "isKeyItem": false, "batchCapacity": 450 },
+      { "id": 2, "name": "重要物品", "isKeyItem": true, "batchCapacity": 75 },
+      { "id": 3, "name": "精灵球", "isKeyItem": false, "batchCapacity": 50 },
+      { "id": 4, "name": "招式机器", "isKeyItem": false, "batchCapacity": 128 },
+      { "id": 5, "name": "树果", "isKeyItem": false, "batchCapacity": 75 }
+    ],
+    "saveBagPockets": [
+      { "id": 1, "name": "道具", "isKeyItem": false, "batchCapacity": 166 },
+      { "id": 3, "name": "精灵球", "isKeyItem": false, "batchCapacity": 28 },
+      { "id": 4, "name": "招式机器", "isKeyItem": false, "batchCapacity": 128 }
+    ],
+    "itemPocketFallbackRanges": [],
+    "itemPocketRemap": { "3": 3, "4": 4 },
+    "defaultItemPocket": 1,
+    "machines": {
+      "pocket": 4,
+      "mode": "item-data",
+      "tmStartItem": 0,
+      "tmCount": 120,
+      "hmStartItem": 0,
+      "hmCount": 8,
+      "hmMoveStartIndex": 120,
+      "fallbackMoveIds": []
+    },
+    "shopProbe": { "enabled": false, "shopPriceAddress": "0x0", "shopFirstItemAddress": "0x0", "sellPricePrimaryAddress": "0x0", "sellPriceFallbackAddress": "0x0" },
+    "bridgeExperimentProfile": "disabled",
+    "experimentNeedsSaveBaseForNoEncounter": false,
+    "experimentBattleAssist": false,
+    "experimentTeleport": false,
+    "experimentNoEncounter": false,
+    "experimentWalkThroughWalls": false,
+    "maxTrainerMoney": 99999999,
+    "bagBatchQuantity": 240
   }
 }

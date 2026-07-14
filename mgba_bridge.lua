@@ -10,8 +10,8 @@ local MAX_LINE = 8192
 local clients = {}
 local listener = nil
 
-local PARTY_BASE = 0x02025170
-local PARTY_COUNT_OFFSET = -3
+local PARTY_BASE = 0
+local PARTY_COUNT_OFFSET = 0
 local PARTY_MON_SIZE = 100
 local PARTY_SLOTS = 6
 local EWRAM_START = 0x02000000
@@ -21,61 +21,114 @@ local BATTLE_MON_HP_OFFSET = 0x28
 local BATTLE_MON_LEVEL_OFFSET = 0x2A
 local BATTLE_MON_MAX_HP_OFFSET = 0x2C
 local BATTLE_MON_PERSONALITY_OFFSET = 0x48
+local BATTLE_MON_PP_OFFSET = 0x24
+local BATTLE_MON_STATUS1_OFFSET = 0x4C
+local BATTLE_MON_BASE = 0
+local CRIT_MULTIPLIER_ADDR = 0
+local MAX_SPECIES = 2000
+local MAX_MOVE = 2000
 local ROM_BASE = 0x08000000
-local G_MAIN_CALLBACK2 = 0x030032E4
-local G_FIELD_CALLBACK = 0x0300526C
-local G_WARP_DESTINATION = 0x020332A0
-local QUEUE_WARP_TASK_FUNC = 0x080E6B19
-local CB2_FIELD_TRANSITION = 0x080BBA71
-local CB2_LOAD_MAP = 0x0805671D
-local WALK_THROUGH_WALLS_PATCH_ADDR = 0x080C8A80
+local G_MAIN_CALLBACK2 = 0
+local G_FIELD_CALLBACK = 0
+local G_WARP_DESTINATION = 0
+local QUEUE_WARP_TASK_FUNC = 0
+local CB2_FIELD_TRANSITION = 0
+local CB2_LOAD_MAP = 0
+local WALK_THROUGH_WALLS_PATCH_ADDR = 0
 local WALK_THROUGH_WALLS_ORIGINAL = { 0xF0, 0xB5, 0x57, 0x46 }
 local WALK_THROUGH_WALLS_PATCHED = { 0x00, 0x20, 0x70, 0x47 } -- Thumb: movs r0,#0; bx lr
-local SAVE_BLOCK_PTR = 0x0300524C
-local REPEL_STEP_OFFSET = 0x402
+local SAVE_BLOCK_PTR = 0
+local REPEL_STEP_OFFSET = 0
+
+local CHEAT_PROFILES = {
+    POKEMON_UNBOUND_211 = {
+        party_base = 0x02024284, party_count_offset = -0x25B, save_block_ptr = 0x03005008,
+        repel_step_offset = 0x1040, main_callback2 = 0x0300F034, field_callback = 0x03005020,
+        warp_destination = 0x02031DBC, walk_patch = 0x080636AC,
+        party_layout = "plain", teleport_mode = "load-map", repel_width = 16,
+        max_species = 1293, max_move = 1000,
+        battle_assist = true, teleport = true, no_encounter = true, walk_through_walls = true,
+    },
+    SPANISH_ROCKET_CURRENT = {
+        party_base = 0x02025170, party_count_offset = -3, save_block_ptr = 0x0300524C,
+        repel_step_offset = 0x402, main_callback2 = 0x030032E4, field_callback = 0x0300526C,
+        warp_destination = 0x020332A0, walk_patch = 0x080C8A80,
+        queue_warp_task = 0x080E6B19, field_transition = 0x080BBA71,
+        party_layout = "encrypted", teleport_mode = "field-callback", repel_width = 8,
+        max_species = 2000, max_move = 1000,
+        battle_assist = true, teleport = true, no_encounter = true, walk_through_walls = true,
+    },
+    RADICAL_RED_41 = {
+        party_base = 0x02024284, party_count_offset = -0x25B, save_block_ptr = 0x03005008,
+        party_layout = "plain", max_species = 1376, max_move = 1003,
+        battle_base = 0x02023BE4, crit_multiplier = 0x02023D71,
+        battle_assist = true, teleport = false, no_encounter = false, walk_through_walls = false,
+    },
+}
 
 local cheats = {
     LOCK_HP = false,
     INFINITE_PP = false,
+    CLEAR_STATUS = false,
+    ALWAYS_CRIT = false,
     NO_ENCOUNTER = false,
     WALK_THROUGH_WALLS = false,
-    party_base = PARTY_BASE,
+    party_base = nil,
     save_base = nil,
-    profile = "SPANISH_ROCKET",
+    profile = nil,
+    party_layout = nil,
+    teleport_mode = nil,
+    repel_width = nil,
+    battle_assist = false,
+    teleport = false,
+    no_encounter = false,
+    walk_through_walls = false,
 }
+
+local set_walk_through_walls_patch
 
 local function set_cheat_profile(name)
     name = tostring(name or ""):upper()
-    if name == "UNBOUND" then
-        cheats.profile = "UNBOUND"
-        PARTY_BASE = 0x02024284
-        PARTY_COUNT_OFFSET = -0x25B
-        SAVE_BLOCK_PTR = 0x03005008
-        REPEL_STEP_OFFSET = 0x1040
-        G_MAIN_CALLBACK2 = 0x0300F034
-        G_FIELD_CALLBACK = 0x03005020
-        G_WARP_DESTINATION = 0x02031DBC
-        WALK_THROUGH_WALLS_PATCH_ADDR = 0x080636AC
-        WALK_THROUGH_WALLS_ORIGINAL = { 0xF0, 0xB5, 0x57, 0x46 }
-        cheats.party_base = PARTY_BASE
-        cheats.save_base = nil
-        return true
-    elseif name == "SPANISH_ROCKET" or name == "SPANISH" then
-        cheats.profile = "SPANISH_ROCKET"
-        PARTY_BASE = 0x02025170
-        PARTY_COUNT_OFFSET = -3
-        SAVE_BLOCK_PTR = 0x0300524C
-        REPEL_STEP_OFFSET = 0x402
-        G_MAIN_CALLBACK2 = 0x030032E4
-        G_FIELD_CALLBACK = 0x0300526C
-        G_WARP_DESTINATION = 0x020332A0
-        WALK_THROUGH_WALLS_PATCH_ADDR = 0x080C8A80
-        WALK_THROUGH_WALLS_ORIGINAL = { 0xF0, 0xB5, 0x57, 0x46 }
-        cheats.party_base = PARTY_BASE
-        cheats.save_base = nil
-        return true
+    local config = CHEAT_PROFILES[name]
+    if not config then return false end
+    if cheats.profile ~= name then
+        if cheats.WALK_THROUGH_WALLS and WALK_THROUGH_WALLS_PATCH_ADDR ~= 0 then
+            set_walk_through_walls_patch(false)
+        end
+        cheats.LOCK_HP = false
+        cheats.INFINITE_PP = false
+        cheats.CLEAR_STATUS = false
+        cheats.ALWAYS_CRIT = false
+        cheats.NO_ENCOUNTER = false
+        cheats.WALK_THROUGH_WALLS = false
     end
-    return false
+    cheats.profile = name
+    cheats.party_layout = config.party_layout
+    cheats.teleport_mode = config.teleport_mode
+    cheats.repel_width = config.repel_width
+    cheats.battle_assist = config.battle_assist == true
+    cheats.teleport = config.teleport == true
+    cheats.no_encounter = config.no_encounter == true
+    cheats.walk_through_walls = config.walk_through_walls == true
+    PARTY_BASE = config.party_base
+    PARTY_COUNT_OFFSET = config.party_count_offset
+    SAVE_BLOCK_PTR = config.save_block_ptr
+    REPEL_STEP_OFFSET = config.repel_step_offset or 0
+    G_MAIN_CALLBACK2 = config.main_callback2 or 0
+    G_FIELD_CALLBACK = config.field_callback or 0
+    G_WARP_DESTINATION = config.warp_destination or 0
+    QUEUE_WARP_TASK_FUNC = config.queue_warp_task or 0
+    CB2_FIELD_TRANSITION = config.field_transition or 0
+    CB2_LOAD_MAP = config.load_map or 0x0805671D
+    WALK_THROUGH_WALLS_PATCH_ADDR = config.walk_patch or 0
+    BATTLE_MON_BASE = config.battle_base or 0
+    CRIT_MULTIPLIER_ADDR = config.crit_multiplier or 0
+    MAX_SPECIES = config.max_species or 2000
+    MAX_MOVE = config.max_move or 2000
+    WALK_THROUGH_WALLS_ORIGINAL = { 0xF0, 0xB5, 0x57, 0x46 }
+    cheats.party_base = PARTY_BASE
+    cheats.save_base = nil
+    return true
 end
 
 local cheat_frame = 0
@@ -206,14 +259,16 @@ end
 
 local function walk_through_walls_patch_state()
     if not emu then return "noemu" end
+    if WALK_THROUGH_WALLS_PATCH_ADDR == 0 then return "unconfigured" end
     local current = read_rom_range(WALK_THROUGH_WALLS_PATCH_ADDR, #WALK_THROUGH_WALLS_ORIGINAL)
     if bytes_equal(current, WALK_THROUGH_WALLS_PATCHED) then return "patched" end
     if bytes_equal(current, WALK_THROUGH_WALLS_ORIGINAL) then return "original" end
     return "unknown:" .. bytes_to_hex(current)
 end
 
-local function set_walk_through_walls_patch(enabled)
+set_walk_through_walls_patch = function(enabled)
     if not emu then return false, "emu API unavailable" end
+    if WALK_THROUGH_WALLS_PATCH_ADDR == 0 then return false, "cheat profile not configured" end
 
     local current = read_rom_range(WALK_THROUGH_WALLS_PATCH_ADDR, #WALK_THROUGH_WALLS_ORIGINAL)
     if enabled then
@@ -296,7 +351,7 @@ local function request_teleport(map_group, map_num, x, y)
 
     write_warp_data(G_WARP_DESTINATION, map_group, map_num, 0xFF, x, y)
 
-    if cheats.profile == "UNBOUND" then
+    if cheats.teleport_mode == "load-map" then
         local old_callback2 = read_u32(G_MAIN_CALLBACK2)
         if old_callback2 == 0 then
             return false, string.format("unexpected callback2: 0x%08X", old_callback2)
@@ -368,10 +423,10 @@ local function subblock_offset(addr, substructure)
 end
 
 local function party_mon_looks_valid(addr)
-    if cheats.profile == "UNBOUND" then
+    if cheats.party_layout == "plain" then
         local species = read_u16(addr + 0x20)
         local sanity = emu:read8(addr + 0x13)
-        return species >= 1 and species <= 1293 and (sanity % 4) >= 2
+        return species >= 1 and species <= MAX_SPECIES and (sanity % 4) >= 2
     end
     local pid = read_u32(addr)
     local otid = read_u32(addr + 4)
@@ -380,7 +435,7 @@ local function party_mon_looks_valid(addr)
     local growth = subblock_offset(addr, 0)
     if not growth then return false end
     local species = read_u16_from_table(bytes, growth)
-    return species >= 1 and species <= 2000
+    return species >= 1 and species <= MAX_SPECIES
 end
 
 local function apply_lock_hp(addr)
@@ -414,7 +469,7 @@ end
 
 local function battle_mon_looks_like_party(addr, party_pids)
     local species = read_u16(addr)
-    if species < 1 or species > 2000 then return false end
+    if species < 1 or species > MAX_SPECIES then return false end
 
     local pid = read_u32(addr + BATTLE_MON_PERSONALITY_OFFSET)
     if not party_pids[pid] then return false end
@@ -428,7 +483,7 @@ local function battle_mon_looks_like_party(addr, party_pids)
 
     for i = 0, 3 do
         local move = read_u16(addr + 0x0C + i * 2)
-        if move > 1000 then return false end
+        if move > MAX_MOVE then return false end
     end
 
     return true
@@ -449,6 +504,18 @@ end
 local function refresh_battle_hp_candidates(party_pids)
     last_battle_hp_scan_frame = cheat_frame
 
+    if BATTLE_MON_BASE ~= 0 then
+        local found = {}
+        for battler = 0, 3 do
+            local addr = BATTLE_MON_BASE + battler * BATTLE_MON_SIZE
+            if battle_mon_looks_like_party(addr, party_pids) then
+                found[#found + 1] = addr
+            end
+        end
+        battle_hp_candidates = found
+        return
+    end
+
     -- In Emerald-like ROMs gBattleMons is usually close to, and before, gPlayerParty.
     local party_base = cheats.party_base or PARTY_BASE
     local near_start = math.max(EWRAM_START, party_base - 0x9000)
@@ -461,6 +528,27 @@ local function refresh_battle_hp_candidates(party_pids)
     end
 
     battle_hp_candidates = found
+end
+
+local function apply_battle_infinite_pp(addr)
+    for i = 0, 3 do
+        local move = read_u16(addr + 0x0C + i * 2)
+        if move ~= 0 and emu:read8(addr + BATTLE_MON_PP_OFFSET + i) ~= 99 then
+            emu:write8(addr + BATTLE_MON_PP_OFFSET + i, 99)
+        end
+    end
+end
+
+local function apply_clear_status(addr)
+    if party_mon_looks_valid(addr) and read_u32(addr + 0x50) ~= 0 then
+        write_u32(addr + 0x50, 0)
+    end
+end
+
+local function apply_battle_clear_status(addr)
+    if read_u32(addr + BATTLE_MON_STATUS1_OFFSET) ~= 0 then
+        write_u32(addr + BATTLE_MON_STATUS1_OFFSET, 0)
+    end
 end
 
 local function apply_battle_lock_hp(party_pids, party_count)
@@ -483,7 +571,7 @@ end
 
 local function apply_infinite_pp(addr)
     if not party_mon_looks_valid(addr) then return end
-    if cheats.profile == "UNBOUND" then
+    if cheats.party_layout == "plain" then
         for i = 0, 3 do
             local move = read_u16(addr + 0x2C + i * 2)
             if move ~= 0 and emu:read8(addr + 0x34 + i) ~= 99 then
@@ -519,24 +607,41 @@ local function apply_cheats()
     if not emu then return end
     cheat_frame = (cheat_frame + 1) % 1000000
 
-    if cheats.LOCK_HP or cheats.INFINITE_PP then
+    if cheats.LOCK_HP or cheats.INFINITE_PP or cheats.CLEAR_STATUS then
         local base = cheats.party_base or PARTY_BASE
         for slot = 0, PARTY_SLOTS - 1 do
             local addr = base + slot * PARTY_MON_SIZE
             if cheats.LOCK_HP then apply_lock_hp(addr) end
             if cheats.INFINITE_PP then apply_infinite_pp(addr) end
+            if cheats.CLEAR_STATUS then apply_clear_status(addr) end
         end
 
-        if cheats.LOCK_HP then
+        if cheats.LOCK_HP or cheats.INFINITE_PP or cheats.CLEAR_STATUS then
             local party_pids, party_count = collect_party_pids()
-            apply_battle_lock_hp(party_pids, party_count)
+            if party_count > 0 then
+                if cheat_frame - last_battle_hp_scan_frame >= 30 then
+                    refresh_battle_hp_candidates(party_pids)
+                end
+                if cheats.LOCK_HP then apply_battle_lock_hp(party_pids, party_count) end
+                for i = 1, #battle_hp_candidates do
+                    local addr = battle_hp_candidates[i]
+                    if battle_mon_looks_like_party(addr, party_pids) then
+                        if cheats.INFINITE_PP then apply_battle_infinite_pp(addr) end
+                        if cheats.CLEAR_STATUS then apply_battle_clear_status(addr) end
+                    end
+                end
+            end
         end
+    end
+
+    if cheats.ALWAYS_CRIT and CRIT_MULTIPLIER_ADDR ~= 0 then
+        emu:write8(CRIT_MULTIPLIER_ADDR, 2)
     end
 
     if cheats.NO_ENCOUNTER then
         local base = current_save_base()
         if base then
-            if cheats.profile == "UNBOUND" then write_u16(base + REPEL_STEP_OFFSET, 250)
+            if cheats.repel_width == 16 then write_u16(base + REPEL_STEP_OFFSET, 250)
             else emu:write8(base + REPEL_STEP_OFFSET, 250) end
         end
     end
@@ -545,10 +650,12 @@ local function apply_cheats()
 end
 
 local function cheat_status()
-    return string.format("PROFILE=%s LOCK_HP=%d INFINITE_PP=%d NO_ENCOUNTER=%d WALK_THROUGH_WALLS=%d WTW_PATCH=%s PARTY_BASE=0x%08X BATTLE_HP=%d SAVE_BASE=%s REPEL_OFFSET=0x%X",
-        cheats.profile,
+    return string.format("PROFILE=%s LOCK_HP=%d INFINITE_PP=%d CLEAR_STATUS=%d ALWAYS_CRIT=%d NO_ENCOUNTER=%d WALK_THROUGH_WALLS=%d WTW_PATCH=%s PARTY_BASE=0x%08X BATTLE_HP=%d SAVE_BASE=%s REPEL_OFFSET=0x%X",
+        cheats.profile or "NONE",
         cheats.LOCK_HP and 1 or 0,
         cheats.INFINITE_PP and 1 or 0,
+        cheats.CLEAR_STATUS and 1 or 0,
+        cheats.ALWAYS_CRIT and 1 or 0,
         cheats.NO_ENCOUNTER and 1 or 0,
         cheats.WALK_THROUGH_WALLS and 1 or 0,
         walk_through_walls_patch_state(),
@@ -568,9 +675,12 @@ local function handle_cheat(parts)
     if name == "STATUS" then
         return ok(cheat_status())
     elseif name == "PROFILE" then
-        if not set_cheat_profile(parts[3]) then return err("usage: CHEAT PROFILE UNBOUND|SPANISH_ROCKET") end
+        if not set_cheat_profile(parts[3]) then return err("profile disabled or unsupported; expected POKEMON_UNBOUND_211|SPANISH_ROCKET_CURRENT|RADICAL_RED_41") end
         return ok(cheat_status())
+    elseif not cheats.profile then
+        return err("select a verified CHEAT PROFILE before using experimental commands")
     elseif name == "LOCATION" then
+        if not cheats.teleport then return err("location/teleport is disabled for this profile") end
         local base = current_save_base()
         if not base then return err("save block not located") end
         local x = read_u16(base)
@@ -579,6 +689,7 @@ local function handle_cheat(parts)
         local map_num = emu:read8(base + 5)
         return ok(string.format("GROUP=%d MAP=%d X=%d Y=%d SAVE_BASE=0x%08X", map_group, map_num, x, y, base))
     elseif name == "TELEPORT" then
+        if not cheats.teleport then return err("teleport is disabled for this profile") end
         local map_group = parse_num(parts[3])
         local map_num = parse_num(parts[4])
         local x = parse_num(parts[5])
@@ -590,9 +701,11 @@ local function handle_cheat(parts)
         if not queued then return err("teleport failed: " .. tostring(why)) end
         return ok(tostring(why))
     elseif name == "CLEAR" then
-        set_walk_through_walls_patch(false)
+        if cheats.walk_through_walls then set_walk_through_walls_patch(false) end
         cheats.LOCK_HP = false
         cheats.INFINITE_PP = false
+        cheats.CLEAR_STATUS = false
+        cheats.ALWAYS_CRIT = false
         cheats.NO_ENCOUNTER = false
         cheats.WALK_THROUGH_WALLS = false
         battle_hp_candidates = {}
@@ -614,7 +727,13 @@ local function handle_cheat(parts)
         return ok(cheat_status())
     elseif cheats[name] ~= nil then
         local enabled = parse_bool(parts[3])
-        if name == "LOCK_HP" then
+        if (name == "LOCK_HP" or name == "INFINITE_PP" or name == "CLEAR_STATUS" or name == "ALWAYS_CRIT") and not cheats.battle_assist then
+            return err("battle assist is disabled for this profile")
+        elseif name == "NO_ENCOUNTER" and not cheats.no_encounter then
+            return err("no-encounter is disabled for this profile")
+        elseif name == "WALK_THROUGH_WALLS" and not cheats.walk_through_walls then
+            return err("walk-through-walls is disabled for this profile")
+        elseif name == "LOCK_HP" or name == "INFINITE_PP" or name == "CLEAR_STATUS" then
             battle_hp_candidates = {}
             last_battle_hp_scan_frame = -999
         elseif name == "WALK_THROUGH_WALLS" then
@@ -625,7 +744,7 @@ local function handle_cheat(parts)
         log("cheat " .. name .. "=" .. tostring(cheats[name]))
         return ok(cheat_status())
     end
-    return err("usage: CHEAT STATUS|PROFILE|LOCATION|TELEPORT|CLEAR|PARTY_BASE|SAVE_BASE|REPEL_OFFSET|LOCK_HP|INFINITE_PP|NO_ENCOUNTER|WALK_THROUGH_WALLS")
+    return err("usage: CHEAT STATUS|PROFILE|LOCATION|TELEPORT|CLEAR|PARTY_BASE|SAVE_BASE|REPEL_OFFSET|LOCK_HP|INFINITE_PP|CLEAR_STATUS|ALWAYS_CRIT|NO_ENCOUNTER|WALK_THROUGH_WALLS")
 end
 
 local function handle_command(line)

@@ -1,0 +1,305 @@
+{
+  "id": "pokemon-radical-red-41-cn",
+  "displayName": "宝可梦激进红4.1 全汉化by兔砸博士",
+  "description": "宝可梦激进红4.1 汉化版独立配置；当前启用本 ROM 提取的内置图鉴/地图基础表、已验证的实时队伍/背包/箱子编辑、实时与存档箱子图鉴导入，以及队伍/背包/箱子/训练家存档修改和存档图鉴导入队伍。实时图鉴导入队伍、实时训练家写入和实验功能保持关闭。",
+  "romIdentity": {
+    "fileName": "宝可梦 激进红4.1 全汉化by兔砸博士.gba",
+    "romSize": 33554432,
+    "sha256": "70a3c5ced59c80abfc073cb0d65a25d99940c27009a80b6ca4f291fe7d1c41b7",
+    "headerTitle": "POKEMON FIRE",
+    "gameCode": "BPRE",
+    "liveFingerprints": [
+      {
+        "offset": "0x1000000",
+        "hex": "BBF0D8FF0A216852C00000F017F80C4C"
+      }
+    ]
+  },
+  "strategies": {
+    "runtime": "pokemon-radical-red-41-runtime-v1",
+    "pokemon": "pokemon-radical-red-41-pokemon-v1",
+    "partyScanner": "pokemon-radical-red-41-party-v1",
+    "boxScanner": "pokemon-radical-red-41-box-v1",
+    "bag": "pokemon-radical-red-41-bag-v1",
+    "save": "pokemon-radical-red-41-save-v1"
+  },
+  "memory": {
+    "ewramBase": "0x02000000",
+    "ewramSize": "0x40000",
+    "defaultPartyBase": "0x02024284",
+    "partyCountOffsetFromPartyBase": -603,
+    "saveBlock1PointerAddress": "0x03005008",
+    "saveBlock2PointerAddress": "0x0300500C",
+    "saveBlock1MoneyOffset": "0x290",
+    "saveBlock2EncryptionKeyOffset": "0xF20",
+    "saveBlock2PlayerOtIdOffset": "0x0A",
+    "saveBlock2HeaderLength": "0x0E",
+    "playerNameLength": 8,
+    "pokemonOtNameOffset": "0x14",
+    "pokemonOtNameLength": 7,
+    "pcBoxCount": 25,
+    "pcBoxSlots": 30,
+    "pcBoxRecordSize": 58,
+    "livePcBoxWritableSlotCount": 750,
+    "savePcBoxWritableSlotCount": 750,
+    "pcBoxRegions": [
+      {
+        "firstBox": 1,
+        "boxCount": 19,
+        "address": "0x02029318"
+      },
+      {
+        "firstBox": 20,
+        "boxCount": 3,
+        "address": "0x0203CB44"
+      },
+      {
+        "firstBox": 23,
+        "boxCount": 2,
+        "address": "0x02027434"
+      },
+      {
+        "firstBox": 25,
+        "boxCount": 1,
+        "address": "0x02024638"
+      }
+    ]
+  },
+  "romTables": {
+    "baseStats": {
+      "offset": "0x17B98EC",
+      "entrySize": 28,
+      "count": 1377
+    },
+    "moves": {
+      "offset": "0x11521D0",
+      "entrySize": 12,
+      "count": 1004
+    },
+    "moveDescriptions": {
+      "offset": "0x103DF74",
+      "entrySize": 4,
+      "count": 1003
+    },
+    "items": {
+      "offset": "0x13C0000",
+      "entrySize": 44,
+      "count": 750
+    },
+    "machineMoves": {
+      "offset": "0x18224B8",
+      "entrySize": 2,
+      "count": 128
+    },
+    "evolutions": {
+      "offset": "0x259754",
+      "entrySize": 8,
+      "count": 1377,
+      "entriesPerRecord": 5
+    },
+    "levelMoves": {
+      "offset": "0x25D7B4",
+      "entrySize": 2,
+      "count": 1377
+    },
+    "experience": {
+      "offset": "0x253AE4",
+      "entrySize": 404,
+      "count": 6
+    }
+  },
+  "graphics": {
+    "spritesVerified": true,
+    "spriteAssetRoot": "Profiles/pokemon-radical-red-41-cn/Pokemon/front",
+    "iconAssetRoot": "Profiles/pokemon-radical-red-41-cn/Pokemon/icon",
+    "frontSpriteTableOffset": "0x17FA1C4",
+    "iconSpriteTableOffset": "0x17FE6CC",
+    "normalPaletteTableOffset": "0x1811208",
+    "spriteIndexAdjustment": 0,
+    "paletteIndexAdjustment": 0,
+    "eggSpeciesId": 412
+  },
+  "limits": {
+    "maxSpecies": 1376,
+    "maxMove": 1003,
+    "maxItem": 749,
+    "maxAbility": 255,
+    "maxLevel": 100,
+    "maxBagQuantity": 999
+  },
+  "features": {
+    "liveEditing": true,
+    "saveEditing": true,
+    "liveParty": {
+      "read": true,
+      "write": true
+    },
+    "saveParty": {
+      "read": true,
+      "write": true
+    },
+    "liveBoxes": {
+      "read": true,
+      "write": true
+    },
+    "saveBoxes": {
+      "read": true,
+      "write": true
+    },
+    "liveBag": {
+      "read": true,
+      "write": true
+    },
+    "saveBag": {
+      "read": true,
+      "write": true
+    },
+    "liveTrainer": {
+      "read": true,
+      "write": false
+    },
+    "saveTrainer": {
+      "read": true,
+      "write": true
+    },
+    "builtInDex": true,
+    "moveDex": true,
+    "importToParty": false,
+    "importToBoxes": true,
+    "importToSaveParty": true,
+    "importToSaveBoxes": true,
+    "experiments": false
+  },
+  "runtime": {
+    "liveBag": {
+      "mode": "fixed",
+      "baseAddress": "0x0203B174",
+      "quantityKeyMode": "save-block2-key-low16",
+      "areas": [
+        {
+          "pocket": 1,
+          "name": "道具",
+          "address": "0x0203BB20",
+          "capacity": 450
+        },
+        {
+          "pocket": 2,
+          "name": "重要物品",
+          "address": "0x0203C228",
+          "capacity": 75
+        },
+        {
+          "pocket": 3,
+          "name": "精灵球",
+          "address": "0x0203C354",
+          "capacity": 50
+        },
+        {
+          "pocket": 4,
+          "name": "招式机器",
+          "address": "0x0203C41C",
+          "capacity": 128
+        },
+        {
+          "pocket": 5,
+          "name": "树果",
+          "address": "0x0203C61C",
+          "capacity": 75
+        }
+      ],
+      "scannedAreas": []
+    },
+    "liveBagPockets": [
+      {
+        "id": 1,
+        "name": "道具",
+        "isKeyItem": false,
+        "batchCapacity": 450
+      },
+      {
+        "id": 2,
+        "name": "重要物品",
+        "isKeyItem": true,
+        "batchCapacity": 75
+      },
+      {
+        "id": 3,
+        "name": "精灵球",
+        "isKeyItem": false,
+        "batchCapacity": 50
+      },
+      {
+        "id": 4,
+        "name": "招式机器",
+        "isKeyItem": false,
+        "batchCapacity": 128
+      },
+      {
+        "id": 5,
+        "name": "树果",
+        "isKeyItem": false,
+        "batchCapacity": 75
+      }
+    ],
+    "saveBagPockets": [
+      {
+        "id": 1,
+        "name": "道具",
+        "isKeyItem": false,
+        "batchCapacity": 450
+      },
+      {
+        "id": 2,
+        "name": "重要物品",
+        "isKeyItem": true,
+        "batchCapacity": 75
+      },
+      {
+        "id": 3,
+        "name": "精灵球",
+        "isKeyItem": false,
+        "batchCapacity": 50
+      },
+      {
+        "id": 4,
+        "name": "招式机器",
+        "isKeyItem": false,
+        "batchCapacity": 128
+      },
+      {
+        "id": 5,
+        "name": "树果",
+        "isKeyItem": false,
+        "batchCapacity": 75
+      }
+    ],
+    "itemPocketFallbackRanges": [],
+    "itemPocketRemap": {},
+    "defaultItemPocket": -1,
+    "machines": {
+      "pocket": 4,
+      "mode": "item-data",
+      "tmStartItem": 0,
+      "tmCount": 120,
+      "hmStartItem": 0,
+      "hmCount": 8,
+      "hmMoveStartIndex": 120,
+      "fallbackMoveIds": []
+    },
+    "shopProbe": {
+      "enabled": false,
+      "shopPriceAddress": "0x0",
+      "shopFirstItemAddress": "0x0",
+      "sellPricePrimaryAddress": "0x0",
+      "sellPriceFallbackAddress": "0x0"
+    },
+    "bridgeExperimentProfile": "RADICAL_RED_41",
+    "experimentNeedsSaveBaseForNoEncounter": false,
+    "experimentBattleAssist": true,
+    "experimentTeleport": false,
+    "experimentNoEncounter": false,
+    "experimentWalkThroughWalls": false,
+    "maxTrainerMoney": 999999999,
+    "bagBatchQuantity": 240
+  }
+}

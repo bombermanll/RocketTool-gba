@@ -8,30 +8,31 @@ public sealed record PartyRun(uint StartAddress, int Length, int ScoreSum, IRead
 
 public static class PartyScanner
 {
-    public const uint EwramBase = 0x02000000;
-    public const int EwramSize = 0x40000;
     public const int ChunkSize = 4096;
-    public const int MaxSpecies = 1394;
 
-    public static byte[] ReadEwram(MgbaBridgeClient bridge, Action<int, int>? progress = null)
+    public static byte[] ReadEwram(MgbaBridgeClient bridge, GameProfile profile, Action<int, int>? progress = null)
     {
-        var ewram = new byte[EwramSize];
-        for (var off = 0; off < EwramSize; off += ChunkSize)
+        var ewram = new byte[profile.Memory.EwramSize];
+        for (var off = 0; off < ewram.Length; off += ChunkSize)
         {
-            var len = Math.Min(ChunkSize, EwramSize - off);
-            bridge.Read(EwramBase + (uint)off, len).CopyTo(ewram.AsSpan(off, len));
-            progress?.Invoke(off, EwramSize);
+            var len = Math.Min(ChunkSize, ewram.Length - off);
+            bridge.Read(profile.Memory.EwramBase + (uint)off, len).CopyTo(ewram.AsSpan(off, len));
+            progress?.Invoke(off, ewram.Length);
         }
         return ewram;
     }
 
-    public static IReadOnlyList<PartyCandidate> FindCandidates(ReadOnlySpan<byte> ewram, int minScore = 13, int maxSpecies = MaxSpecies,
-        PokemonDataLayout layout = PokemonDataLayout.SpanishRocketEncrypted)
+    public static IReadOnlyList<PartyCandidate> FindCandidates(
+        ReadOnlySpan<byte> ewram,
+        uint ewramBase,
+        PokemonDataLayout layout,
+        int minScore,
+        int maxSpecies)
     {
         var hits = new List<PartyCandidate>();
         for (var off = 0; off <= ewram.Length - Gen3Constants.PartyMonSize; off += 4)
         {
-            var candidate = ScoreMon(EwramBase + (uint)off, ewram.Slice(off, Gen3Constants.PartyMonSize), maxSpecies, layout);
+            var candidate = ScoreMon(ewramBase + (uint)off, ewram.Slice(off, Gen3Constants.PartyMonSize), maxSpecies, layout);
             if (candidate.Score >= minScore && IsStrongPartyCandidate(candidate, maxSpecies)) hits.Add(candidate);
         }
         return hits.OrderByDescending(c => c.Score).ThenBy(c => c.Address).ToArray();
@@ -61,26 +62,19 @@ public static class PartyScanner
             .ToArray();
     }
 
-    public static PartyRun? LocateParty(byte[] ewram, int minScore = 13)
-        => LocateParty(
-            ewram,
-            Gen3Constants.DefaultPartyBase,
-            Gen3Constants.PartyCountOffsetFromPartyBase,
-            MaxSpecies,
-            minScore);
-
     public static PartyRun? LocateParty(
         byte[] ewram,
+        uint ewramBase,
+        PokemonDataLayout layout,
         uint preferredBase,
         int partyCountOffsetFromBase,
         int maxSpecies,
-        int minScore = 13,
-        PokemonDataLayout layout = PokemonDataLayout.SpanishRocketEncrypted)
+        int minScore = 13)
     {
-        var knownBase = TryBuildPartyRunAtBase(ewram, preferredBase, partyCountOffsetFromBase, maxSpecies, minScore, layout);
+        var knownBase = TryBuildPartyRunAtBase(ewram, ewramBase, preferredBase, partyCountOffsetFromBase, maxSpecies, layout, minScore);
         if (knownBase is not null) return knownBase;
 
-        var candidates = FindCandidates(ewram, minScore, maxSpecies, layout);
+        var candidates = FindCandidates(ewram, ewramBase, layout, minScore, maxSpecies);
         var strict = GroupRuns(candidates, checksumRequired: true)
             .Where(IsUsablePartyRun)
             .OrderByDescending(r => r.StartAddress == preferredBase)
@@ -98,43 +92,30 @@ public static class PartyScanner
             .FirstOrDefault();
     }
 
-    public static int? TryReadPartyCount(ReadOnlySpan<byte> ewram, uint partyBase)
-        => TryReadPartyCount(ewram, partyBase, Gen3Constants.PartyCountOffsetFromPartyBase);
-
-    public static int? TryReadPartyCount(ReadOnlySpan<byte> ewram, uint partyBase, int partyCountOffsetFromBase)
+    public static int? TryReadPartyCount(ReadOnlySpan<byte> ewram, uint ewramBase, uint partyBase, int partyCountOffsetFromBase)
     {
         var countAddress = (long)partyBase + partyCountOffsetFromBase;
-        var offset = countAddress - EwramBase;
+        var offset = countAddress - ewramBase;
         if (offset < 0 || offset >= ewram.Length) return null;
 
         var count = ewram[(int)offset];
         return count is >= 1 and <= Gen3Constants.PartySlots ? count : null;
     }
 
-    public static PartyRun? TryLocatePartyAtKnownBase(byte[] ewram, int minScore = 13)
-        => TryBuildPartyRunAtBase(ewram, Gen3Constants.DefaultPartyBase, minScore);
-
-    public static PartyRun? TryBuildPartyRunAtBase(byte[] ewram, uint partyBase, int minScore = 13)
-        => TryBuildPartyRunAtBase(
-            ewram,
-            partyBase,
-            Gen3Constants.PartyCountOffsetFromPartyBase,
-            MaxSpecies,
-            minScore);
-
     public static PartyRun? TryBuildPartyRunAtBase(
         byte[] ewram,
+        uint ewramBase,
         uint partyBase,
         int partyCountOffsetFromBase,
         int maxSpecies,
-        int minScore = 13,
-        PokemonDataLayout layout = PokemonDataLayout.SpanishRocketEncrypted)
+        PokemonDataLayout layout,
+        int minScore = 13)
     {
-        var count = TryReadPartyCount(ewram, partyBase, partyCountOffsetFromBase);
+        var count = TryReadPartyCount(ewram, ewramBase, partyBase, partyCountOffsetFromBase);
         if (count is null) return null;
 
-        if (partyBase < EwramBase) return null;
-        var startOffset = checked((int)(partyBase - EwramBase));
+        if (partyBase < ewramBase) return null;
+        var startOffset = checked((int)(partyBase - ewramBase));
         if (startOffset < 0 || startOffset + count.Value * Gen3Constants.PartyMonSize > ewram.Length) return null;
 
         var candidates = new List<PartyCandidate>();

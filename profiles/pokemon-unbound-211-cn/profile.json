@@ -2,12 +2,23 @@
   "id": "pokemon-unbound-211-cn",
   "displayName": "宝可梦解放 v2.1.1 汉化修订版",
   "description": "宝可梦解放 v2.1.1 汉化修订版专用配置。",
+  "romIdentity": {
+    "fileName": "宝可梦解放 v2.1.1 汉化修订版.gba",
+    "romSize": 33554432,
+    "sha256": "0d28b4f222d646012e3ba812db2864ff83c7566ffb3e67b8cbf0f4930f122eb0",
+    "headerTitle": "POKEMON FIRE",
+    "gameCode": "BPRE",
+    "liveFingerprints": [
+      { "offset": "0x1000000", "hex": "0000ECCC0000ECCE0000000000000000" }
+    ]
+  },
   "strategies": {
-    "pokemon": "unbound-cfru-pokemon-v1",
-    "partyScanner": "unbound-fixed-party-v1",
-    "boxScanner": "unbound-cfru-boxes-v1",
-    "bag": "unbound-cfru-bag-v1",
-    "save": "unbound-cfru-save-v1"
+    "runtime": "pokemon-unbound-211-runtime-v1",
+    "pokemon": "pokemon-unbound-211-pokemon-v1",
+    "partyScanner": "pokemon-unbound-211-party-v1",
+    "boxScanner": "pokemon-unbound-211-box-v1",
+    "bag": "pokemon-unbound-211-bag-v1",
+    "save": "pokemon-unbound-211-save-v1"
   },
   "memory": {
     "ewramBase": "0x02000000",
@@ -86,10 +97,69 @@
   "features": {
     "liveEditing": true,
     "saveEditing": true,
-    "party": true,
-    "boxes": true,
-    "bag": true,
-    "trainer": true,
+    "liveParty": { "read": true, "write": true },
+    "saveParty": { "read": true, "write": true },
+    "liveBoxes": { "read": true, "write": true },
+    "saveBoxes": { "read": true, "write": true },
+    "liveBag": { "read": true, "write": true },
+    "saveBag": { "read": true, "write": true },
+    "liveTrainer": { "read": true, "write": true },
+    "saveTrainer": { "read": true, "write": true },
+    "builtInDex": true,
+    "moveDex": true,
+    "importToParty": true,
+    "importToBoxes": true,
     "experiments": true
+  },
+  "runtime": {
+    "liveBag": {
+      "mode": "fixed",
+      "baseAddress": "0x0203B174",
+      "quantityKeyMode": "save-block2-key-low16",
+      "areas": [
+        { "pocket": 1, "name": "道具", "address": "0x0203BB20", "capacity": 450 },
+        { "pocket": 2, "name": "重要物品", "address": "0x0203C228", "capacity": 75 },
+        { "pocket": 3, "name": "精灵球", "address": "0x0203C354", "capacity": 50 },
+        { "pocket": 4, "name": "招式机器", "address": "0x0203C41C", "capacity": 128 },
+        { "pocket": 5, "name": "树果", "address": "0x0203C61C", "capacity": 75 }
+      ],
+      "scannedAreas": []
+    },
+    "liveBagPockets": [
+      { "id": 1, "name": "道具", "isKeyItem": false, "batchCapacity": 450 },
+      { "id": 2, "name": "重要物品", "isKeyItem": true, "batchCapacity": 75 },
+      { "id": 3, "name": "精灵球", "isKeyItem": false, "batchCapacity": 50 },
+      { "id": 4, "name": "招式机器", "isKeyItem": false, "batchCapacity": 128 },
+      { "id": 5, "name": "树果", "isKeyItem": false, "batchCapacity": 75 }
+    ],
+    "saveBagPockets": [
+      { "id": 1, "name": "道具", "isKeyItem": false, "batchCapacity": 450 },
+      { "id": 2, "name": "重要物品", "isKeyItem": true, "batchCapacity": 75 },
+      { "id": 3, "name": "精灵球", "isKeyItem": false, "batchCapacity": 50 },
+      { "id": 4, "name": "招式机器", "isKeyItem": false, "batchCapacity": 128 },
+      { "id": 5, "name": "树果", "isKeyItem": false, "batchCapacity": 75 }
+    ],
+    "itemPocketFallbackRanges": [],
+    "itemPocketRemap": {},
+    "defaultItemPocket": -1,
+    "machines": {
+      "pocket": 4,
+      "mode": "item-data",
+      "tmStartItem": 0,
+      "tmCount": 120,
+      "hmStartItem": 0,
+      "hmCount": 8,
+      "hmMoveStartIndex": 120,
+      "fallbackMoveIds": []
+    },
+    "shopProbe": { "enabled": false, "shopPriceAddress": "0x0", "shopFirstItemAddress": "0x0", "sellPricePrimaryAddress": "0x0", "sellPriceFallbackAddress": "0x0" },
+    "bridgeExperimentProfile": "POKEMON_UNBOUND_211",
+    "experimentNeedsSaveBaseForNoEncounter": false,
+    "experimentBattleAssist": true,
+    "experimentTeleport": true,
+    "experimentNoEncounter": true,
+    "experimentWalkThroughWalls": true,
+    "maxTrainerMoney": 99999999,
+    "bagBatchQuantity": 240
   }
 }

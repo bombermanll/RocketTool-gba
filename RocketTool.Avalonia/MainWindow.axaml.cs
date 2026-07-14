@@ -57,8 +57,31 @@ public sealed record DexInfoRow(string Label, string Value, string? Tooltip = nu
     public bool IsTextVisible => !HasTypeBadges && !HasTooltip;
     public bool IsTooltipTextVisible => !HasTypeBadges && HasTooltip;
 }
-public sealed record DexStatRow(string Name, string Base, string Level50, string Level100, string MaxLevel);
-public sealed record DexLevelMoveRow(string Level, string Move, string Type, string Category, string Power, string Accuracy, string Pp);
+public sealed record DexStatRow(
+    string Name,
+    string ModifiedBase,
+    string OfficialBase,
+    IBrush ModifiedBaseForeground,
+    string Level50,
+    string Level100,
+    string MaxLevel);
+public sealed record DexLevelMoveRow(
+    string Level,
+    string Move,
+    string Type,
+    string Category,
+    string Power,
+    string OfficialPower,
+    IBrush PowerForeground,
+    string Accuracy,
+    string OfficialAccuracy,
+    IBrush AccuracyForeground,
+    string Pp);
+public sealed record OfficialSpeciesStats(int Hp, int Attack, int Defense, int Speed, int SpAttack, int SpDefense)
+{
+    public int Bst => Hp + Attack + Defense + Speed + SpAttack + SpDefense;
+}
+public sealed record OfficialMoveData(int Power, int Accuracy, int Pp);
 public sealed record MoveDexRow(
     int Id,
     string Name,
@@ -68,7 +91,11 @@ public sealed record MoveDexRow(
     IReadOnlyList<DexTypeBadge> TypeBadges,
     string Category,
     string Power,
+    string OfficialPower,
+    IBrush PowerForeground,
     string Accuracy,
+    string OfficialAccuracy,
+    IBrush AccuracyForeground,
     string Pp)
 {
     public bool HasTypeBadges => TypeBadges.Count > 0;
@@ -95,6 +122,9 @@ public partial class MainWindow : Window
 
     private const string AppNameBase = "火箭队修改工具";
     private const string AppTitleBase = "火箭队修改工具";
+    private static readonly IBrush ComparisonNeutralBrush = new SolidColorBrush(Color.Parse("#102E4A"));
+    private static readonly IBrush ComparisonHigherBrush = new SolidColorBrush(Color.Parse("#C33C36"));
+    private static readonly IBrush ComparisonLowerBrush = new SolidColorBrush(Color.Parse("#26805B"));
 
     private static readonly string[] NatureNames =
     [
@@ -116,29 +146,14 @@ public partial class MainWindow : Window
     private const int NatureCodeUsePid = 26;
     private const int SummaryAllStatsIncreaseNatureCode = 31;
 
-    private static readonly int[] Gen3TmMoveIds =
-    [
-        264, 337, 352, 347, 46, 92, 258, 339, 331, 237,
-        241, 269, 58, 59, 63, 113, 182, 240, 202, 219,
-        218, 76, 231, 85, 87, 89, 216, 91, 94, 247,
-        280, 104, 115, 351, 53, 188, 201, 126, 317, 332,
-        259, 263, 290, 156, 213, 168, 211, 285, 289, 315
-    ];
-    private const int MachineTmStartItem = 592;
-    private const int MachineTmCount = 246;
-    private const int MachineHmStartItem = 838;
-    private const int MachineHmCount = 8;
-    private const int MachineHmMoveStartIndex = 246;
-    private const int SpanishMachinePocket = 7;
     private const int MaxPokemonLevel = PokemonExperienceTable.MaxLevel;
     private const int DexImportLevel = 5;
-    private const ushort BagBatchQuantity = 240;
-    private const int MaxTrainerMoney = 99999999;
     private sealed record PlayerTrainerIdentity(uint OtId, byte[] OtName);
     private sealed record DexEvolutionSegment(string Text, int? SpeciesId = null, bool IsCurrent = false);
 
     private readonly ObservableCollection<PartySlotRow> _partyRows = [];
     private readonly GameProfile _profile;
+    private readonly IGameRuntimeAdapter _runtime;
     private readonly ObservableCollection<BagSlotRow> _bagRows = [];
     private readonly ObservableCollection<SaveBagEditableRow> _saveBagRows = [];
     private readonly ObservableCollection<BoxSlotRow> _boxRows = [];
@@ -162,7 +177,7 @@ public partial class MainWindow : Window
     private readonly ChoiceRow[] _genderChoices;
     private readonly ChoiceRow[] _statusChoices;
     private readonly ChoiceRow[] _ppBonusChoices;
-    private readonly ChoiceRow[] _bagPocketChoices;
+    private ChoiceRow[] _bagPocketChoices;
     private readonly ChoiceRow[] _dexSortChoices;
     private readonly ChoiceRow[] _dexSortDirectionChoices;
     private readonly ChoiceRow[] _moveDexTypeFilterChoices;
@@ -193,18 +208,13 @@ public partial class MainWindow : Window
     private Bitmap? _eggSpriteCache;
     private int ProfileMaxPokemonLevel => Math.Clamp(_profile.Limits.MaxLevel, 1, MaxPokemonLevel);
     private bool UsesVerifiedSpriteAssets => _profile.Graphics.SpritesVerified;
-    private bool UsesUnboundCfruLayout => string.Equals(
-        _profile.Strategies.Pokemon,
-        "unbound-cfru-pokemon-v1",
-        StringComparison.Ordinal);
-    private bool UsesDestinySaveLayout => string.Equals(
-        _profile.Strategies.Save,
-        "pokemon-destiny-save-v1",
-        StringComparison.Ordinal);
-    private int MachinePocket => UsesUnboundCfruLayout || UsesDestinySaveLayout ? 4 : SpanishMachinePocket;
-    private PokemonDataLayout ActivePokemonLayout => UsesUnboundCfruLayout
-        ? PokemonDataLayout.UnboundCfruPlainParty
-        : PokemonDataLayout.SpanishRocketEncrypted;
+    private bool UsesFixedLiveBag => _runtime.UsesFixedLiveBag;
+    private bool UsesScannedLiveBag => _runtime.UsesScannedLiveBag;
+    private bool HasOfficialSpeciesComparison => _db.Table("official_species_stats").Count > 0;
+    private bool HasOfficialMoveComparison => _db.Table("official_move_data").Count > 0;
+    private int MachinePocket => _runtime.MachinePocket;
+    private PokemonDataLayout ActivePokemonLayout => _runtime.PartyLayout;
+    private PokemonDataLayout ActiveBoxLayout => _runtime.LiveBoxLayout;
     private int ActiveBoxRecordSize => _profile.Memory.PcBoxRecordSize;
 
 
@@ -216,8 +226,8 @@ public partial class MainWindow : Window
     public MainWindow(GameProfile profile)
     {
         _profile = profile ?? throw new ArgumentNullException(nameof(profile));
+        _runtime = GameRuntimeAdapterCatalog.ForProfile(profile);
         _dexMaxLevel = ProfileMaxPokemonLevel;
-        EnsureSupportedProfileStrategies(profile);
         InitializeComponent();
         ReorderMainTabs();
         ApplyWindowIcon();
@@ -277,10 +287,7 @@ public partial class MainWindow : Window
         _moveDexTypeFilterChoices =
         [
             new(-1, "全部属性"),
-            .. (UsesUnboundCfruLayout
-                ? Enumerable.Range(0, 18).Append(23)
-                : Enumerable.Range(0, 19))
-                .Select(type => new ChoiceRow(type, MoveTypeNameZh(type)))
+            .. _runtime.MoveTypeIds.Select(type => new ChoiceRow(type, MoveTypeNameZh(type)))
         ];
         _moveDexCategoryFilterChoices =
         [
@@ -289,38 +296,7 @@ public partial class MainWindow : Window
             new(1, "特殊"),
             new(2, "变化")
         ];
-        _bagPocketChoices = UsesDestinySaveLayout
-            ?
-            [
-                new(1, "道具"),
-                new(3, "精灵球"),
-                new(4, "招式机器"),
-                new(0, "全部口袋")
-            ]
-            : UsesUnboundCfruLayout
-            ?
-            [
-                new(1, "道具"),
-                new(2, "重要物品"),
-                new(3, "精灵球"),
-                new(4, "招式机器"),
-                new(5, "树果"),
-                new(-1, "未知/候选"),
-                new(0, "全部口袋")
-            ]
-            :
-            [
-                new(1, "普通道具"),
-                new(2, "回复药品"),
-                new(3, "精灵球"),
-                new(4, "战斗道具"),
-                new(5, "树果"),
-                new(6, "宝物"),
-                new(7, "招式机器/秘传机器"),
-                new(8, "重要物品"),
-                new(-1, "未知/候选"),
-                new(0, "全部口袋")
-            ];
+        _bagPocketChoices = BuildBagPocketChoices(profile.Features.LiveEditing);
         PartyList.ItemsSource = _partyRows;
         BagList.ItemsSource = _bagRows;
         SaveBagList.ItemsSource = _saveBagRows;
@@ -378,6 +354,8 @@ public partial class MainWindow : Window
         HookNameRefresh();
         InitializeDexRows();
         InitializeMoveDexRows();
+        DexLevelMoveComparisonNote.IsVisible = HasOfficialMoveComparison;
+        MoveDexComparisonNote.IsVisible = HasOfficialMoveComparison;
         SetDataSourceMode(profile.Features.LiveEditing ? DataSourceMode.Live : DataSourceMode.SaveFile);
         Log($"已选择游戏版本：{profile.DisplayName}（{profile.Id}）。");
         Log($"已载入列表：宝可梦 {_speciesChoices.Length} 项，道具 {_itemChoices.Length} 项，招式 {_moveChoices.Length} 项。");
@@ -388,31 +366,6 @@ public partial class MainWindow : Window
 
     private static GameProfile MissingSelectedProfile()
         => throw new InvalidOperationException("必须先在启动窗口选择游戏版本。");
-
-    private static void EnsureSupportedProfileStrategies(GameProfile profile)
-    {
-        var supported = new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal)
-        {
-            ["pokemon"] = new HashSet<string>(["spanish-rocket-pokemon-v1", "unbound-cfru-pokemon-v1"], StringComparer.Ordinal),
-            ["partyScanner"] = new HashSet<string>(["spanish-rocket-party-v1", "unbound-fixed-party-v1"], StringComparer.Ordinal),
-            ["boxScanner"] = new HashSet<string>(["spanish-rocket-box-v1", "unbound-cfru-boxes-v1"], StringComparer.Ordinal),
-            ["bag"] = new HashSet<string>(["spanish-rocket-bag-v1", "unbound-cfru-bag-v1"], StringComparer.Ordinal),
-            ["save"] = new HashSet<string>(["spanish-rocket-save-v1", "unbound-cfru-save-v1", "pokemon-destiny-save-v1"], StringComparer.Ordinal)
-        };
-        var selected = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["pokemon"] = profile.Strategies.Pokemon,
-            ["partyScanner"] = profile.Strategies.PartyScanner,
-            ["boxScanner"] = profile.Strategies.BoxScanner,
-            ["bag"] = profile.Strategies.Bag,
-            ["save"] = profile.Strategies.Save
-        };
-        foreach (var pair in selected)
-        {
-            if (!supported[pair.Key].Contains(pair.Value))
-                throw new NotSupportedException($"版本 {profile.DisplayName} 使用了当前程序不支持的 {pair.Key} 策略：{pair.Value}");
-        }
-    }
 
     private void ValidateProfileDatabase()
     {
@@ -440,41 +393,65 @@ public partial class MainWindow : Window
 
         _dataSourceMode = mode;
         var live = mode == DataSourceMode.Live;
+        var partyRead = _runtime.CanRead(GameDataSurface.Party, live);
+        var partyWrite = _runtime.CanWrite(GameDataSurface.Party, live);
+        var boxRead = _runtime.CanRead(GameDataSurface.Boxes, live);
+        var boxWrite = _runtime.CanWrite(GameDataSurface.Boxes, live);
+        var bagRead = _runtime.CanRead(GameDataSurface.Bag, live);
+        var bagWrite = _runtime.CanWrite(GameDataSurface.Bag, live);
+        var trainerRead = _runtime.CanRead(GameDataSurface.Trainer, live);
+        var trainerWrite = _runtime.CanWrite(GameDataSurface.Trainer, live);
 
         ModeSwitchButton.IsVisible = _profile.Features.LiveEditing && _profile.Features.SaveEditing;
         ModeSwitchButton.Content = live ? "切换到存档模式" : "切换到实时模式";
         ScanButton.IsVisible = live && _profile.Features.LiveEditing;
         LoadSaveButton.IsVisible = !live && _profile.Features.SaveEditing;
-        ReadPartyButton.IsVisible = live && _profile.Features.Party;
-        PartyTab.IsVisible = _profile.Features.Party;
-        BagTab.IsVisible = _profile.Features.Bag;
-        BoxTab.IsVisible = _profile.Features.Boxes && (!UsesDestinySaveLayout || !live);
-        BoxReadButton.IsVisible = live && _profile.Features.Boxes && !UsesDestinySaveLayout;
-        ExperimentTab.IsVisible = live && _profile.Features.Experiments;
-        TrainerTab.IsVisible = _profile.Features.Trainer &&
+        ReadPartyButton.IsVisible = live && partyRead;
+        PartyTab.IsVisible = partyRead;
+        BagTab.IsVisible = bagRead;
+        BoxTab.IsVisible = boxRead;
+        BoxReadButton.IsVisible = live && boxRead;
+        DexTab.IsVisible = _profile.Features.BuiltInDex;
+        MoveDexTab.IsVisible = _profile.Features.MoveDex;
+        var experimentsVisible = live && _profile.Features.Experiments;
+        ExperimentTab.IsVisible = experimentsVisible;
+        TeleportExperimentPanel.IsVisible = experimentsVisible && _profile.Runtime.ExperimentTeleport;
+        BattleExperimentPanel.IsVisible = experimentsVisible &&
+                                          (_profile.Runtime.ExperimentBattleAssist ||
+                                           _profile.Runtime.ExperimentNoEncounter ||
+                                           _profile.Runtime.ExperimentWalkThroughWalls);
+        CheatInfinitePpBox.IsVisible = _profile.Runtime.ExperimentBattleAssist;
+        CheatLockHpBox.IsVisible = _profile.Runtime.ExperimentBattleAssist;
+        CheatClearStatusBox.IsVisible = _profile.Runtime.ExperimentBattleAssist;
+        CheatAlwaysCritBox.IsVisible = _profile.Runtime.ExperimentBattleAssist;
+        CheatNoEncounterBox.IsVisible = _profile.Runtime.ExperimentNoEncounter;
+        CheatWalkThroughWallsBox.IsVisible = _profile.Runtime.ExperimentWalkThroughWalls;
+        TrainerTab.IsVisible = trainerRead &&
                                (live || _loadedSave?.Snapshot.Trainer is not null);
         ExportSaveButton.IsVisible = !live && _profile.Features.SaveEditing;
         SaveAsButton.IsVisible = !live && _profile.Features.SaveEditing;
         UpdateSaveButtons();
 
-        PartyDeleteButton.IsVisible = live;
-        PartyApplyButton.IsVisible = live || _loadedSave?.CanWrite == true;
+        PartyDeleteButton.IsVisible = partyWrite && (live || _loadedSave?.CanWrite == true);
+        PartyDeleteButton.Content = live ? "删除队伍精灵" : "从待保存队伍删除";
+        PartyApplyButton.IsVisible = partyWrite && (live || _loadedSave?.CanWrite == true);
         PartyApplyButton.Content = live ? "写入当前精灵" : "应用到待保存存档";
-        BoxDeleteButton.IsVisible = live;
-        BoxApplyButton.IsVisible = live || _loadedSave?.CanWrite == true;
+        BoxDeleteButton.IsVisible = boxWrite && (live || _loadedSave?.CanWrite == true);
+        BoxDeleteButton.Content = live ? "删除箱子精灵" : "从待保存箱子删除";
+        BoxApplyButton.IsVisible = boxWrite && (live || _loadedSave?.CanWrite == true);
         BoxApplyButton.Content = live ? "写入当前箱子精灵" : "应用到待保存存档";
-        PartyOtSyncButton.IsVisible = live;
-        BoxOtSyncButton.IsVisible = live;
-        TrainerReadButton.IsVisible = live;
-        TrainerApplyNameButton.IsVisible = live || _loadedSave?.CanWrite == true;
+        PartyOtSyncButton.IsVisible = live && partyWrite;
+        BoxOtSyncButton.IsVisible = live && boxWrite;
+        TrainerReadButton.IsVisible = live && trainerRead;
+        TrainerApplyNameButton.IsVisible = trainerWrite && (live || _loadedSave?.CanWrite == true);
         TrainerApplyNameButton.Content = live ? "写入名字" : "应用名字到待保存存档";
-        TrainerMoneyReadButton.IsVisible = live;
-        TrainerMoneyApplyButton.IsVisible = live || _loadedSave?.CanWrite == true;
+        TrainerMoneyReadButton.IsVisible = live && trainerRead;
+        TrainerMoneyApplyButton.IsVisible = trainerWrite && (live || _loadedSave?.CanWrite == true);
         TrainerMoneyApplyButton.Content = live ? "写入金钱" : "应用金钱到待保存存档";
-        BagReadButton.IsVisible = live;
-        BagSnapshotButton.IsVisible = live && !UsesUnboundCfruLayout;
-        BagAddButton.IsVisible = live || _loadedSave?.CanWrite == true;
-        BagApplyButton.IsVisible = live || _loadedSave?.CanWrite == true;
+        BagReadButton.IsVisible = live && bagRead;
+        BagSnapshotButton.IsVisible = live && bagRead && UsesScannedLiveBag;
+        BagAddButton.IsVisible = bagWrite && (live || _loadedSave?.CanWrite == true);
+        BagApplyButton.IsVisible = bagWrite && (live || _loadedSave?.CanWrite == true);
         BagApplyButton.Content = live ? "写入当前槽" : "应用到当前槽";
         BagList.IsVisible = live;
         SaveBagList.IsVisible = !live;
@@ -483,10 +460,17 @@ public partial class MainWindow : Window
             ? "选中左侧口袋槽位后编辑，再明确写入 mGBA 内存。"
             : "左侧可直接修改现有道具；选择完成或数量输入失焦/回车后自动更新待保存副本。右侧用于添加道具和查看详情。";
         BagAddButton.Content = live ? "添加到当前背包" : "添加到当前分类";
-        DexImportPartyButton.IsVisible = live;
-        DexImportBoxButton.IsVisible = live && !UsesDestinySaveLayout;
-        DexImportPartyButton.IsEnabled = live;
-        DexImportBoxButton.IsEnabled = live && !UsesDestinySaveLayout;
+        DexImportPartyButton.IsVisible = live
+            ? _profile.Features.ImportToParty && partyWrite
+            : _profile.Features.ImportToSaveParty && partyWrite && _loadedSave?.CanWrite == true;
+        DexImportBoxButton.IsVisible = live
+            ? _profile.Features.ImportToBoxes && boxWrite
+            : _profile.Features.ImportToSaveBoxes && boxWrite && _loadedSave?.CanWrite == true;
+        DexImportPartyButton.IsEnabled = DexImportPartyButton.IsVisible;
+        DexImportBoxButton.IsEnabled = DexImportBoxButton.IsVisible;
+        _bagPocketChoices = BuildBagPocketChoices(live);
+        BagPocketTabs.ItemsSource = _bagPocketChoices;
+        BagPocketTabs.SelectedIndex = 0;
         BagModeHintText.Text = live
             ? "请先对比下方道具列表是否和游戏中一致；如不一致，请先校准背包。"
             : _loadedSave is null
@@ -503,6 +487,14 @@ public partial class MainWindow : Window
         if (!live && MainTabs.SelectedItem == ExperimentTab)
             MainTabs.SelectedItem = PartyTab;
     }
+
+    private ChoiceRow[] BuildBagPocketChoices(bool live)
+        =>
+        [
+            .. _runtime.BagPockets(live).Select(pocket => new ChoiceRow(pocket.Id, pocket.Name)),
+            new(-1, "未知/候选"),
+            new(0, "全部口袋")
+        ];
 
     private void UpdateSaveButtons()
     {
@@ -1009,6 +1001,7 @@ public partial class MainWindow : Window
 
     private void LoadPartyRows(MgbaBridgeClient bridge, uint baseAddr, int selectSlot)
     {
+        _runtime.EnsureCanRead(GameDataSurface.Party, live: true);
         var rows = new List<PartySlotRow>();
         var partyCount = ReadLivePartyCount(bridge, baseAddr) ?? Gen3Constants.PartySlots;
         for (var slot = 1; slot <= partyCount; slot++)
@@ -1082,17 +1075,21 @@ public partial class MainWindow : Window
     private int? ReadLivePartyCount(MgbaBridgeClient bridge, uint baseAddr)
     {
         var countAddress = (long)baseAddr + _profile.Memory.PartyCountOffsetFromPartyBase;
-        if (countAddress < PartyScanner.EwramBase) return null;
+        if (countAddress < _profile.Memory.EwramBase) return null;
         var count = bridge.Read((uint)countAddress, 1)[0];
         return count is >= 0 and <= Gen3Constants.PartySlots ? count : null;
     }
 
     private void WritePartyCount(MgbaBridgeClient bridge, uint baseAddr, int count)
     {
+        _runtime.EnsureCanWrite(GameDataSurface.Party, live: true);
         if (count is < 0 or > Gen3Constants.PartySlots)
             throw new InvalidOperationException($"队伍数量必须在 0..{Gen3Constants.PartySlots}。");
+        if (_partyBase is not uint scannedPartyBase || baseAddr != scannedPartyBase)
+            throw new InvalidOperationException("队伍基址不是当前扫描确认的地址，已拒绝写入数量。");
         var countAddress = (long)baseAddr + _profile.Memory.PartyCountOffsetFromPartyBase;
-        if (countAddress < PartyScanner.EwramBase)
+        if (countAddress < _profile.Memory.EwramBase ||
+            countAddress >= (long)_profile.Memory.EwramBase + _profile.Memory.EwramSize)
             throw new InvalidOperationException("队伍数量地址无效。");
         bridge.Command($"WRITE8 0x{countAddress:X} 0x{count:X}");
         var actual = bridge.Read((uint)countAddress, 1)[0];
@@ -1115,6 +1112,7 @@ public partial class MainWindow : Window
                 FillSaveTrainerInfo();
                 return;
             }
+            _runtime.EnsureCanRead(GameDataSurface.Trainer, live: true);
             using var bridge = ConnectBridge();
             var info = ReadTrainerInfo(bridge);
             FillTrainerInfo(info);
@@ -1136,7 +1134,7 @@ public partial class MainWindow : Window
         await RunUiTask("写入训练家名字", () =>
         {
             var newName = TrainerNameBox.Text?.Trim() ?? string.Empty;
-            var encoded = EncodeGameTextBuffer(newName, _profile.Memory.PlayerNameLength);
+            var encoded = EncodeGameTextBuffer(newName, _profile.Memory.PlayerNameLength, requireTerminator: true);
             if (_dataSourceMode == DataSourceMode.SaveFile)
             {
                 var document = _loadedSave ?? throw new InvalidOperationException("请先读取一个存档。");
@@ -1152,6 +1150,7 @@ public partial class MainWindow : Window
 
             using var bridge = ConnectBridge();
             var beforeLive = ReadTrainerInfo(bridge);
+            _runtime.EnsureCanWrite(GameDataSurface.Trainer, live: true);
             bridge.WriteRangeVerified(beforeLive.SaveBlock2Address, encoded);
             var after = ReadTrainerInfo(bridge);
             FillTrainerInfo(after);
@@ -1186,6 +1185,7 @@ public partial class MainWindow : Window
                 FillSaveTrainerInfo();
                 return;
             }
+            _runtime.EnsureCanRead(GameDataSurface.Trainer, live: true);
             using var bridge = ConnectBridge();
             FillTrainerMoney(bridge);
         });
@@ -1196,8 +1196,8 @@ public partial class MainWindow : Window
         await RunUiTask("写入金钱", () =>
         {
             var money = ParseIntRequired(TrainerMoneyCurrentBox.Text, "当前金钱");
-            if (money is < 0 or > MaxTrainerMoney)
-                throw new InvalidOperationException($"当前金钱必须在 0..{MaxTrainerMoney}。");
+            if (money is < 0 || money > _profile.Runtime.MaxTrainerMoney)
+                throw new InvalidOperationException($"当前金钱必须在 0..{_profile.Runtime.MaxTrainerMoney}。");
 
             if (_dataSourceMode == DataSourceMode.SaveFile)
             {
@@ -1377,6 +1377,26 @@ public partial class MainWindow : Window
         if (SelectedRow() is not { } row) return;
         if (!await ConfirmPartyDeleteAsync(row)) return;
 
+        if (_dataSourceMode == DataSourceMode.SaveFile)
+        {
+            await RunUiTask("删除存档队伍精灵", () =>
+            {
+                var document = _loadedSave ?? throw new InvalidOperationException("当前没有已读取的存档。");
+                document.RemovePartyPokemon(row.Slot);
+                _partyRows.RemoveAt(row.Slot - 1);
+                for (var index = row.Slot - 1; index < _partyRows.Count; index++)
+                {
+                    var current = _partyRows[index];
+                    _partyRows[index] = ToRow(index + 1, (uint)document.PartySaveOffset(index + 1), current.Mon);
+                }
+                PartyList.SelectedIndex = _partyRows.Count == 0 ? -1 : Math.Clamp(row.Slot - 1, 0, _partyRows.Count - 1);
+                UpdateSaveButtons();
+                SetWriteNotice($"存档队伍槽位 {row.Slot} 已删除并压缩后续槽位，等待保存。");
+                ShowToast("存档队伍精灵已删除，等待保存。", success: true);
+            });
+            return;
+        }
+
         await RunUiTask("删除队伍精灵", () =>
         {
             using var bridge = ConnectBridge();
@@ -1395,7 +1415,7 @@ public partial class MainWindow : Window
                 source.CopyTo(compacted, (slot - row.Slot - 1) * Gen3Constants.PartyMonSize);
             }
 
-            bridge.WriteRangeVerified(addr, compacted);
+            WriteLivePartyRange(bridge, addr, compacted);
             var newCount = count - 1;
             WritePartyCount(bridge, baseAddr, newCount);
             SetWriteNotice($"队伍槽位 {row.Slot} 已删除：{row.Title}。请回游戏确认后手动保存。");
@@ -1525,7 +1545,7 @@ public partial class MainWindow : Window
         {
             using var bridge = ConnectBridge();
             _bagBase = TryLocateBagBase(bridge);
-            var ewram = PartyScanner.ReadEwram(bridge);
+            var ewram = PartyScanner.ReadEwram(bridge, _profile);
             var quantityKey = BagScanner.InferQuantityKey(ewram);
             var pockets = CalibrateBagPockets(ewram, _bagBase, requests, quantityKey);
             if (pockets.Count == 0)
@@ -1697,9 +1717,11 @@ public partial class MainWindow : Window
     {
         var startOffset = 0;
         var endOffset = ewram.Length;
-        if (saveBlockBase is >= PartyScanner.EwramBase and < PartyScanner.EwramBase + PartyScanner.EwramSize)
+        if (saveBlockBase.HasValue &&
+            saveBlockBase.Value >= _profile.Memory.EwramBase &&
+            saveBlockBase.Value < _profile.Memory.EwramBase + _profile.Memory.EwramSize)
         {
-            startOffset = Math.Max(0, (int)(saveBlockBase.Value - PartyScanner.EwramBase));
+            startOffset = Math.Max(0, (int)(saveBlockBase.Value - _profile.Memory.EwramBase));
             endOffset = Math.Min(ewram.Length, startOffset + 0x4000);
         }
 
@@ -1748,7 +1770,7 @@ public partial class MainWindow : Window
                 if (slotQuantity is 0 || slotQuantity > MaxBagWriteQuantityForPocket(request.Pocket)) break;
                 score += slotItem == request.ItemId && slotQuantity == request.Quantity ? 60 : 30;
                 slots.Add(new BagSlot(
-                    PartyScanner.EwramBase + (uint)slotOff,
+                    _profile.Memory.EwramBase + (uint)slotOff,
                     slotItem,
                     slotQuantity,
                     score,
@@ -1905,7 +1927,7 @@ public partial class MainWindow : Window
             {
                 var document = _loadedSave ?? throw new InvalidOperationException("请先读取存档。");
                 var item = ParseBagItemRequired(row.Pocket, allowEmpty: true);
-                var qty = ParseBagQuantityRequired(item, allowZero: item == 0);
+                var qty = ParseBagQuantityRequired(item, allowZero: item == 0, row.Pocket);
                 var updated = document.ReplaceBagEntry(checked((int)row.Address), item, qty);
                 LoadSaveBagRows(document.CurrentBag, updated?.SaveOffset);
                 UpdateSaveButtons();
@@ -1922,16 +1944,16 @@ public partial class MainWindow : Window
             EnsureBagSelectionFresh(bridge);
             var addr = row.Address;
             var item = ParseBagItemRequired(row.Pocket, allowEmpty: true);
-            var qty = ParseBagQuantityRequired(item, allowZero: item == 0);
-            var liveKey = UsesUnboundCfruLayout ? row.QuantityKey : BagScanner.InferQuantityKey(PartyScanner.ReadEwram(bridge));
+            var qty = ParseBagQuantityRequired(item, allowZero: item == 0, row.Pocket);
+            var liveKey = UsesFixedLiveBag ? row.QuantityKey : BagScanner.InferQuantityKey(PartyScanner.ReadEwram(bridge, _profile));
             var quantityKey = liveKey != 0 ? liveKey : row.QuantityKey;
             var quantityXor = row.QuantityXor || quantityKey != 0;
             var definition = new BagPocketDefinition(row.Pocket, PocketNameZh(row.Pocket), 0, 0, quantityXor, quantityKey);
-            var before = BagScanner.ReadSlot(bridge, addr, definition);
+            var before = BagScanner.ReadSlot(bridge, addr, definition, MaxBagWriteQuantityForPocket(row.Pocket));
 
-            bridge.WriteRangeVerified(addr, EncodeBagOverwriteSlot(item, qty, quantityKey, quantityXor));
+            WriteLiveBagRange(bridge, addr, EncodeBagOverwriteSlot(item, qty, quantityKey, quantityXor));
 
-            var slot = BagScanner.ReadSlot(bridge, addr, definition);
+            var slot = BagScanner.ReadSlot(bridge, addr, definition, MaxBagWriteQuantityForPocket(row.Pocket));
             SetWriteNotice($"背包覆盖成功：{ItemName(before.ItemId)} x{before.Quantity} -> {ItemName(slot.ItemId)} x{slot.Quantity}。");
             LoadBagRows(bridge);
             BagList.SelectedItem = _bagRows.FirstOrDefault(r => r.Address == addr) ?? BagList.SelectedItem;
@@ -1951,7 +1973,7 @@ public partial class MainWindow : Window
                 if (!IsConcreteBagPocket(selectedPocket))
                     throw new InvalidOperationException("请先切换到具体背包分类。");
                 var item = ParseBagItemRequired(selectedPocket, allowEmpty: false);
-                var qty = ParseBagQuantityRequired(item, allowZero: false);
+                var qty = ParseBagQuantityRequired(item, allowZero: false, selectedPocket);
                 var added = document.AddBagItem(selectedPocket, item, qty);
                 LoadSaveBagRows(document.CurrentBag, added.SaveOffset);
                 UpdateSaveButtons();
@@ -1963,36 +1985,43 @@ public partial class MainWindow : Window
         await RunUiTask("添加背包道具", () =>
         {
             using var bridge = ConnectBridge();
-            if (UsesUnboundCfruLayout)
+            if (UsesFixedLiveBag)
             {
-                AddUnboundLiveBagItem(bridge);
+                AddFixedLiveBagItem(bridge);
                 return;
             }
             _bagBase = TryLocateBagBase(bridge);
-            var ewram = PartyScanner.ReadEwram(bridge);
+            var ewram = PartyScanner.ReadEwram(bridge, _profile);
             var selectedPocket = SelectedChoiceId(BagPocketTabs) ?? 0;
             if (selectedPocket <= 0)
                 selectedPocket = CurrentBagEditPocket();
             if (selectedPocket <= 0)
                 throw new InvalidOperationException("请先切换到具体背包分类，或先选中一个背包槽。");
             var item = ParseBagItemRequired(selectedPocket, allowEmpty: false);
-            var qty = ParseBagQuantityRequired(item, allowZero: false);
-            var target = BagScanner.FindAddTarget(ewram, _bagBase, selectedPocket, item, qty, PocketOfItem, MaxBagWriteQuantityForPocket(selectedPocket));
-            bridge.WriteRangeVerified(target.Address, BagScanner.EncodeSlot(target.ItemId, target.AfterQuantity, target.QuantityKey, quantityXor: true));
+            var qty = ParseBagQuantityRequired(item, allowZero: false, selectedPocket);
+            var target = BagScanner.FindAddTarget(
+                ewram, _profile.Memory.EwramBase, _bagBase, _runtime.ScannedBagDefinitions,
+                selectedPocket, item, qty, PocketOfItem,
+                pocket => _runtime.IsKeyItemPocket(pocket, true),
+                pocket => _runtime.BagBatchCapacity(pocket, true),
+                MaxItemId(), MaxBagWriteQuantityForPocket(selectedPocket));
+            WriteLiveBagRange(bridge, target.Address, BagScanner.EncodeSlot(target.ItemId, target.AfterQuantity, target.QuantityKey, quantityXor: true));
             SetWriteNotice($"背包添加成功：{ItemName(item)} {target.BeforeQuantity} -> {target.AfterQuantity}（{target.Note}）。");
             LoadBagRows(bridge);
             BagList.SelectedItem = _bagRows.FirstOrDefault(r => r.Address == target.Address) ?? BagList.SelectedItem;
         });
     }
 
-    private void AddUnboundLiveBagItem(MgbaBridgeClient bridge)
+    private void AddFixedLiveBagItem(MgbaBridgeClient bridge)
     {
-        var selectedPocket = SelectedChoiceId(BagPocketTabs) ?? CurrentBagEditPocket();
-        var area = UnboundLiveBagArea(selectedPocket)
-                   ?? throw new InvalidOperationException("解放版只支持道具、重要物品、精灵球、招式机器和树果五个口袋。");
+        var selectedPocket = SelectedChoiceId(BagPocketTabs) ?? 0;
+        if (!IsConcreteBagPocket(selectedPocket))
+            selectedPocket = CurrentBagEditPocket();
+        var area = ProfileLiveBagArea(selectedPocket)
+                   ?? throw new InvalidOperationException("请先切换到具体背包分类。");
         var item = ParseBagItemRequired(selectedPocket, allowEmpty: false);
-        var quantity = ParseBagQuantityRequired(item, allowZero: false);
-        var key = ReadUnboundQuantityKey(bridge);
+        var quantity = ParseBagQuantityRequired(item, allowZero: false, selectedPocket);
+        var key = ReadProfileQuantityKey(bridge);
         var raw = bridge.Read(area.Address, area.Capacity * 4);
         var targetIndex = -1;
         var lastUsedIndex = -1;
@@ -2023,8 +2052,8 @@ public partial class MainWindow : Window
         }
         if (targetIndex < 0) throw new InvalidOperationException("当前口袋已满。");
         var address = area.Address + (uint)(targetIndex * 4);
-        bridge.WriteRangeVerified(address, EncodeBagOverwriteSlot(item, quantity, key, quantityXor: true));
-        LoadUnboundBagRows(bridge);
+        WriteLiveBagRange(bridge, address, EncodeBagOverwriteSlot(item, quantity, key, quantityXor: true));
+        LoadFixedBagRows(bridge);
         BagList.SelectedItem = _bagRows.FirstOrDefault(row => row.Address == address) ?? BagList.SelectedItem;
         SetWriteNotice($"背包添加成功：{ItemName(item)} {beforeQuantity} -> {quantity}。");
     }
@@ -2062,16 +2091,38 @@ public partial class MainWindow : Window
 
     private async void OnBagGiveAllTmsClicked(object? sender, RoutedEventArgs e)
     {
-        var items = Enumerable.Range(MachineTmStartItem, MachineTmCount).Select(i => (ushort)i).ToArray();
+        var items = MachineBagItemIds(includeHms: false);
         if (!await ConfirmBagMachineBatchAsync("获取全部技能机", items.Length)) return;
         await GiveBagMachinesAsync("获取全部技能机", items);
     }
 
     private async void OnBagGiveAllHmsClicked(object? sender, RoutedEventArgs e)
     {
-        var items = Enumerable.Range(MachineHmStartItem, MachineHmCount).Select(i => (ushort)i).ToArray();
+        var items = MachineBagItemIds(includeHms: true);
         if (!await ConfirmBagMachineBatchAsync("获取全部秘传机", items.Length)) return;
         await GiveBagMachinesAsync("获取全部秘传机", items);
+    }
+
+    private ushort[] MachineBagItemIds(bool includeHms)
+    {
+        if (_profile.Runtime.Machines.Mode == "item-data")
+        {
+            return Enumerable.Range(1, MaxItemId())
+                .Select(item => (Item: item, HasData: TryReadEmbeddedItemData(item, out var data), Data: data))
+                .Where(row =>
+                    row.HasData &&
+                    row.Data.Pocket == MachinePocket &&
+                    row.Data.ExitsBagOnUse is >= 1 and <= 128 &&
+                    (includeHms ? row.Data.ExitsBagOnUse >= 121 : row.Data.ExitsBagOnUse <= 120))
+                .OrderBy(row => row.Data.ExitsBagOnUse)
+                .Select(row => (ushort)row.Item)
+                .ToArray();
+        }
+
+        var rules = _profile.Runtime.Machines;
+        return includeHms
+            ? Enumerable.Range(rules.HmStartItem, rules.HmCount).Select(i => (ushort)i).ToArray()
+            : Enumerable.Range(rules.TmStartItem, rules.TmCount).Select(i => (ushort)i).ToArray();
     }
 
     private async Task GiveBagMachinesAsync(string label, IReadOnlyList<ushort> items)
@@ -2096,24 +2147,25 @@ public partial class MainWindow : Window
         await RunUiTask(label, () =>
         {
             using var bridge = ConnectBridge();
-            _bagBase = UsesUnboundCfruLayout
-                ? 0x0203B174u
-                : BagScanner.LocateSaveBlockBase(bridge, _profile.Memory.SaveBlock1PointerAddress);
-            var ewram = PartyScanner.ReadEwram(bridge);
-            var definition = UsesUnboundCfruLayout
-                ? new BagPocketDefinition(MachinePocket, "招式机器", 0, 128, true, 0)
-                : BagScanner.DefinitionForPocket(MachinePocket)
+            _bagBase = UsesFixedLiveBag
+                ? _profile.Runtime.LiveBag.BaseAddress
+                : BagScanner.LocateSaveBlockBase(bridge, _profile, _runtime.ScannedBagDefinitions);
+            var ewram = PartyScanner.ReadEwram(bridge, _profile);
+            var fixedArea = ProfileLiveBagArea(MachinePocket);
+            var definition = UsesFixedLiveBag
+                ? new BagPocketDefinition(MachinePocket, fixedArea?.Name ?? "招式机器", 0, fixedArea?.Capacity ?? 0, true, 0)
+                : BagScanner.DefinitionForPocket(_runtime.ScannedBagDefinitions, MachinePocket)
                   ?? throw new InvalidOperationException("缺少招式机器/秘传机器口袋定义。");
-            var startAddress = UsesUnboundCfruLayout
-                ? 0x0203C41Cu
+            var startAddress = UsesFixedLiveBag
+                ? fixedArea?.Address ?? throw new InvalidOperationException("当前 Profile 缺少实时机器口袋地址。")
                 : _bagBase.Value + definition.Offset;
-            var startOffset = checked((int)(startAddress - PartyScanner.EwramBase));
+            var startOffset = checked((int)(startAddress - _profile.Memory.EwramBase));
             var endOffset = startOffset + definition.SlotCount * 4;
             if (startOffset < 0 || endOffset > ewram.Length)
                 throw new InvalidOperationException("招式机器/秘传机器口袋地址无效。请先读取或校准背包。");
 
-            var quantityKey = UsesUnboundCfruLayout
-                ? ReadUnboundQuantityKey(bridge)
+            var quantityKey = UsesFixedLiveBag
+                ? ReadProfileQuantityKey(bridge)
                 : BagScanner.InferQuantityKey(ewram);
             var machines = ReadMachinePocketQuantities(ewram, startOffset, definition.SlotCount, quantityKey);
             var existingBefore = items.Count(machines.ContainsKey);
@@ -2133,7 +2185,7 @@ public partial class MainWindow : Window
                 throw new InvalidOperationException($"机器口袋容量不足：需要 {machines.Count} 格，容量 {definition.SlotCount} 格。");
 
             var rewritten = EncodeMachinePocket(machines, definition.SlotCount, quantityKey, MaxBagWriteQuantityForPocket(MachinePocket));
-            bridge.WriteRangeVerified(startAddress, rewritten);
+            WriteLiveBagRange(bridge, startAddress, rewritten);
             var added = Math.Max(0, items.Count - existingBefore - skipped);
 
             LoadBagRows(bridge);
@@ -2163,9 +2215,9 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (UsesUnboundCfruLayout)
+        if (UsesFixedLiveBag)
         {
-            await GiveUnboundLiveBagPocketItemsAsync(label, pocket, items);
+            await GiveFixedLiveBagPocketItemsAsync(label, pocket, items);
             return;
         }
 
@@ -2173,13 +2225,17 @@ public partial class MainWindow : Window
         {
             using var bridge = ConnectBridge();
             _bagBase = TryLocateBagBase(bridge);
-            var ewram = PartyScanner.ReadEwram(bridge);
+            var ewram = PartyScanner.ReadEwram(bridge, _profile);
             var quantityKey = BagScanner.InferQuantityKey(ewram);
-            var run = BagScanner.FindLivePockets(ewram, _bagBase, PocketOfItem, MaxBagScanQuantity())
+            var run = BagScanner.FindLivePockets(
+                    ewram, _profile.Memory.EwramBase, _bagBase,
+                    _runtime.BagPockets(true).Select(candidate => candidate.Id).ToArray(),
+                    PocketOfItem, candidate => _runtime.IsKeyItemPocket(candidate, true),
+                    candidate => _runtime.BagBatchCapacity(candidate, true), MaxItemId(), MaxBagScanQuantity())
                 .FirstOrDefault(candidate => candidate.Pocket == pocket)
                 ?? throw new InvalidOperationException($"当前{PocketNameZh(pocket)}尚未定位。请先读取背包，或在游戏内至少获得该分类一个道具后再试。");
 
-            var startOffset = checked((int)(run.StartAddress - PartyScanner.EwramBase));
+            var startOffset = checked((int)(run.StartAddress - _profile.Memory.EwramBase));
             var endOffset = Math.Min(ewram.Length, startOffset + BagBatchCapacity(pocket) * 4);
             var existing = new Dictionary<ushort, int>();
             var emptyOffsets = new List<int>();
@@ -2205,7 +2261,7 @@ public partial class MainWindow : Window
             foreach (var (item, offset) in existing)
             {
                 var bytes = EncodeBatchBagSlot(pocket, item, quantityKey);
-                bridge.WriteRangeVerified(PartyScanner.EwramBase + (uint)offset, bytes);
+                WriteLiveBagRange(bridge, _profile.Memory.EwramBase + (uint)offset, bytes);
                 updated++;
             }
 
@@ -2214,7 +2270,7 @@ public partial class MainWindow : Window
             {
                 var offset = emptyOffsets[i];
                 var bytes = EncodeBatchBagSlot(pocket, missing[i], quantityKey);
-                bridge.WriteRangeVerified(PartyScanner.EwramBase + (uint)offset, bytes);
+                WriteLiveBagRange(bridge, _profile.Memory.EwramBase + (uint)offset, bytes);
                 added++;
             }
 
@@ -2225,14 +2281,14 @@ public partial class MainWindow : Window
         });
     }
 
-    private async Task GiveUnboundLiveBagPocketItemsAsync(string label, int pocket, IReadOnlyList<ushort> items)
+    private async Task GiveFixedLiveBagPocketItemsAsync(string label, int pocket, IReadOnlyList<ushort> items)
     {
         await RunUiTask(label, () =>
         {
-            var area = UnboundLiveBagArea(pocket)
-                       ?? throw new InvalidOperationException("解放版只支持道具、重要物品、精灵球、招式机器和树果五个口袋。");
+            var area = ProfileLiveBagArea(pocket)
+                       ?? throw new InvalidOperationException("当前 Profile 没有配置该实时背包口袋。");
             using var bridge = ConnectBridge();
-            var quantityKey = ReadUnboundQuantityKey(bridge);
+            var quantityKey = ReadProfileQuantityKey(bridge);
             var raw = bridge.Read(area.Address, area.Capacity * 4);
             var wanted = items.ToHashSet();
             var existing = new Dictionary<ushort, int>();
@@ -2263,7 +2319,7 @@ public partial class MainWindow : Window
             foreach (var (item, index) in existing)
             {
                 var address = area.Address + (uint)(index * 4);
-                bridge.WriteRangeVerified(address, BagScanner.EncodeSlot(item, quantity, quantityKey, quantityXor: true));
+                WriteLiveBagRange(bridge, address, BagScanner.EncodeSlot(item, quantity, quantityKey, quantityXor: true));
                 updated++;
             }
 
@@ -2271,11 +2327,11 @@ public partial class MainWindow : Window
             for (var i = 0; i < missing.Length; i++)
             {
                 var address = area.Address + (uint)(emptyIndexes[i] * 4);
-                bridge.WriteRangeVerified(address, BagScanner.EncodeSlot(missing[i], quantity, quantityKey, quantityXor: true));
+                WriteLiveBagRange(bridge, address, BagScanner.EncodeSlot(missing[i], quantity, quantityKey, quantityXor: true));
                 added++;
             }
 
-            LoadUnboundBagRows(bridge);
+            LoadFixedBagRows(bridge);
             BagPocketTabs.SelectedItem = _bagPocketChoices.FirstOrDefault(choice => choice.Id == pocket) ?? BagPocketTabs.SelectedItem;
             BagList.SelectedItem = _bagRows.FirstOrDefault(row => items.Contains(row.ItemId)) ?? BagList.SelectedItem;
             SetWriteNotice($"{label}完成：新增 {added} 个，更新数量 {updated} 个，数量设置为 {quantity}。请回游戏确认后手动保存。");
@@ -2382,7 +2438,7 @@ public partial class MainWindow : Window
             using var bridge = ConnectBridge();
             var mon = ReadSelectedBoxMon(bridge, row);
             var (species, evTotal) = ApplyBoxEditor(mon);
-            bridge.WriteRangeVerified(row.Address, mon.Raw.ToArray());
+            WriteLiveBoxRange(bridge, row.Address, mon.Raw);
             SetWriteNotice(
                 evTotal > 510
                     ? $"箱子槽写入成功：{SpeciesName(species)}。警告：努力值总和已超过限制，可能发生未知错误或坏档。"
@@ -2449,10 +2505,27 @@ public partial class MainWindow : Window
 
         if (!await ConfirmBoxDeleteAsync(row)) return;
 
+        if (_dataSourceMode == DataSourceMode.SaveFile)
+        {
+            await RunUiTask("删除存档箱子精灵", () =>
+            {
+                var document = _loadedSave ?? throw new InvalidOperationException("当前没有已读取的存档。");
+                document.ClearBoxPokemon(row.Slot);
+                var oldIndex = BoxList.SelectedIndex;
+                _boxRows.Remove(row);
+                RefreshBoxGridGroups();
+                BoxList.SelectedIndex = _boxRows.Count == 0 ? -1 : Math.Clamp(oldIndex, 0, _boxRows.Count - 1);
+                UpdateSaveButtons();
+                SetWriteNotice($"存档箱子槽已清空：{row.Title}，等待保存。");
+                ShowToast("存档箱子精灵已删除，等待保存。", success: true);
+            });
+            return;
+        }
+
         await RunUiTask("删除箱子精灵", () =>
         {
             using var bridge = ConnectBridge();
-            var live = new BoxPokemon(bridge.Read(row.Address, ActiveBoxRecordSize), ActivePokemonLayout);
+            var live = new BoxPokemon(bridge.Read(row.Address, ActiveBoxRecordSize), ActiveBoxLayout);
             if (live.IsEmpty)
                 throw new InvalidOperationException("该箱子槽已经是空的。");
             if (!SamePokemonIdentity(row.Mon, live))
@@ -2461,7 +2534,7 @@ public partial class MainWindow : Window
                 throw new InvalidOperationException($"箱子槽里的宝可梦已经变化。{MovedBoxHint(row)}");
             }
 
-            bridge.WriteRangeVerified(row.Address, new byte[ActiveBoxRecordSize]);
+            WriteLiveBoxRange(bridge, row.Address, new byte[ActiveBoxRecordSize]);
             SetWriteNotice($"箱子槽已删除：{row.Title}。请回游戏确认后手动保存。");
             ShowToast("箱子精灵删除成功。", success: true);
 
@@ -2473,6 +2546,12 @@ public partial class MainWindow : Window
 
     private async void OnDexImportPartyClicked(object? sender, RoutedEventArgs e)
     {
+        var saveMode = _dataSourceMode == DataSourceMode.SaveFile;
+        if (saveMode ? !_profile.Features.ImportToSaveParty : !_profile.Features.ImportToParty)
+        {
+            ShowToast("当前 Profile 未启用导入队伍。", success: false);
+            return;
+        }
         if (DexSpeciesList.SelectedItem is not DexSpeciesRow row)
         {
             ShowToast("请先在图鉴中选择一个宝可梦。", success: false);
@@ -2481,6 +2560,20 @@ public partial class MainWindow : Window
 
         await RunUiTask("导入队伍", () =>
         {
+            if (saveMode)
+            {
+                var document = _loadedSave ?? throw new InvalidOperationException("当前没有已读取的存档。");
+                var saveTrainer = ResolveSaveImportTrainerIdentity(document);
+                var saveMon = BuildDexPartyPokemon(row.Id, saveTrainer);
+                var saveTargetSlot = document.AppendPartyPokemon(saveMon);
+                var updated = ToRow(saveTargetSlot, (uint)document.PartySaveOffset(saveTargetSlot), saveMon);
+                _partyRows.Add(updated);
+                PartyList.SelectedItem = updated;
+                UpdateSaveButtons();
+                SetWriteNotice($"已从图鉴导入到存档队伍槽位 {saveTargetSlot}：{row.DisplayName}。完成后请使用“保存修改并备份”。");
+                return;
+            }
+
             using var bridge = ConnectBridge();
             var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
             var count = ReadLivePartyCount(bridge, baseAddr)
@@ -2492,7 +2585,7 @@ public partial class MainWindow : Window
             var mon = BuildDexPartyPokemon(row.Id, trainer);
             var targetSlot = count + 1;
             var targetAddress = SlotAddress(baseAddr, targetSlot);
-            bridge.WriteRangeVerified(targetAddress, mon.Raw);
+            WriteLivePartyRange(bridge, targetAddress, mon.Raw);
             WritePartyCount(bridge, baseAddr, targetSlot);
             LoadPartyRows(bridge, baseAddr, targetSlot);
             SetWriteNotice($"已从图鉴导入到队伍槽位 {targetSlot}：{row.DisplayName}。请回游戏确认后手动保存。");
@@ -2501,6 +2594,12 @@ public partial class MainWindow : Window
 
     private async void OnDexImportBoxClicked(object? sender, RoutedEventArgs e)
     {
+        var saveMode = _dataSourceMode == DataSourceMode.SaveFile;
+        if (saveMode ? !_profile.Features.ImportToSaveBoxes : !_profile.Features.ImportToBoxes)
+        {
+            ShowToast("当前 Profile 未启用导入箱子。", success: false);
+            return;
+        }
         if (DexSpeciesList.SelectedItem is not DexSpeciesRow row)
         {
             ShowToast("请先在图鉴中选择一个宝可梦。", success: false);
@@ -2509,16 +2608,61 @@ public partial class MainWindow : Window
 
         await RunUiTask("导入箱子", () =>
         {
+            if (saveMode)
+            {
+                var document = _loadedSave ?? throw new InvalidOperationException("当前没有已读取的存档。");
+                var occupied = _boxRows.Select(candidate => candidate.Slot).ToHashSet();
+                var saveTargetSlot = Enumerable.Range(1, WritableBoxSlotCount(live: false))
+                    .FirstOrDefault(slot => !occupied.Contains(slot));
+                if (saveTargetSlot == 0)
+                    throw new InvalidOperationException("已验证的存档箱子槽位已满，无法导入。");
+
+                var saveTrainer = ResolveSaveImportTrainerIdentity(document);
+                var saveMon = BuildDexBoxPokemon(row.Id, saveTrainer);
+                document.ReplaceBoxPokemon(saveTargetSlot, saveMon);
+                var saveInfo = saveMon.GetInfo();
+                var saveBoxNumber = (saveTargetSlot - 1) / _profile.Memory.PcBoxSlots + 1;
+                var saveSlotInBox = (saveTargetSlot - 1) % _profile.Memory.PcBoxSlots + 1;
+                var title = BoxDisplayTitle(saveBoxNumber, saveSlotInBox, saveMon, saveInfo);
+                var updated = new BoxSlotRow(
+                    saveTargetSlot,
+                    (uint)(_profile.Memory.PcBoxDataOffset + (saveTargetSlot - 1) * ActiveBoxRecordSize),
+                    saveMon,
+                    saveInfo,
+                    title,
+                    "存档待保存副本",
+                    BoxDisplaySprite(saveInfo));
+                _boxRows.Add(updated);
+                RefreshBoxGridGroups();
+                BoxList.SelectedItem = updated;
+                UpdateSaveButtons();
+                SetWriteNotice($"已从图鉴导入到存档箱{saveBoxNumber:00}-{saveSlotInBox:00}：{row.DisplayName}。完成后请使用“保存修改并备份”。");
+                return;
+            }
+
             using var bridge = ConnectBridge();
-            var ewram = PartyScanner.ReadEwram(bridge);
+            var ewram = PartyScanner.ReadEwram(bridge, _profile);
             var targetSlot = 0;
             uint targetAddress = 0;
-            if (_profile.Memory.PcBoxRegions.Count > 0)
+            if (_profile.Memory.PcBoxStoragePointerAddress != 0)
             {
-                foreach (var slot in Enumerable.Range(1, _profile.Memory.PcBoxCount * _profile.Memory.PcBoxSlots))
+                var recordsBase = ResolvePointerBoxRecordsBase(bridge);
+                foreach (var slot in Enumerable.Range(1, WritableBoxSlotCount(live: true)))
+                {
+                    var address = recordsBase + checked((uint)((slot - 1) * ActiveBoxRecordSize));
+                    var offset = checked((int)(address - _profile.Memory.EwramBase));
+                    if (!IsAllZero(ewram.AsSpan(offset, ActiveBoxRecordSize))) continue;
+                    targetSlot = slot;
+                    targetAddress = address;
+                    break;
+                }
+            }
+            else if (_profile.Memory.PcBoxRegions.Count > 0)
+            {
+                foreach (var slot in Enumerable.Range(1, WritableBoxSlotCount(live: true)))
                 {
                     var address = ProfileBoxAddress(slot);
-                    var offset = checked((int)(address - PartyScanner.EwramBase));
+                    var offset = checked((int)(address - _profile.Memory.EwramBase));
                     if (offset < 0 || offset + ActiveBoxRecordSize > ewram.Length) continue;
                     if (!IsAllZero(ewram.AsSpan(offset, ActiveBoxRecordSize))) continue;
                     targetSlot = slot;
@@ -2528,7 +2672,14 @@ public partial class MainWindow : Window
             }
             else
             {
-                var storage = BoxScanner.LocatePcStorage(ewram, maxSpecies: _profile.Limits.MaxSpecies)
+                var storage = BoxScanner.LocatePcStorage(
+                                  ewram,
+                                  _profile.Memory.EwramBase,
+                                  maxSpecies: _profile.Limits.MaxSpecies,
+                                  maxBoxes: _profile.Memory.PcBoxCount,
+                                  slotsPerBox: _profile.Memory.PcBoxSlots,
+                                  minScore: 12,
+                                  layout: ActiveBoxLayout)
                               ?? throw new InvalidOperationException("没有定位到完整箱子存储。请先读取箱子，确认箱子列表正常后再导入。");
                 targetSlot = Enumerable.Range(1, _profile.Memory.PcBoxCount * _profile.Memory.PcBoxSlots)
                     .FirstOrDefault(slot => !storage.CandidatesBySlot.ContainsKey(slot));
@@ -2538,7 +2689,7 @@ public partial class MainWindow : Window
             if (targetSlot == 0)
                 throw new InvalidOperationException("箱子已满，无法从图鉴导入。");
 
-            var targetOffset = checked((int)(targetAddress - PartyScanner.EwramBase));
+            var targetOffset = checked((int)(targetAddress - _profile.Memory.EwramBase));
             if (targetOffset < 0 || targetOffset + ActiveBoxRecordSize > ewram.Length)
                 throw new InvalidOperationException("箱子追加地址超出 EWRAM 范围，无法安全写入。");
             if (!IsAllZero(ewram.AsSpan(targetOffset, ActiveBoxRecordSize)))
@@ -2546,7 +2697,9 @@ public partial class MainWindow : Window
 
             var trainer = ResolveImportTrainerIdentity(bridge);
             var mon = BuildDexBoxPokemon(row.Id, trainer);
-            bridge.WriteRangeVerified(targetAddress, mon.Raw);
+            if (!IsAllZero(bridge.Read(targetAddress, ActiveBoxRecordSize)))
+                throw new InvalidOperationException("目标箱子槽在导入前已经发生变化，已拒绝覆盖。请重新读取箱子后再试。");
+            WriteLiveBoxRange(bridge, targetAddress, mon.Raw);
             LoadBoxRows(bridge);
             BoxList.SelectedItem = _boxRows.FirstOrDefault(r => r.Address == targetAddress) ?? BoxList.SelectedItem;
             var boxNumber = (targetSlot - 1) / _profile.Memory.PcBoxSlots + 1;
@@ -2569,7 +2722,7 @@ public partial class MainWindow : Window
     private BoxPokemon BuildDexBoxPokemon(int species, PlayerTrainerIdentity trainer)
     {
         var stats = ReadSpeciesStats(species);
-        var mon = BoxPokemon.Create(NewNonShinyPid(trainer.OtId), trainer.OtId, ActivePokemonLayout);
+        var mon = BoxPokemon.Create(NewNonShinyPid(trainer.OtId), trainer.OtId, ActiveBoxLayout);
         mon.SetOtName(trainer.OtName);
         ApplyDexImportDefaults(mon, species, stats);
         return mon;
@@ -2643,6 +2796,13 @@ public partial class MainWindow : Window
     private PlayerTrainerIdentity ResolveImportTrainerIdentity(MgbaBridgeClient bridge)
     {
         var trainer = ReadTrainerInfo(bridge);
+        return new PlayerTrainerIdentity(trainer.OtId, trainer.NameBytes);
+    }
+
+    private static PlayerTrainerIdentity ResolveSaveImportTrainerIdentity(Gen3SaveDocument document)
+    {
+        var trainer = document.Snapshot.Trainer
+                      ?? throw new InvalidOperationException("存档中没有已验证的玩家名字和 OT ID，不能新建宝可梦。");
         return new PlayerTrainerIdentity(trainer.OtId, trainer.NameBytes);
     }
 
@@ -2731,14 +2891,15 @@ public partial class MainWindow : Window
         var (address, key) = ResolveTrainerMoneyField(bridge);
         var encrypted = ReadU32Le(bridge.Read(address, 4), 0);
         var money = encrypted ^ key;
-        if (money > MaxTrainerMoney)
-            throw new InvalidOperationException($"金钱字段解密后为 {money}，超出 0..{MaxTrainerMoney}。");
+        if (money > _profile.Runtime.MaxTrainerMoney)
+            throw new InvalidOperationException($"金钱字段解密后为 {money}，超出 0..{_profile.Runtime.MaxTrainerMoney}。");
 
         return (int)money;
     }
 
     private void WriteTrainerMoney(MgbaBridgeClient bridge, int money)
     {
+        _runtime.EnsureCanWrite(GameDataSurface.Trainer, live: true);
         var (address, key) = ResolveTrainerMoneyField(bridge);
         var encrypted = (uint)money ^ key;
         bridge.WriteRangeVerified(address, U32Le(encrypted));
@@ -2871,7 +3032,7 @@ public partial class MainWindow : Window
         mon.SetOtName(EncodeGameTextBuffer(name, _profile.Memory.PokemonOtNameLength));
     }
 
-    private byte[] EncodeGameTextBuffer(string text, int length)
+    private byte[] EncodeGameTextBuffer(string text, int length, bool requireTerminator = false)
     {
         if (string.IsNullOrWhiteSpace(text))
             throw new InvalidOperationException("名字不能为空。");
@@ -2893,8 +3054,11 @@ public partial class MainWindow : Window
                 throw new InvalidOperationException($"当前字库还不能安全编码“{rawCh}”。请先用英文大写/数字，或等后续补完整中文编码表。");
             }
 
-            if (output.Count > length)
-                throw new InvalidOperationException($"名字内部编码超过 {length} 字节，无法写入。");
+            var maxEncodedLength = requireTerminator ? length - 1 : length;
+            if (output.Count > maxEncodedLength)
+                throw new InvalidOperationException(requireTerminator
+                    ? $"名字内部编码超过 {maxEncodedLength} 字节，必须为结束符保留 1 字节。"
+                    : $"名字内部编码超过 {length} 字节，无法写入。");
         }
 
         var result = EmptyGameText(length);
@@ -3126,7 +3290,25 @@ public partial class MainWindow : Window
                         "",
                         "",
                         "",
+                        ComparisonNeutralBrush,
+                        "",
+                        "",
+                        ComparisonNeutralBrush,
                         "");
+                }
+
+                var power = MovePowerText(data.Power);
+                var accuracy = MoveAccuracyText(data.Accuracy);
+                var officialPower = string.Empty;
+                var officialAccuracy = string.Empty;
+                var powerForeground = ComparisonNeutralBrush;
+                var accuracyForeground = ComparisonNeutralBrush;
+                if (TryReadOfficialMoveData(c.Id, out var official))
+                {
+                    officialPower = MovePowerText(official.Power);
+                    officialAccuracy = MoveAccuracyText(official.Accuracy);
+                    powerForeground = ModifiedValueForeground(data.Power, official.Power);
+                    accuracyForeground = ModifiedValueForeground(data.Accuracy, official.Accuracy);
                 }
 
                 return new MoveDexRow(
@@ -3137,8 +3319,12 @@ public partial class MainWindow : Window
                     data.Category,
                     TypeBadges(data.Type, data.Type),
                     MoveCategoryNameZh(data.Category),
-                    MovePowerText(data.Power),
-                    MoveAccuracyText(data.Accuracy),
+                    power,
+                    officialPower,
+                    powerForeground,
+                    accuracy,
+                    officialAccuracy,
+                    accuracyForeground,
                     data.Pp.ToString());
             })
             .ToArray();
@@ -3473,23 +3659,28 @@ public partial class MainWindow : Window
     {
         _dexMaxLevel = ProfileMaxPokemonLevel;
         DexMaxLevelHeaderText.Text = $"{_dexMaxLevel}级时";
-        DexStatsNoteText.Text = $"按 31 个体、0 努力、无性格修正计算；最高级按 ROM 等级上限 {_dexMaxLevel} 级显示。";
+        var hasOfficial = TryReadOfficialSpeciesStats(s.Species, out var official);
+        DexStatsNoteText.Text = hasOfficial
+            ? $"当前种族值与原版种族值分列显示；当前值更高为红色、更低为绿色、相同不染色。能力按当前种族值、31 个体、0 努力、无性格修正计算，最高级为 {_dexMaxLevel} 级。"
+            : HasOfficialSpeciesComparison
+                ? $"未匹配到可靠的官方原版形态；能力按当前种族值、31 个体、0 努力、无性格修正计算，最高级为 {_dexMaxLevel} 级。"
+                : $"按 31 个体、0 努力、无性格修正计算；最高级按 ROM 等级上限 {_dexMaxLevel} 级显示。";
 
         var stats = new[]
         {
-            ("HP", (int)s.Hp, true),
-            ("攻击", (int)s.Attack, false),
-            ("防御", (int)s.Defense, false),
-            ("特攻", (int)s.SpAttack, false),
-            ("特防", (int)s.SpDefense, false),
-            ("速度", (int)s.Speed, false)
+            ("HP", (int)s.Hp, hasOfficial ? official.Hp : (int?)null, true),
+            ("攻击", (int)s.Attack, hasOfficial ? official.Attack : (int?)null, false),
+            ("防御", (int)s.Defense, hasOfficial ? official.Defense : (int?)null, false),
+            ("特攻", (int)s.SpAttack, hasOfficial ? official.SpAttack : (int?)null, false),
+            ("特防", (int)s.SpDefense, hasOfficial ? official.SpDefense : (int?)null, false),
+            ("速度", (int)s.Speed, hasOfficial ? official.Speed : (int?)null, false)
         };
 
         _dexStatRows.Clear();
         var sum50 = 0;
         var sum100 = 0;
         var sumMax = 0;
-        foreach (var (name, baseStat, isHp) in stats)
+        foreach (var (name, baseStat, officialStat, isHp) in stats)
         {
             var level50 = CalculateDexStat(baseStat, 50, isHp);
             var level100 = CalculateDexStat(baseStat, 100, isHp);
@@ -3497,9 +3688,23 @@ public partial class MainWindow : Window
             sum50 += level50;
             sum100 += level100;
             sumMax += maxLevel;
-            _dexStatRows.Add(new DexStatRow(name, baseStat.ToString(), level50.ToString(), level100.ToString(), maxLevel.ToString()));
+            _dexStatRows.Add(new DexStatRow(
+                name,
+                baseStat.ToString(),
+                officialStat?.ToString() ?? string.Empty,
+                ModifiedValueForeground(baseStat, officialStat),
+                level50.ToString(),
+                level100.ToString(),
+                maxLevel.ToString()));
         }
-        _dexStatRows.Add(new DexStatRow("合计", s.Bst.ToString(), sum50.ToString(), sum100.ToString(), sumMax.ToString()));
+        _dexStatRows.Add(new DexStatRow(
+            "合计",
+            s.Bst.ToString(),
+            hasOfficial ? official.Bst.ToString() : string.Empty,
+            ModifiedValueForeground(s.Bst, hasOfficial ? official.Bst : null),
+            sum50.ToString(),
+            sum100.ToString(),
+            sumMax.ToString()));
     }
 
     private void FillDexEvolutionInfo(DexSpeciesRow row)
@@ -3716,18 +3921,37 @@ public partial class MainWindow : Window
             try
             {
                 var data = ReadMoveData(entry.Move);
+                var power = MovePowerText(data.Power);
+                var accuracy = MoveAccuracyText(data.Accuracy);
+                var officialPower = string.Empty;
+                var officialAccuracy = string.Empty;
+                var powerForeground = ComparisonNeutralBrush;
+                var accuracyForeground = ComparisonNeutralBrush;
+                if (TryReadOfficialMoveData(entry.Move, out var official))
+                {
+                    officialPower = MovePowerText(official.Power);
+                    officialAccuracy = MoveAccuracyText(official.Accuracy);
+                    powerForeground = ModifiedValueForeground(data.Power, official.Power);
+                    accuracyForeground = ModifiedValueForeground(data.Accuracy, official.Accuracy);
+                }
                 _dexLevelMoveRows.Add(new DexLevelMoveRow(
                     $"Lv.{entry.Level:000}",
                     MoveName(entry.Move),
                     MoveTypeNameZh(data.Type),
                     MoveCategoryNameZh(data.Category),
-                    MovePowerText(data.Power),
-                    MoveAccuracyText(data.Accuracy),
+                    power,
+                    officialPower,
+                    powerForeground,
+                    accuracy,
+                    officialAccuracy,
+                    accuracyForeground,
                     data.Pp.ToString()));
             }
             catch
             {
-                _dexLevelMoveRows.Add(new DexLevelMoveRow($"Lv.{entry.Level:000}", MoveName(entry.Move), "", "", "", "", ""));
+                _dexLevelMoveRows.Add(new DexLevelMoveRow(
+                    $"Lv.{entry.Level:000}", MoveName(entry.Move), "", "", "", "",
+                    ComparisonNeutralBrush, "", "", ComparisonNeutralBrush, ""));
             }
         }
     }
@@ -3738,8 +3962,12 @@ public partial class MainWindow : Window
         {
             var id = ParseIntRequired(SpeciesLookupBox.Text, "宝可梦ID");
             var s = ReadSpeciesStats(id);
+            var hasOfficial = TryReadOfficialSpeciesStats(id, out var official);
+            string Stat(int current, Func<OfficialSpeciesStats, int> value) => hasOfficial
+                ? ComparisonText(current, value(official), static number => number.ToString())
+                : current.ToString();
             return $"宝可梦 {id}（{_db.NameOf("species", id)}）\n" +
-                   $"种族值：HP {s.Hp} / 攻击 {s.Attack} / 防御 {s.Defense} / 速度 {s.Speed} / 特攻 {s.SpAttack} / 特防 {s.SpDefense} / 总和 {s.Bst}\n" +
+                   $"种族值：HP {Stat(s.Hp, x => x.Hp)} / 攻击 {Stat(s.Attack, x => x.Attack)} / 防御 {Stat(s.Defense, x => x.Defense)} / 速度 {Stat(s.Speed, x => x.Speed)} / 特攻 {Stat(s.SpAttack, x => x.SpAttack)} / 特防 {Stat(s.SpDefense, x => x.SpDefense)} / 总和 {Stat(s.Bst, x => x.Bst)}\n" +
                    $"特性：{s.Ability1}（{_db.NameOf("abilities", s.Ability1)}） / {s.Ability2}（{_db.NameOf("abilities", s.Ability2)}）" +
                    (s.Ability3 is null ? "" : $" / {s.Ability3}({_db.NameOf("abilities", s.Ability3.Value)})") + "\n" +
                    $"携带道具：{s.Item1}（{ItemName(s.Item1)}） / {s.Item2}（{ItemName(s.Item2)}）\n" +
@@ -3753,9 +3981,21 @@ public partial class MainWindow : Window
         {
             var id = ParseIntRequired(MoveLookupBox.Text, "招式ID");
             var m = ReadMoveData(id);
+            var hasOfficial = TryReadOfficialMoveData(id, out var official);
+            var power = hasOfficial
+                ? ComparisonText(m.Power, official.Power, MovePowerText)
+                : HasOfficialMoveComparison ? MovePowerText(m.Power) : m.Power.ToString();
+            var accuracy = hasOfficial
+                ? ComparisonText(m.Accuracy, official.Accuracy, MoveAccuracyText)
+                : HasOfficialMoveComparison ? MoveAccuracyText(m.Accuracy) : m.Accuracy.ToString();
+            var description = _db.Table("move_descriptions").TryGetValue(id, out var text) && !string.IsNullOrWhiteSpace(text)
+                ? text
+                : "暂无完整说明";
             return $"招式 {id}（{_db.NameOf("moves", id)}）\n" +
-                   $"威力 {m.Power}  属性 {m.Type}（{MoveTypeNameZh(m.Type)}）  命中 {m.Accuracy}  PP {m.Pp}\n" +
+                   $"说明：{description}\n" +
+                   $"威力 {power}  属性 {m.Type}（{MoveTypeNameZh(m.Type)}）  命中 {accuracy}  PP {m.Pp}\n" +
                    $"分类 {m.Category}（{MoveCategoryNameZh(m.Category)}）  优先度 {m.Priority}  附加几率 {m.SecondaryEffectChance}\n" +
+                   $"效果 {m.Effect}（{_db.NameOf("move_effects", m.Effect)}）\n" +
                    $"目标 0x{m.Target:X4}  标志 0x{m.Flags:X4}  Z/基础威力 {m.ZMovePower}\n" +
                    $"原始数据：{Convert.ToHexString(m.Raw)}";
         });
@@ -3768,7 +4008,11 @@ public partial class MainWindow : Window
             var id = ParseIntRequired(ItemLookupBox.Text, "道具ID");
             var item = ReadItemData(id);
             var effect = item.HoldEffect == 0 ? "无" : _db.NameOf("item_effects", item.HoldEffect);
+            var description = _db.Table("item_descriptions").TryGetValue(id, out var text) && !string.IsNullOrWhiteSpace(text)
+                ? text
+                : "暂无完整说明";
             return $"道具 {id}（{_db.NameOf("items", id)}）\n" +
+                   $"说明：{description}\n" +
                    $"内部ID {item.ItemId}  价格 {item.Price}\n" +
                    $"携带效果 {item.HoldEffect}（{effect}）  参数 {item.HoldEffectParam}\n" +
                    $"口袋 {item.Pocket}（{PocketNameZh(item.Pocket)}）  类型 {item.Type}  重要度 {item.Importance}\n" +
@@ -3788,12 +4032,12 @@ public partial class MainWindow : Window
         {
             using var bridge = ConnectBridge();
             ConfigureBridgeCheatProfile(bridge);
-            if (cheatName is "INFINITE_PP" or "LOCK_HP")
+            if (cheatName is "INFINITE_PP" or "LOCK_HP" or "CLEAR_STATUS")
             {
                 var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
                 bridge.CheatCommand($"PARTY_BASE 0x{baseAddr:X}");
             }
-            else if (!UsesUnboundCfruLayout && cheatName is "NO_ENCOUNTER" && TryLocateBagBase(bridge) is { } saveBase)
+            else if (_profile.Runtime.ExperimentNeedsSaveBaseForNoEncounter && cheatName is "NO_ENCOUNTER" && TryLocateBagBase(bridge) is { } saveBase)
             {
                 bridge.CheatCommand($"SAVE_BASE 0x{saveBase:X}");
             }
@@ -3829,6 +4073,8 @@ public partial class MainWindow : Window
             {
                 CheatInfinitePpBox.IsChecked = false;
                 CheatLockHpBox.IsChecked = false;
+                CheatClearStatusBox.IsChecked = false;
+                CheatAlwaysCritBox.IsChecked = false;
                 CheatNoEncounterBox.IsChecked = false;
                 CheatWalkThroughWallsBox.IsChecked = false;
             }
@@ -3843,13 +4089,19 @@ public partial class MainWindow : Window
     {
         if (ReferenceEquals(box, CheatInfinitePpBox)) return "INFINITE_PP";
         if (ReferenceEquals(box, CheatLockHpBox)) return "LOCK_HP";
+        if (ReferenceEquals(box, CheatClearStatusBox)) return "CLEAR_STATUS";
+        if (ReferenceEquals(box, CheatAlwaysCritBox)) return "ALWAYS_CRIT";
         if (ReferenceEquals(box, CheatNoEncounterBox)) return "NO_ENCOUNTER";
         if (ReferenceEquals(box, CheatWalkThroughWallsBox)) return "WALK_THROUGH_WALLS";
         return null;
     }
 
     private void ConfigureBridgeCheatProfile(MgbaBridgeClient bridge)
-        => bridge.CheatCommand($"PROFILE {(UsesUnboundCfruLayout ? "UNBOUND" : "SPANISH_ROCKET")}");
+    {
+        if (!_profile.Features.Experiments)
+            throw new InvalidOperationException($"版本 {_profile.DisplayName} 未启用实验功能。");
+        bridge.CheatCommand($"PROFILE {_runtime.BridgeExperimentProfile}");
+    }
 
     private void SyncCheatBoxesFromStatus(string status)
     {
@@ -3858,6 +4110,8 @@ public partial class MainWindow : Window
         {
             CheatInfinitePpBox.IsChecked = status.Contains("INFINITE_PP=1", StringComparison.OrdinalIgnoreCase);
             CheatLockHpBox.IsChecked = status.Contains("LOCK_HP=1", StringComparison.OrdinalIgnoreCase);
+            CheatClearStatusBox.IsChecked = status.Contains("CLEAR_STATUS=1", StringComparison.OrdinalIgnoreCase);
+            CheatAlwaysCritBox.IsChecked = status.Contains("ALWAYS_CRIT=1", StringComparison.OrdinalIgnoreCase);
             CheatNoEncounterBox.IsChecked = status.Contains("NO_ENCOUNTER=1", StringComparison.OrdinalIgnoreCase);
             CheatWalkThroughWallsBox.IsChecked = status.Contains("WALK_THROUGH_WALLS=1", StringComparison.OrdinalIgnoreCase);
         }
@@ -4350,6 +4604,7 @@ public partial class MainWindow : Window
         var host = string.IsNullOrWhiteSpace(HostBox.Text) ? "127.0.0.1" : HostBox.Text.Trim();
         var port = int.TryParse(PortBox.Text, out var parsed) ? parsed : 8765;
         var bridge = MgbaBridgeClient.Connect(host, port);
+        _runtime.ValidateLiveRom(bridge);
         Log(bridge.Welcome);
         return bridge;
     }
@@ -4362,13 +4617,14 @@ public partial class MainWindow : Window
             return _partyBase.Value;
         }
         if (!forceRefresh && _partyBase is not null) return _partyBase.Value;
-        var ewram = PartyScanner.ReadEwram(bridge);
+        var ewram = PartyScanner.ReadEwram(bridge, _profile);
         var run = PartyScanner.LocateParty(
                       ewram,
+                      _profile.Memory.EwramBase,
+                      ActivePokemonLayout,
                       _profile.Memory.DefaultPartyBase,
                       _profile.Memory.PartyCountOffsetFromPartyBase,
-                      _profile.Limits.MaxSpecies,
-                      layout: ActivePokemonLayout)
+                      _profile.Limits.MaxSpecies)
                   ?? throw new InvalidOperationException("没有定位到队伍。请先在游戏中载入存档，再点击“读取队伍”。");
         _partyBase = run.StartAddress;
         BaseBox.Text = $"0x{run.StartAddress:X8}";
@@ -4552,7 +4808,7 @@ public partial class MainWindow : Window
     {
         var name = itemId == 0 ? "无" : ItemName(itemId);
         var pocket = pocketOverride ?? PocketOfItem(itemId);
-        definition ??= BagScanner.DefinitionForPocket(pocket);
+        definition ??= BagScanner.DefinitionForPocket(_runtime.ScannedBagDefinitions, pocket);
         var pocketName = PocketNameZh(pocket);
         var prefix = slotNumber is null ? "" : $"{slotNumber.Value:00}. ";
         var title = itemId == 0
@@ -4566,15 +4822,20 @@ public partial class MainWindow : Window
 
     private void LoadBagRows(MgbaBridgeClient bridge)
     {
-        if (UsesUnboundCfruLayout)
+        _runtime.EnsureCanRead(GameDataSurface.Bag, live: true);
+        if (UsesFixedLiveBag)
         {
-            LoadUnboundBagRows(bridge);
+            LoadFixedBagRows(bridge);
             return;
         }
 
         _bagBase = TryLocateBagBase(bridge);
-        var ewram = PartyScanner.ReadEwram(bridge);
-        var pockets = BagScanner.FindLivePockets(ewram, _bagBase, PocketOfItem)
+        var ewram = PartyScanner.ReadEwram(bridge, _profile);
+        var pockets = BagScanner.FindLivePockets(
+                ewram, _profile.Memory.EwramBase, _bagBase,
+                _runtime.BagPockets(true).Select(candidate => candidate.Id).ToArray(),
+                PocketOfItem, candidate => _runtime.IsKeyItemPocket(candidate, true),
+                candidate => _runtime.BagBatchCapacity(candidate, true), MaxItemId(), MaxBagScanQuantity())
             .ToArray();
         var quantityKey = BagScanner.InferQuantityKey(ewram);
         _allBagRows.Clear();
@@ -4611,18 +4872,12 @@ public partial class MainWindow : Window
             Log("没有读到可信背包槽：当前画面可能不是可读状态，或该存档需要用“校准背包”重新定位。");
     }
 
-    private void LoadUnboundBagRows(MgbaBridgeClient bridge)
+    private void LoadFixedBagRows(MgbaBridgeClient bridge)
     {
-        var areas = new[]
-        {
-            (Pocket: 1, Address: 0x0203BB20u, Capacity: 450, Name: "道具"),
-            (Pocket: 2, Address: 0x0203C228u, Capacity: 75, Name: "重要物品"),
-            (Pocket: 3, Address: 0x0203C354u, Capacity: 50, Name: "精灵球"),
-            (Pocket: 4, Address: 0x0203C41Cu, Capacity: 128, Name: "招式机器"),
-            (Pocket: 5, Address: 0x0203C61Cu, Capacity: 75, Name: "树果")
-        };
-        var quantityKey = ReadUnboundQuantityKey(bridge);
-        _bagBase = 0x0203B174;
+        _runtime.EnsureCanRead(GameDataSurface.Bag, live: true);
+        var areas = _profile.Runtime.LiveBag.Areas;
+        var quantityKey = ReadProfileQuantityKey(bridge);
+        _bagBase = _profile.Runtime.LiveBag.BaseAddress;
         _allBagRows.Clear();
         foreach (var area in areas)
         {
@@ -4638,31 +4893,25 @@ public partial class MainWindow : Window
                 var definition = new BagPocketDefinition(area.Pocket, area.Name, 0, area.Capacity, true, quantityKey);
                 _allBagRows.Add(ToBagRow(
                     area.Address + (uint)(i * 4), item, quantity,
-                    $"第 {i + 1} 格 / CFRU 固定口袋 / 数量密钥 0x{quantityKey:X4}",
+                    $"第 {i + 1} 格 / 当前版本固定口袋 / 数量密钥 0x{quantityKey:X4}",
                     area.Pocket, ++displaySlot, definition));
             }
         }
         ApplyBagPocketFilter();
         if (_bagRows.Count > 0 && BagList.SelectedItem is null) BagList.SelectedIndex = 0;
-        Log($"已按解放版 CFRU 固定地址读取背包：非空 {_allBagRows.Count} 格，数量密钥 0x{quantityKey:X4}。");
+        Log($"已按 {_profile.DisplayName} 独立 Profile 的固定地址读取背包：非空 {_allBagRows.Count} 格，数量密钥 0x{quantityKey:X4}。");
     }
 
-    private ushort ReadUnboundQuantityKey(MgbaBridgeClient bridge)
+    private ushort ReadProfileQuantityKey(MgbaBridgeClient bridge)
     {
+        if (_profile.Runtime.LiveBag.QuantityKeyMode != "save-block2-key-low16")
+            throw new InvalidOperationException($"当前 Profile 不支持固定背包数量密钥模式：{_profile.Runtime.LiveBag.QuantityKeyMode}");
         var saveBlock2 = ReadU32Le(bridge.Read(_profile.Memory.SaveBlock2PointerAddress, 4), 0);
         return (ushort)(ReadU32Le(bridge.Read(saveBlock2 + _profile.Memory.SaveBlock2EncryptionKeyOffset, 4), 0) & 0xFFFF);
     }
 
-    private static (uint Address, int Capacity, string Name)? UnboundLiveBagArea(int pocket)
-        => pocket switch
-        {
-            1 => (0x0203BB20u, 450, "道具"),
-            2 => (0x0203C228u, 75, "重要物品"),
-            3 => (0x0203C354u, 50, "精灵球"),
-            4 => (0x0203C41Cu, 128, "招式机器"),
-            5 => (0x0203C61Cu, 75, "树果"),
-            _ => null
-        };
+    private GameProfileLiveBagArea? ProfileLiveBagArea(int pocket)
+        => _runtime.LiveBagArea(pocket);
 
     private void LoadSaveBagRows(IEnumerable<Gen3SaveBagEntry> entries, int? selectedOffset = null)
     {
@@ -4721,14 +4970,27 @@ public partial class MainWindow : Window
 
     private void LoadBoxRows(MgbaBridgeClient bridge)
     {
-        var ewram = PartyScanner.ReadEwram(bridge);
+        _runtime.EnsureCanRead(GameDataSurface.Boxes, live: true);
+        var ewram = PartyScanner.ReadEwram(bridge, _profile);
+        if (_profile.Memory.PcBoxStoragePointerAddress != 0)
+        {
+            LoadPointerBoxRows(bridge, ewram);
+            return;
+        }
         if (_profile.Memory.PcBoxRegions.Count > 0)
         {
             LoadProfileBoxRows(ewram);
             return;
         }
 
-        var storage = BoxScanner.LocatePcStorage(ewram, maxSpecies: _profile.Limits.MaxSpecies);
+        var storage = BoxScanner.LocatePcStorage(
+            ewram,
+            _profile.Memory.EwramBase,
+            maxSpecies: _profile.Limits.MaxSpecies,
+            maxBoxes: _profile.Memory.PcBoxCount,
+            slotsPerBox: _profile.Memory.PcBoxSlots,
+            minScore: 12,
+            layout: ActiveBoxLayout);
         if (storage is null)
         {
             LoadBoxRowsFromBestRun(ewram);
@@ -4741,8 +5003,8 @@ public partial class MainWindow : Window
         foreach (var (globalSlot, candidate) in storage.CandidatesBySlot.OrderBy(kv => kv.Key))
         {
             var address = candidate.Address;
-            var offset = checked((int)(address - PartyScanner.EwramBase));
-            var mon = new BoxPokemon(ewram.AsSpan(offset, ActiveBoxRecordSize), ActivePokemonLayout);
+            var offset = checked((int)(address - _profile.Memory.EwramBase));
+            var mon = new BoxPokemon(ewram.AsSpan(offset, ActiveBoxRecordSize), ActiveBoxLayout);
             var info = mon.GetInfo();
             var slotInBox = ((globalSlot - 1) % _profile.Memory.PcBoxSlots) + 1;
             var boxNo = ((globalSlot - 1) / _profile.Memory.PcBoxSlots) + 1;
@@ -4761,6 +5023,61 @@ public partial class MainWindow : Window
         Log($"已定位箱子存储：起始 0x{storage.StartAddress:X8}，非空 {storage.NonEmptyCount}/{_profile.Memory.PcBoxCount * _profile.Memory.PcBoxSlots} 槽。");
     }
 
+    private void LoadPointerBoxRows(MgbaBridgeClient bridge, ReadOnlySpan<byte> ewram)
+    {
+        var recordsBase = ResolvePointerBoxRecordsBase(bridge);
+        _boxBase = recordsBase;
+        _boxGridShowAllBoxes = true;
+        _boxRows.Clear();
+        var totalSlots = _profile.Memory.PcBoxCount * _profile.Memory.PcBoxSlots;
+        for (var globalSlot = 1; globalSlot <= totalSlots; globalSlot++)
+        {
+            var address = recordsBase + checked((uint)((globalSlot - 1) * ActiveBoxRecordSize));
+            var offset = checked((int)(address - _profile.Memory.EwramBase));
+            var raw = ewram.Slice(offset, ActiveBoxRecordSize);
+            if (IsAllZero(raw)) continue;
+            var mon = new BoxPokemon(raw, ActiveBoxLayout);
+            if (mon.IsEmpty || !mon.HasValidHeader(_profile.Limits.MaxSpecies)) continue;
+            var info = mon.GetInfo();
+            var boxNumber = (globalSlot - 1) / _profile.Memory.PcBoxSlots + 1;
+            var slotInBox = (globalSlot - 1) % _profile.Memory.PcBoxSlots + 1;
+            var title = BoxDisplayTitle(boxNumber, slotInBox, mon, info);
+            _boxRows.Add(new BoxSlotRow(globalSlot, address, mon, info, title, $"地址 0x{address:X8}", BoxDisplaySprite(info)));
+        }
+
+        RefreshBoxGridGroups();
+        BoxList.SelectedIndex = _boxRows.Count > 0 ? 0 : -1;
+        if (_boxRows.Count == 0)
+        {
+            UpdateBoxHeaderInfo(0, null);
+            UpdateBoxEggHatchEditor(null);
+        }
+        Log($"已按 Profile 指针 0x{_profile.Memory.PcBoxStoragePointerAddress:X8} 读取 {_profile.Memory.PcBoxCount} 个实时箱子，非空 {_boxRows.Count}/{totalSlots} 槽。");
+    }
+
+    private uint ResolvePointerBoxRecordsBase(MgbaBridgeClient bridge)
+    {
+        var pointerAddress = _profile.Memory.PcBoxStoragePointerAddress;
+        if (pointerAddress == 0)
+            throw new InvalidOperationException("当前 Profile 没有配置 PC 箱子存储指针。");
+        var storageBase = ReadU32Le(bridge.Read(pointerAddress, 4), 0);
+        var recordsBase = storageBase + checked((uint)_profile.Memory.PcBoxDataOffset);
+        var byteLength = checked((uint)(_profile.Memory.PcBoxCount * _profile.Memory.PcBoxSlots * ActiveBoxRecordSize));
+        var ewramEnd = _profile.Memory.EwramBase + checked((uint)_profile.Memory.EwramSize);
+        if (storageBase < _profile.Memory.EwramBase || recordsBase < storageBase || recordsBase + byteLength > ewramEnd)
+            throw new InvalidOperationException($"PC 箱子指针 0x{pointerAddress:X8} 未指向完整 EWRAM 箱子区域，请确认游戏已经载入存档。");
+        return recordsBase;
+    }
+
+    private int WritableBoxSlotCount(bool live)
+    {
+        var total = _profile.Memory.PcBoxCount * _profile.Memory.PcBoxSlots;
+        var configured = live
+            ? _profile.Memory.LivePcBoxWritableSlotCount
+            : _profile.Memory.SavePcBoxWritableSlotCount;
+        return configured > 0 ? Math.Min(configured, total) : total;
+    }
+
     private void LoadProfileBoxRows(ReadOnlySpan<byte> ewram)
     {
         _boxBase = _profile.Memory.PcBoxRegions.OrderBy(region => region.FirstBox).First().Address;
@@ -4770,12 +5087,12 @@ public partial class MainWindow : Window
         for (var globalSlot = 1; globalSlot <= totalSlots; globalSlot++)
         {
             var address = ProfileBoxAddress(globalSlot);
-            var offset = checked((int)(address - PartyScanner.EwramBase));
+            var offset = checked((int)(address - _profile.Memory.EwramBase));
             if (offset < 0 || offset + ActiveBoxRecordSize > ewram.Length)
                 throw new InvalidOperationException($"箱子槽 {globalSlot} 的配置地址超出 EWRAM 范围。");
             var raw = ewram.Slice(offset, ActiveBoxRecordSize);
             if (IsAllZero(raw)) continue;
-            var mon = new BoxPokemon(raw, ActivePokemonLayout);
+            var mon = new BoxPokemon(raw, ActiveBoxLayout);
             if (mon.IsEmpty) continue;
             var info = mon.GetInfo();
             if (!mon.HasValidHeader(_profile.Limits.MaxSpecies)) continue;
@@ -4811,15 +5128,15 @@ public partial class MainWindow : Window
 
     private void LoadBoxRowsFromBestRun(ReadOnlySpan<byte> ewram)
     {
-        var run = BoxScanner.LocateBestRun(ewram, _profile.Limits.MaxSpecies) ?? throw new InvalidOperationException("没有定位到箱子宝可梦。请先确保箱子里有非空槽位。");
+        var run = BoxScanner.LocateBestRun(ewram, _profile.Memory.EwramBase, _profile.Limits.MaxSpecies, ActiveBoxLayout) ?? throw new InvalidOperationException("没有定位到箱子宝可梦。请先确保箱子里有非空槽位。");
         _boxBase = run.StartAddress;
         _boxGridShowAllBoxes = false;
         _boxRows.Clear();
         for (var i = 0; i < run.Candidates.Count; i++)
         {
             var address = run.Candidates[i].Address;
-            var offset = checked((int)(address - PartyScanner.EwramBase));
-            var mon = new BoxPokemon(ewram.Slice(offset, ActiveBoxRecordSize), ActivePokemonLayout);
+            var offset = checked((int)(address - _profile.Memory.EwramBase));
+            var mon = new BoxPokemon(ewram.Slice(offset, ActiveBoxRecordSize), ActiveBoxLayout);
             var info = mon.GetInfo();
             var slotInBox = (i % _profile.Memory.PcBoxSlots) + 1;
             var boxNo = (i / _profile.Memory.PcBoxSlots) + 1;
@@ -4856,7 +5173,9 @@ public partial class MainWindow : Window
                 {
                     if (bySlot.TryGetValue(slotInBox, out var row))
                         return new BoxGridCell(slotInBox, row, row.Sprite, row.Title, true);
-                    return new BoxGridCell(slotInBox, null, null, "空槽", false);
+                    var globalSlot = (boxNumber - 1) * _profile.Memory.PcBoxSlots + slotInBox;
+                    var writable = globalSlot <= WritableBoxSlotCount(_dataSourceMode == DataSourceMode.Live);
+                    return new BoxGridCell(slotInBox, null, null, writable ? "空槽，可从内置图鉴导入" : "该槽不在当前 Profile 的安全写入范围", false);
                 })
                 .ToArray();
             _boxGridGroups.Add(new BoxGridGroup(boxNumber, $"箱{boxNumber:00}", cells));
@@ -4914,7 +5233,7 @@ public partial class MainWindow : Window
         var pocket = selectedPocket ?? SelectedChoiceId(BagPocketTabs) ?? 0;
         var isConcretePocket = IsConcreteBagPocket(pocket);
         var isMachinePocket = pocket == MachinePocket;
-        if (UsesUnboundCfruLayout && _dataSourceMode == DataSourceMode.Live)
+        if (UsesFixedLiveBag && _dataSourceMode == DataSourceMode.Live)
         {
             BagGiveAllCurrentPocketButton.IsVisible = isConcretePocket;
             BagGiveAllTmsButton.IsVisible = isMachinePocket;
@@ -5145,14 +5464,10 @@ public partial class MainWindow : Window
     }
 
     private bool IsConcreteBagPocket(int pocket)
-        => UsesDestinySaveLayout
-            ? pocket is 1 or 3 or 4
-            : UsesUnboundCfruLayout
-                ? pocket is >= 1 and <= 5
-                : pocket is >= 1 and <= 8;
+        => _runtime.IsConcreteBagPocket(pocket, _dataSourceMode == DataSourceMode.Live);
 
     private bool IsKeyItemPocket(int pocket)
-        => UsesUnboundCfruLayout ? pocket == 2 : pocket == 8;
+        => _runtime.IsKeyItemPocket(pocket, _dataSourceMode == DataSourceMode.Live);
 
     private int MaxBagScanQuantity()
         => _profile.Limits.MaxBagQuantity;
@@ -5171,7 +5486,7 @@ public partial class MainWindow : Window
     private ushort BatchQuantityForPocket(int pocket)
         => IsKeyItemPocket(pocket)
             ? (ushort)1
-            : (ushort)Math.Min(BagBatchQuantity, MaxBagWriteQuantityForPocket(pocket));
+            : (ushort)Math.Min(_profile.Runtime.BagBatchQuantity, MaxBagWriteQuantityForPocket(pocket));
 
     private bool IsBulkImportableItem(int item)
     {
@@ -5197,7 +5512,7 @@ public partial class MainWindow : Window
         return item;
     }
 
-    private ushort ParseBagQuantityRequired(ushort item, bool allowZero)
+    private ushort ParseBagQuantityRequired(ushort item, bool allowZero, int? requiredPocket = null)
     {
         var quantity = ParseUShortRequired(BagQuantityBox.Text, "数量");
         if (item == 0)
@@ -5208,7 +5523,9 @@ public partial class MainWindow : Window
 
         if (!allowZero && quantity == 0)
             throw new InvalidOperationException("背包道具数量必须大于 0。");
-        var maxQuantity = MaxBagWriteQuantityForItem(item);
+        var maxQuantity = requiredPocket is { } pocket && IsConcreteBagPocket(pocket)
+            ? MaxBagWriteQuantityForPocket(pocket)
+            : MaxBagWriteQuantityForItem(item);
         if (quantity > maxQuantity)
             throw new InvalidOperationException($"背包道具数量最多只能写入 {maxQuantity}。");
         return quantity;
@@ -5233,7 +5550,7 @@ public partial class MainWindow : Window
     private int MaxItemId()
         => _profile.Limits.MaxItem > 0
             ? _profile.Limits.MaxItem
-            : Math.Max(BagScanner.DefaultMaxItemId, _db.Table("items").Keys.DefaultIfEmpty(0).Max());
+            : _db.Table("items").Keys.DefaultIfEmpty(0).Max();
 
     private int MaxSpeciesId()
         => Math.Min(ushort.MaxValue, _db.Table("species").Keys.DefaultIfEmpty(0).Max());
@@ -5267,6 +5584,7 @@ public partial class MainWindow : Window
                 group => group.Select(kv => kv.Key).OrderBy(id => id).ToArray());
 
         return table
+            .Where(kv => !string.Equals(kv.Value, "未使用", StringComparison.Ordinal))
             .OrderBy(kv => kv.Key)
             .Select(kv =>
             {
@@ -5319,138 +5637,7 @@ public partial class MainWindow : Window
     {
         if (_db.Table("species_forms").TryGetValue(species, out var configured) && !string.IsNullOrWhiteSpace(configured))
             return configured;
-        if (UsesUnboundCfruLayout) return null;
-
-        if (species is >= 977 and <= 1032) return species switch
-        {
-            978 => "Mega X",
-            979 => "Mega Y",
-            990 => "Mega X",
-            991 => "Mega Y",
-            _ => "Mega"
-        };
-        if (species == 1033) return "Mega";
-        if (species is 1034 or 1035) return "原始回归";
-        if (species is >= 1046 and <= 1063) return "阿罗拉";
-        if (species is 1064 or >= 1065 and <= 1082) return "伽勒尔";
-        if (species is >= 1083 and <= 1096) return $"换装{species - 1082}";
-        if (species is >= 1098 and <= 1124) return $"字母形态{species - 1097}";
-        if (species is >= 1145 and <= 1161)
-        {
-            string[] types =
-            [
-                "格斗", "飞行", "毒", "地面", "岩石", "虫", "幽灵", "钢",
-                "火", "水", "草", "电", "超能力", "冰", "龙", "恶", "妖精"
-            ];
-            return types[species - 1145];
-        }
-        if (species is >= 1184 and <= 1202) return $"花纹{species - 1183}";
-        if (species is >= 1203 and <= 1215) return $"颜色{species - 1202}";
-        if (species is >= 1216 and <= 1224) return $"造型{species - 1215}";
-        if (species is >= 1246 and <= 1262) return $"属性{species - 1245}";
-        if (species is >= 1263 and <= 1275) return $"核心色{species - 1262}";
-        if (species is >= 1286 and <= 1293) return $"奶油形态{species - 1285}";
-
-        return species switch
-        {
-            913 or 914 or 915 => "P",
-            919 => "特殊形态",
-            920 => "攻击形态",
-            921 => "防御形态",
-            923 => "闪电卡带",
-            924 => "火焰卡带",
-            944 => "盾牌形态",
-            947 => "特殊形态",
-            953 => "标点形态",
-            1072 or 1073 or 1074 => "伽勒尔",
-            1097 => "刺刺耳",
-            1125 => "太阳",
-            1126 => "雨水",
-            1127 => "雪云",
-            1128 => "攻击形态",
-            1129 => "防御形态",
-            1130 => "速度形态",
-            1131 or 1133 => "沙土蓑衣",
-            1132 or 1134 => "垃圾蓑衣",
-            1135 => "晴天",
-            1136 or 1137 => "东海",
-            1138 => "加热",
-            1139 => "清洗",
-            1140 => "结冰",
-            1141 => "旋转",
-            1142 => "切割",
-            1143 => "起源形态",
-            1144 => "天空形态",
-            1162 => "蓝条纹",
-            1163 => "达摩模式",
-            1164 => "伽勒尔达摩模式",
-            1165 or 1168 => "夏天",
-            1166 or 1169 => "秋天",
-            1167 or 1170 => "冬天",
-            1171 or 1172 or 1173 => "灵兽形态",
-            1174 => "焰白",
-            1175 => "暗黑",
-            1176 => "觉悟形态",
-            1177 => "舞步形态",
-            1178 => "水流卡带",
-            1179 => "冰冻卡带",
-            1180 => "闪电卡带",
-            1181 => "火焰卡带",
-            1182 => "小智版",
-            1183 => "羁绊变身",
-            1225 => "雌性",
-            1226 => "刀剑形态",
-            1227 or 1230 => "小尺寸",
-            1228 or 1231 => "大尺寸",
-            1229 or 1232 => "特大尺寸",
-            1233 => "活跃模式",
-            1234 => "10%形态",
-            1235 => "50%形态",
-            1236 => "完全体",
-            1237 => "核心",
-            1238 => "解放形态",
-            1239 => "啪滋啪滋",
-            1240 => "呼拉呼拉",
-            1241 => "轻盈轻盈",
-            1242 => "我行我素",
-            1243 => "黑夜",
-            1244 => "黄昏",
-            1245 => "鱼群形态",
-            1276 => "现形",
-            1277 => "黄昏之鬃",
-            1278 => "拂晓之翼",
-            1279 => "究极",
-            1280 => "500年前",
-            1281 => "一口吞",
-            1282 => "大口吞",
-            1283 => "低调",
-            1284 or 1285 => "真品",
-            1294 => "解冻头",
-            1295 => "雌性",
-            1296 => "空腹花纹",
-            1297 => "剑之王",
-            1298 => "盾之王",
-            1299 => "无极巨化",
-            1300 => "连击流",
-            1301 => "披披形态",
-            1302 => "白马",
-            1303 => "黑马",
-            1304 => "P形态2",
-            1307 => "P形态2",
-            1310 or 1311 or 1312 or 1315 or 1317 or 1319 or 1320 or 1321 or 1322 or 1326 or 1327 or 1328 or 1330 or 1331 or 1332 or 1333 => "洗翠",
-            1323 => "白条纹",
-            1324 => "雄性",
-            1325 => "雌性",
-            1334 => "化身形态",
-            1335 => "灵兽形态",
-            1336 or 1337 => "起源形态",
-            1338 => "帕底亚",
-            1342 => "帕底亚斗战种",
-            1343 => "帕底亚火炽种",
-            1344 => "帕底亚水澜种",
-            1383 => "超极巨",
-            _ => null
-        };
+        return _runtime.SpeciesFormLabel(species);
     }
 
     private string LongestKnownName(string table)
@@ -5766,7 +5953,7 @@ public partial class MainWindow : Window
         var parsedExp = ParseUIntOrNull(ExpBox.Text);
         var enteredExp = parsedExp ?? before.Exp;
         if (enteredExp > PokemonExperienceTable.MaxStoredExperience)
-            throw new InvalidOperationException($"经验最多为 {PokemonExperienceTable.MaxStoredExperience}；该改版只保存经验字段的低 23 位。");
+            throw new InvalidOperationException($"经验最多为 {PokemonExperienceTable.MaxStoredExperience}；当前版本只保存经验字段的低 23 位。");
 
         var sourceGrowthRate = ReadSpeciesStats(before.Species).GrowthRate;
         var targetGrowthRate = ReadSpeciesStats(targetSpecies).GrowthRate;
@@ -5819,7 +6006,7 @@ public partial class MainWindow : Window
     {
         var enteredExp = ParseUIntOrNull(BoxExpBox.Text) ?? before.Exp;
         if (enteredExp > PokemonExperienceTable.MaxStoredExperience)
-            throw new InvalidOperationException($"经验最多为 {PokemonExperienceTable.MaxStoredExperience}；该改版只保存经验字段的低 23 位。");
+            throw new InvalidOperationException($"经验最多为 {PokemonExperienceTable.MaxStoredExperience}；当前版本只保存经验字段的低 23 位。");
 
         if (targetSpecies == before.Species || enteredExp != before.Exp)
             return enteredExp;
@@ -5914,6 +6101,29 @@ public partial class MainWindow : Window
                 species, B(0), B(1), B(2), B(3), B(4), B(5), B(6), B(7),
                 U(8), U(9), U(10), U(11), U(12), B(13), B(14), B(15), B(16),
                 B(17), B(18), U(19), U(20), OptionalAbility(21));
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private bool TryReadOfficialSpeciesStats(int species, out OfficialSpeciesStats stats)
+    {
+        stats = default!;
+        if (!_db.Table("official_species_stats").TryGetValue(species, out var raw)) return false;
+        var parts = raw.Split('\t');
+        if (parts.Length < 6) return false;
+        try
+        {
+            stats = new OfficialSpeciesStats(
+                int.Parse(parts[0]),
+                int.Parse(parts[1]),
+                int.Parse(parts[2]),
+                int.Parse(parts[3]),
+                int.Parse(parts[4]),
+                int.Parse(parts[5]));
             return true;
         }
         catch
@@ -6083,7 +6293,25 @@ public partial class MainWindow : Window
             ushort U(int index) => ushort.Parse(parts[index]);
             byte B(int index) => byte.Parse(parts[index]);
             sbyte S(int index) => unchecked((sbyte)byte.Parse(parts[index]));
-            data = new MoveData(move, U(0), B(1), B(2), B(3), B(4), U(5), S(6), U(7), B(8), U(9), []);
+            var effect = parts.Length >= 11 ? B(10) : (byte)0;
+            data = new MoveData(move, U(0), B(1), B(2), B(3), B(4), U(5), S(6), U(7), B(8), U(9), effect, []);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private bool TryReadOfficialMoveData(int move, out OfficialMoveData data)
+    {
+        data = default!;
+        if (!_db.Table("official_move_data").TryGetValue(move, out var raw)) return false;
+        var parts = raw.Split('\t');
+        if (parts.Length < 3) return false;
+        try
+        {
+            data = new OfficialMoveData(int.Parse(parts[0]), int.Parse(parts[1]), int.Parse(parts[2]));
             return true;
         }
         catch
@@ -6505,7 +6733,7 @@ public partial class MainWindow : Window
         15 => ("#96D9D6", "#073331"), // 冰
         16 => ("#6F35FC", "#F5F0FF"), // 龙
         17 => ("#705746", "#FFF7EF"), // 恶
-        18 or 23 => ("#D685AD", "#33111F"), // 妖精（CFRU 使用 23）
+        18 or 23 => ("#D685AD", "#33111F"),
         _ => ("#6C6255", "#FFF9EE")
     };
 
@@ -6651,39 +6879,51 @@ public partial class MainWindow : Window
         return parts.Count == 0 ? "无" : string.Join("，", parts);
     }
 
-    private static string MovePowerText(ushort power)
+    private static string ComparisonText(int current, int official, Func<int, string> format)
+        => $"{format(current)}（{format(official)}）";
+
+    private static IBrush ModifiedValueForeground(int current, int? official)
+        => official is null || current == official.Value
+            ? ComparisonNeutralBrush
+            : current > official.Value ? ComparisonHigherBrush : ComparisonLowerBrush;
+
+    private static string MovePowerText(int power)
         => power == 0 ? "-" : power.ToString();
 
-    private static string MoveAccuracyText(ushort accuracy)
+    private static string MoveAccuracyText(int accuracy)
         => accuracy == 0 ? "-" : accuracy.ToString();
 
     private string? MachineMoveName(int item)
     {
-        if (UsesUnboundCfruLayout)
+        var rules = _profile.Runtime.Machines;
+        if (rules.Mode == "item-data")
         {
             if (TryReadEmbeddedItemData(item, out var data) &&
-                data.Pocket == 4 &&
+                data.Pocket == rules.Pocket &&
                 data.ExitsBagOnUse is >= 1 and <= 128)
             {
                 var machineNumber = data.ExitsBagOnUse;
                 var moveId = MachineMoveId(machineNumber - 1);
-                if (moveId > 0) return $"TM{machineNumber:000} {MoveName(moveId)}";
+                if (moveId <= 0) return null;
+                return machineNumber >= 121
+                    ? $"HM{machineNumber - 120:00} {MoveName(moveId)}"
+                    : $"TM{machineNumber:000} {MoveName(moveId)}";
             }
 
             return null;
         }
 
-        var tmIndex = item - MachineTmStartItem;
-        if (tmIndex >= 0 && tmIndex < MachineTmCount)
+        var tmIndex = item - rules.TmStartItem;
+        if (tmIndex >= 0 && tmIndex < rules.TmCount)
         {
             var moveId = MachineMoveId(tmIndex);
             if (moveId > 0) return $"NO.{tmIndex + 1:000} {MoveName(moveId)}";
         }
 
-        var hmIndex = item - MachineHmStartItem;
-        if (hmIndex >= 0 && hmIndex < MachineHmCount)
+        var hmIndex = item - rules.HmStartItem;
+        if (hmIndex >= 0 && hmIndex < rules.HmCount)
         {
-            var moveId = MachineMoveId(MachineHmMoveStartIndex + hmIndex);
+            var moveId = MachineMoveId(rules.HmMoveStartIndex + hmIndex);
             if (moveId > 0) return $"MO{hmIndex + 1:00} {MoveName(moveId)}";
         }
 
@@ -6695,8 +6935,8 @@ public partial class MainWindow : Window
         if (_db.Table("machine_moves").TryGetValue(machineIndex, out var embedded) && int.TryParse(embedded, out var moveId))
             return moveId;
 
-        return machineIndex >= 0 && machineIndex < Gen3TmMoveIds.Length
-            ? Gen3TmMoveIds[machineIndex]
+        return machineIndex >= 0 && machineIndex < _profile.Runtime.Machines.FallbackMoveIds.Count
+            ? _profile.Runtime.Machines.FallbackMoveIds[machineIndex]
             : 0;
     }
 
@@ -6704,53 +6944,35 @@ public partial class MainWindow : Window
     {
         if (item == 0) return -1;
         if (item < 0 || item > MaxItemId()) return -1;
-        if (!UsesUnboundCfruLayout && !UsesDestinySaveLayout && item is >= MachineTmStartItem and <= 845)
-            return IsBagMachineItem(item) ? 7 : -1;
+        if (_profile.Runtime.Machines.Mode == "fixed-ranges" && IsBagMachineItem(item))
+            return MachinePocket;
 
         if (_db.Table("item_pockets").TryGetValue(item, out var pocketText) &&
             int.TryParse(pocketText, out var embeddedPocket) &&
             embeddedPocket is >= 1 and <= 8)
-            return UsesDestinySaveLayout
-                ? embeddedPocket switch
-                {
-                    3 => 3,
-                    4 => 4,
-                    _ => 1
-                }
-                : embeddedPocket;
+            return _runtime.RemapItemPocket(embeddedPocket);
 
         try
         {
             var dataPocket = ReadItemData(item).Pocket;
-            return dataPocket is >= 1 and <= 8 ? dataPocket : -1;
+            return dataPocket is >= 1 and <= 8 ? _runtime.RemapItemPocket(dataPocket) : -1;
         }
         catch
         {
-            if (UsesDestinySaveLayout) return 1;
-            if (UsesUnboundCfruLayout) return -1;
-            var fromOriginalRanges = PocketOfItemByOriginalRanges(item);
-            return fromOriginalRanges ?? -1;
+            return _runtime.FallbackPocketOfItem(item);
         }
     }
 
-    private static int? PocketOfItemByOriginalRanges(int item)
+    private bool IsBagMachineItem(int item)
     {
-        if (item <= 0) return null;
-        if (item is >= 1 and <= 27) return 3;
-        if (item is >= 28 and <= 48 or 921) return 2;
-        if (item is >= 512 and <= 591) return 5;
-        if (IsBagMachineItem(item)) return 7;
-        if (item >= 0x300) return 8;
-        return null;
+        var rules = _profile.Runtime.Machines;
+        return item >= rules.TmStartItem && item < rules.TmStartItem + rules.TmCount ||
+               item >= rules.HmStartItem && item < rules.HmStartItem + rules.HmCount;
     }
-
-    private static bool IsBagMachineItem(int item)
-        => item is >= MachineTmStartItem and < MachineTmStartItem + MachineTmCount ||
-           item is >= MachineHmStartItem and < MachineHmStartItem + MachineHmCount;
 
     private void EnsureBagSelectionFresh(MgbaBridgeClient bridge)
     {
-        if (UsesUnboundCfruLayout) return;
+        if (UsesFixedLiveBag) return;
         var liveBase = TryLocateBagBase(bridge);
         if (_bagBase is not null && liveBase is not null && liveBase.Value != _bagBase.Value)
         {
@@ -6760,11 +6982,11 @@ public partial class MainWindow : Window
         _bagBase = liveBase;
     }
 
-    private static bool BagMachineExists(ReadOnlySpan<byte> ewram, uint saveBlockBase, ushort item)
+    private bool BagMachineExists(ReadOnlySpan<byte> ewram, uint saveBlockBase, ushort item)
     {
-        var definition = BagScanner.DefinitionForPocket(SpanishMachinePocket)
+        var definition = BagScanner.DefinitionForPocket(_runtime.ScannedBagDefinitions, MachinePocket)
                          ?? throw new InvalidOperationException("缺少招式机器/秘传机器口袋定义。");
-        var start = checked((int)(saveBlockBase + definition.Offset - PartyScanner.EwramBase));
+        var start = checked((int)(saveBlockBase + definition.Offset - _profile.Memory.EwramBase));
         var end = start + definition.SlotCount * 4;
         if (start < 0 || end > ewram.Length)
             throw new InvalidOperationException("招式机器/秘传机器口袋地址无效。请先读取或校准背包。");
@@ -6826,21 +7048,11 @@ public partial class MainWindow : Window
         return rawQuantity > 0 && rawQuantity <= maxQuantity ? rawQuantity : (ushort)1;
     }
 
-    private static int BagBatchCapacity(int pocket) => pocket switch
-    {
-        1 => 255,
-        2 => 67,
-        3 => 16,
-        4 => 130,
-        5 => 68,
-        6 => 130,
-        7 => 254,
-        8 => 64,
-        _ => BagScanner.MaxRunSlots
-    };
+    private int BagBatchCapacity(int pocket)
+        => _runtime.BagBatchCapacity(pocket, _dataSourceMode == DataSourceMode.Live);
 
     private byte[] EncodeBatchBagSlot(int pocket, ushort item, ushort quantityKey)
-        => UsesUnboundCfruLayout
+        => UsesFixedLiveBag
             ? BagScanner.EncodeSlot(item, BatchQuantityForPocket(pocket), quantityKey, quantityXor: true)
             : IsKeyItemPocket(pocket)
             ? BagScanner.EncodeSlot(item, 0, quantityKey, quantityXor: false)
@@ -6851,7 +7063,7 @@ public partial class MainWindow : Window
         if (_boxBase is not null)
             EnsureBoxStorageBaseFresh(bridge);
 
-        var mon = new BoxPokemon(bridge.Read(row.Address, ActiveBoxRecordSize), ActivePokemonLayout);
+        var mon = new BoxPokemon(bridge.Read(row.Address, ActiveBoxRecordSize), ActiveBoxLayout);
         if (mon.IsEmpty)
         {
             RefreshBoxAndSelectMovedMon(bridge, row);
@@ -6867,11 +7079,25 @@ public partial class MainWindow : Window
 
     private void EnsureBoxStorageBaseFresh(MgbaBridgeClient bridge)
     {
+        if (_profile.Memory.PcBoxStoragePointerAddress != 0)
+        {
+            var recordsBase = ResolvePointerBoxRecordsBase(bridge);
+            if (_boxBase == recordsBase) return;
+            LoadBoxRows(bridge);
+            throw new InvalidOperationException("箱子位置已变化，已刷新箱子列表。请重新选择槽位后再写入。");
+        }
         if (_profile.Memory.PcBoxRegions.Count > 0)
             return;
 
-        var ewram = PartyScanner.ReadEwram(bridge);
-        var storage = BoxScanner.LocatePcStorage(ewram, maxSpecies: _profile.Limits.MaxSpecies);
+        var ewram = PartyScanner.ReadEwram(bridge, _profile);
+        var storage = BoxScanner.LocatePcStorage(
+            ewram,
+            _profile.Memory.EwramBase,
+            maxSpecies: _profile.Limits.MaxSpecies,
+            maxBoxes: _profile.Memory.PcBoxCount,
+            slotsPerBox: _profile.Memory.PcBoxSlots,
+            minScore: 12,
+            layout: ActiveBoxLayout);
         if (storage is not null)
         {
             if (_boxBase is { } boxBase && storage.StartAddress == boxBase) return;
@@ -6879,7 +7105,7 @@ public partial class MainWindow : Window
             throw new InvalidOperationException("箱子位置已变化，已刷新箱子列表。请重新选择槽位后再写入。");
         }
 
-        var run = BoxScanner.LocateBestRun(ewram, _profile.Limits.MaxSpecies) ?? throw new InvalidOperationException("没有定位到箱子宝可梦。请重新读取箱子后再写入。");
+        var run = BoxScanner.LocateBestRun(ewram, _profile.Memory.EwramBase, _profile.Limits.MaxSpecies, ActiveBoxLayout) ?? throw new InvalidOperationException("没有定位到箱子宝可梦。请重新读取箱子后再写入。");
         if (_boxBase is { } fallbackBase && run.StartAddress == fallbackBase) return;
         LoadBoxRows(bridge);
         throw new InvalidOperationException("箱子位置已变化，已刷新箱子列表。请重新选择槽位后再写入。");
@@ -6919,8 +7145,8 @@ public partial class MainWindow : Window
 
         try
         {
-            _bagBase ??= BagScanner.LocateSaveBlockBase(bridge, _profile.Memory.SaveBlock1PointerAddress);
-            return BagScanner.DefinitionForAddress(_bagBase.Value, address);
+            _bagBase ??= BagScanner.LocateSaveBlockBase(bridge, _profile, _runtime.ScannedBagDefinitions);
+            return BagScanner.DefinitionForAddress(_runtime.ScannedBagDefinitions, _bagBase.Value, address);
         }
         catch
         {
@@ -6932,7 +7158,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            return BagScanner.LocateSaveBlockBase(bridge, _profile.Memory.SaveBlock1PointerAddress);
+            return BagScanner.LocateSaveBlockBase(bridge, _profile, _runtime.ScannedBagDefinitions);
         }
         catch
         {
@@ -6952,7 +7178,61 @@ public partial class MainWindow : Window
         return name.StartsWith('#') ? fallback : name;
     }
 
-    private static void WriteMon(MgbaBridgeClient bridge, uint addr, PartyPokemon mon) => bridge.WriteRangeVerified(addr, mon.Raw);
+    private void WriteMon(MgbaBridgeClient bridge, uint addr, PartyPokemon mon)
+        => WriteLivePartyRange(bridge, addr, mon.Raw);
+
+    private void WriteLivePartyRange(MgbaBridgeClient bridge, uint address, ReadOnlySpan<byte> data)
+    {
+        _runtime.EnsureCanWrite(GameDataSurface.Party, live: true);
+        var partyBase = _partyBase ?? throw new InvalidOperationException("尚未定位当前队伍，已拒绝写入。");
+        var byteLength = data.Length;
+        var partyByteLength = Gen3Constants.PartySlots * Gen3Constants.PartyMonSize;
+        if (byteLength <= 0 || byteLength % Gen3Constants.PartyMonSize != 0 ||
+            address < partyBase || (address - partyBase) % Gen3Constants.PartyMonSize != 0 ||
+            (ulong)address + (uint)byteLength > (ulong)partyBase + (uint)partyByteLength ||
+            !IsEwramRange(address, byteLength))
+            throw new InvalidOperationException("队伍写入范围不属于当前扫描确认的 6 个队伍槽，已拒绝写入。");
+        bridge.WriteRangeVerified(address, data);
+    }
+
+    private void WriteLiveBoxRange(MgbaBridgeClient bridge, uint address, ReadOnlySpan<byte> data)
+    {
+        _runtime.EnsureCanWrite(GameDataSurface.Boxes, live: true);
+        if (data.Length != ActiveBoxRecordSize || !IsEwramRange(address, data.Length))
+            throw new InvalidOperationException("箱子写入必须是一个位于 EWRAM 的完整箱子记录，已拒绝写入。");
+
+        var writableSlots = WritableBoxSlotCount(live: true);
+        if (_profile.Memory.PcBoxRegions.Count > 0)
+        {
+            var globalSlot = Enumerable.Range(1, writableSlots)
+                .FirstOrDefault(slot => ProfileBoxAddress(slot) == address);
+            if (globalSlot == 0)
+                throw new InvalidOperationException("箱子写入地址不属于当前 Profile 已验证的可写槽位，已拒绝写入。");
+        }
+        else if (_profile.Memory.PcBoxStoragePointerAddress != 0)
+        {
+            var recordsBase = ResolvePointerBoxRecordsBase(bridge);
+            var offset = address >= recordsBase ? address - recordsBase : uint.MaxValue;
+            if (offset == uint.MaxValue || offset % (uint)ActiveBoxRecordSize != 0 ||
+                offset / (uint)ActiveBoxRecordSize >= writableSlots)
+                throw new InvalidOperationException("箱子写入地址不属于当前 Profile 指针指向的可写槽位，已拒绝写入。");
+        }
+        else
+        {
+            var recordsBase = _boxBase ?? throw new InvalidOperationException("尚未定位当前箱子，已拒绝写入。");
+            var offset = address >= recordsBase ? address - recordsBase : uint.MaxValue;
+            if (offset == uint.MaxValue || offset % (uint)ActiveBoxRecordSize != 0 ||
+                offset / (uint)ActiveBoxRecordSize >= writableSlots)
+                throw new InvalidOperationException("箱子写入地址不属于当前扫描确认的可写槽位，已拒绝写入。");
+        }
+        bridge.WriteRangeVerified(address, data);
+    }
+
+    private void WriteLiveBagRange(MgbaBridgeClient bridge, uint address, ReadOnlySpan<byte> data)
+    {
+        _runtime.EnsureCanWrite(GameDataSurface.Bag, live: true);
+        bridge.WriteRangeVerified(address, data);
+    }
 
     private void RefreshPartyRowsIfPossible(MgbaBridgeClient bridge)
     {
@@ -7057,35 +7337,7 @@ public partial class MainWindow : Window
     }
 
     private string PocketNameZh(int pocket)
-    {
-        if (UsesUnboundCfruLayout)
-        {
-            return pocket switch
-            {
-                1 => "道具",
-                2 => "重要物品",
-                3 => "精灵球",
-                4 => "招式机器",
-                5 => "树果",
-                -1 => "未知/候选",
-                _ => $"#{pocket}"
-            };
-        }
-
-        return pocket switch
-        {
-            1 => "普通道具",
-            2 => "回复药品",
-            3 => "精灵球",
-            4 => "战斗道具",
-            5 => "树果",
-            6 => "宝物",
-            7 => "招式机器/秘传机器",
-            8 => "重要物品",
-            -1 => "未知/候选",
-            _ => $"#{pocket}"
-        };
-    }
+        => _runtime.PocketName(pocket, _dataSourceMode == DataSourceMode.Live);
 
     private bool IsEwramRange(uint address, int length)
     {

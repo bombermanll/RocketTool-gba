@@ -2,7 +2,18 @@
   "id": "spanish-rocket-current",
   "displayName": "西班牙火箭队一至五周目汉化版+汉化by兔砸博士v2.1",
   "description": "",
+  "romIdentity": {
+    "fileName": "西班牙火箭队一至五周目汉化版+汉化by兔砸博士.gba",
+    "romSize": 33554432,
+    "sha256": "07faaffe4a9e840502c4baa9f83e534b7474423a95e4f5d2fd75b3494c2fb786",
+    "headerTitle": "POKEMON EMER",
+    "gameCode": "BPEE",
+    "liveFingerprints": [
+      { "offset": "0x1000000", "hex": "41EA05002DF5A32E694F4DFD32B6B4DD" }
+    ]
+  },
   "strategies": {
+    "runtime": "spanish-rocket-runtime-v1",
     "pokemon": "spanish-rocket-pokemon-v1",
     "partyScanner": "spanish-rocket-party-v1",
     "boxScanner": "spanish-rocket-box-v1",
@@ -38,7 +49,7 @@
   },
   "graphics": {
     "spritesVerified": true,
-    "spriteAssetRoot": "Pokemon/front",
+    "spriteAssetRoot": "Profiles/spanish-rocket-current/Pokemon/front",
     "frontSpriteTableOffset": "0x568888",
     "normalPaletteTableOffset": "0x5545C4",
     "spriteIndexAdjustment": -1,
@@ -59,10 +70,91 @@
   "features": {
     "liveEditing": true,
     "saveEditing": true,
-    "party": true,
-    "boxes": true,
-    "bag": true,
-    "trainer": true,
+    "liveParty": { "read": true, "write": true },
+    "saveParty": { "read": true, "write": true },
+    "liveBoxes": { "read": true, "write": true },
+    "saveBoxes": { "read": true, "write": true },
+    "liveBag": { "read": true, "write": true },
+    "saveBag": { "read": true, "write": true },
+    "liveTrainer": { "read": true, "write": true },
+    "saveTrainer": { "read": false, "write": false },
+    "builtInDex": true,
+    "moveDex": true,
+    "importToParty": true,
+    "importToBoxes": true,
     "experiments": true
+  },
+  "runtime": {
+    "liveBag": {
+      "mode": "scanned",
+      "baseAddress": "0x0",
+      "quantityKeyMode": "scan-empty-slots",
+      "areas": [],
+      "scannedAreas": [
+        { "pocket": 1, "name": "普通道具", "offset": "0x1E78", "capacity": 120, "quantityKey": "0x4D23" },
+        { "pocket": 2, "name": "回复药品", "offset": "0x2884", "capacity": 120, "quantityKey": "0x6D5F" },
+        { "pocket": 3, "name": "精灵球", "offset": "0x2348", "capacity": 120, "quantityKey": "0x698B" },
+        { "pocket": 4, "name": "战斗道具", "offset": "0x29E0", "capacity": 120, "quantityKey": "0x3502" },
+        { "pocket": 5, "name": "树果", "offset": "0x27D0", "capacity": 120, "quantityKey": "0x5B67" },
+        { "pocket": 6, "name": "宝物", "offset": "0x2BF0", "capacity": 120, "quantityKey": "0xB01B" },
+        { "pocket": 7, "name": "招式机器/秘传机器", "offset": "0x23A0", "capacity": 254, "quantityKey": "0xFC51" },
+        { "pocket": 8, "name": "重要物品", "offset": "0x2268", "capacity": 120, "quantityKey": "0x5145" }
+      ]
+    },
+    "liveBagPockets": [
+      { "id": 1, "name": "普通道具", "isKeyItem": false, "batchCapacity": 255 },
+      { "id": 2, "name": "回复药品", "isKeyItem": false, "batchCapacity": 67 },
+      { "id": 3, "name": "精灵球", "isKeyItem": false, "batchCapacity": 16 },
+      { "id": 4, "name": "战斗道具", "isKeyItem": false, "batchCapacity": 130 },
+      { "id": 5, "name": "树果", "isKeyItem": false, "batchCapacity": 68 },
+      { "id": 6, "name": "宝物", "isKeyItem": false, "batchCapacity": 130 },
+      { "id": 7, "name": "招式机器/秘传机器", "isKeyItem": false, "batchCapacity": 254 },
+      { "id": 8, "name": "重要物品", "isKeyItem": true, "batchCapacity": 64 }
+    ],
+    "saveBagPockets": [
+      { "id": 1, "name": "普通道具", "isKeyItem": false, "batchCapacity": 42 },
+      { "id": 2, "name": "回复药品", "isKeyItem": false, "batchCapacity": 67 },
+      { "id": 3, "name": "精灵球", "isKeyItem": false, "batchCapacity": 15 },
+      { "id": 4, "name": "战斗道具", "isKeyItem": false, "batchCapacity": 129 },
+      { "id": 5, "name": "树果", "isKeyItem": false, "batchCapacity": 67 },
+      { "id": 6, "name": "宝物", "isKeyItem": false, "batchCapacity": 129 },
+      { "id": 7, "name": "招式机器/秘传机器", "isKeyItem": false, "batchCapacity": 254 },
+      { "id": 8, "name": "重要物品", "isKeyItem": true, "batchCapacity": 63 }
+    ],
+    "itemPocketFallbackRanges": [
+      { "start": 1, "end": 27, "pocket": 3 },
+      { "start": 28, "end": 48, "pocket": 2 },
+      { "start": 921, "end": 921, "pocket": 2 },
+      { "start": 512, "end": 591, "pocket": 5 },
+      { "start": 592, "end": 845, "pocket": 7 },
+      { "start": 768, "end": 922, "pocket": 8 }
+    ],
+    "itemPocketRemap": {},
+    "defaultItemPocket": -1,
+    "machines": {
+      "pocket": 7,
+      "mode": "fixed-ranges",
+      "tmStartItem": 592,
+      "tmCount": 246,
+      "hmStartItem": 838,
+      "hmCount": 8,
+      "hmMoveStartIndex": 246,
+      "fallbackMoveIds": [264,337,352,347,46,92,258,339,331,237,241,269,58,59,63,113,182,240,202,219,218,76,231,85,87,89,216,91,94,247,280,104,115,351,53,188,201,126,317,332,259,263,290,156,213,168,211,285,289,315]
+    },
+    "shopProbe": {
+      "enabled": true,
+      "shopPriceAddress": "0x020051B0",
+      "shopFirstItemAddress": "0x02005274",
+      "sellPricePrimaryAddress": "0x030052D8",
+      "sellPriceFallbackAddress": "0x020052D8"
+    },
+    "bridgeExperimentProfile": "SPANISH_ROCKET_CURRENT",
+    "experimentNeedsSaveBaseForNoEncounter": true,
+    "experimentBattleAssist": true,
+    "experimentTeleport": true,
+    "experimentNoEncounter": true,
+    "experimentWalkThroughWalls": true,
+    "maxTrainerMoney": 99999999,
+    "bagBatchQuantity": 240
   }
 }

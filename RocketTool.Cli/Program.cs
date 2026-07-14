@@ -1,3 +1,6 @@
+using System.Buffers.Binary;
+using System.Security.Cryptography;
+using System.Text;
 using RocketTool.Core;
 
 static string RootDir()
@@ -98,6 +101,30 @@ static ModifierDatabase Db()
     return new ModifierDatabase(profile.DatabaseDirectory);
 }
 
+static IGameRuntimeAdapter CurrentRuntime()
+{
+    var profile = CurrentProfile();
+    return GameRuntimeAdapterCatalog.ForProfile(profile);
+}
+
+static PokemonDataLayout CurrentPokemonLayout()
+    => CurrentRuntime().PartyLayout;
+
+static MgbaBridgeClient ConnectForProfile(GameProfile profile, string host, int port)
+{
+    var bridge = MgbaBridgeClient.Connect(host, port);
+    try
+    {
+        GameRuntimeAdapterCatalog.ForProfile(profile).ValidateLiveRom(bridge);
+        return bridge;
+    }
+    catch
+    {
+        bridge.Dispose();
+        throw;
+    }
+}
+
 static SpeciesStats ReadSpeciesStatsFromDb(ModifierDatabase db, int species)
 {
     if (!db.Table("species_stats").TryGetValue(species, out var raw))
@@ -132,7 +159,8 @@ static MoveData ReadMoveDataFromDb(ModifierDatabase db, int move)
     ushort U(int i) => ushort.Parse(parts[i]);
     byte B(int i) => byte.Parse(parts[i]);
     sbyte S(int i) => unchecked((sbyte)byte.Parse(parts[i]));
-    return new MoveData(move, U(0), B(1), B(2), B(3), B(4), U(5), S(6), U(7), B(8), U(9), []);
+    var effect = parts.Length >= 11 ? B(10) : (byte)0;
+    return new MoveData(move, U(0), B(1), B(2), B(3), B(4), U(5), S(6), U(7), B(8), U(9), effect, []);
 }
 
 static ItemData ReadItemDataFromDb(ModifierDatabase db, int item)
@@ -177,24 +205,56 @@ static uint ResolvePartyBase(string[] args, MgbaBridgeClient bridge, bool quiet 
 {
     var explicitBase = GetUIntArg(args, "--base");
     if (explicitBase is not null) return explicitBase.Value;
-    if (!quiet) Console.WriteLine("No --base supplied; scanning EWRAM for live party...");
-    var ewram = PartyScanner.ReadEwram(bridge, quiet ? null : (off, total) =>
+    return ScanPartyBase(bridge, quiet);
+}
+
+static uint ScanPartyBase(MgbaBridgeClient bridge, bool quiet = false)
+{
+    var profile = CurrentProfile();
+    var layout = CurrentPokemonLayout();
+    if (!quiet) Console.WriteLine("Scanning EWRAM for live party...");
+    var ewram = PartyScanner.ReadEwram(bridge, profile, quiet ? null : (off, total) =>
     {
         if (off % 0x10000 == 0) Console.WriteLine($"read EWRAM 0x{off:X5}/0x{total:X5}");
     });
-    var run = PartyScanner.LocateParty(ewram) ?? throw new InvalidOperationException("Could not auto-locate party base; pass --base 0x...");
+    var run = PartyScanner.LocateParty(
+                  ewram,
+                  profile.Memory.EwramBase,
+                  layout,
+                  profile.Memory.DefaultPartyBase,
+                  profile.Memory.PartyCountOffsetFromPartyBase,
+                  profile.Limits.MaxSpecies)
+              ?? throw new InvalidOperationException("Could not auto-locate the live party base.");
     if (!quiet) Console.WriteLine($"Auto party base: 0x{run.StartAddress:X8} len={run.Length} score_sum={run.ScoreSum}");
     return run.StartAddress;
 }
 
-static (uint BaseAddr, uint Addr, PartyPokemon Mon) ReadMon(MgbaBridgeClient bridge, string[] args, int slot, bool quietScan = false)
+static uint ResolveWritablePartyBase(string[] args, MgbaBridgeClient bridge, bool quiet = false)
 {
-    var baseAddr = ResolvePartyBase(args, bridge, quietScan);
-    var addr = SlotAddress(baseAddr, slot);
-    return (baseAddr, addr, new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize)));
+    var explicitBase = GetUIntArg(args, "--base");
+    var scannedBase = ScanPartyBase(bridge, quiet);
+    if (explicitBase is not null && explicitBase.Value != scannedBase)
+        throw new InvalidOperationException($"Explicit party base 0x{explicitBase.Value:X8} does not match scanned live party base 0x{scannedBase:X8}.");
+    return scannedBase;
 }
 
-static void WriteMon(MgbaBridgeClient bridge, uint addr, PartyPokemon mon) => bridge.WriteRangeVerified(addr, mon.Raw);
+static (uint BaseAddr, uint Addr, PartyPokemon Mon) ReadWritableMon(MgbaBridgeClient bridge, string[] args, int slot)
+{
+    var baseAddr = ResolveWritablePartyBase(args, bridge);
+    var addr = SlotAddress(baseAddr, slot);
+    return (baseAddr, addr, new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize), CurrentPokemonLayout()));
+}
+
+static void WriteMon(GameProfile profile, MgbaBridgeClient bridge, uint baseAddr, uint addr, PartyPokemon mon)
+{
+    var partyEnd = (ulong)baseAddr + Gen3Constants.PartySlots * Gen3Constants.PartyMonSize;
+    var ewramEnd = (ulong)profile.Memory.EwramBase + (uint)profile.Memory.EwramSize;
+    if (baseAddr < profile.Memory.EwramBase || partyEnd > ewramEnd ||
+        addr < baseAddr || (addr - baseAddr) % Gen3Constants.PartyMonSize != 0 ||
+        (ulong)addr + Gen3Constants.PartyMonSize > partyEnd)
+        throw new InvalidOperationException("Party write address is outside the scanned six-slot party range.");
+    bridge.WriteRangeVerified(addr, mon.Raw);
+}
 
 static void PrintMon(int slot, uint addr, PartyPokemon mon, ModifierDatabase db)
 {
@@ -219,37 +279,44 @@ static void PrintMon(int slot, uint addr, PartyPokemon mon, ModifierDatabase db)
 
 static int PartyDump(string[] args)
 {
+    var profile = CurrentProfile();
+    var runtime = GameRuntimeAdapterCatalog.ForProfile(profile);
+    runtime.EnsureCanRead(GameDataSurface.Party, live: true);
     var db = Db();
     var host = GetArg(args, "--host", "127.0.0.1");
     var port = GetIntArg(args, "--port", 8765);
-    using var bridge = MgbaBridgeClient.Connect(host, port);
+    using var bridge = ConnectForProfile(profile, host, port);
     Console.WriteLine(bridge.Welcome);
     Console.WriteLine($"Game code: {bridge.GameCode()}");
     var baseAddr = ResolvePartyBase(args, bridge);
+    var layout = CurrentPokemonLayout();
     var slots = GetUIntArg(args, "--slot") is uint slot ? [checked((int)slot)] : Enumerable.Range(1, Gen3Constants.PartySlots).ToArray();
     foreach (var s in slots)
     {
         if (s is < 1 or > 6) throw new ArgumentOutOfRangeException("--slot", "slot must be 1..6");
         var addr = SlotAddress(baseAddr, s);
-        PrintMon(s, addr, new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize)), db);
+        PrintMon(s, addr, new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize), layout), db);
     }
     return 0;
 }
 
 static int PartyScan(string[] args)
 {
+    var profile = CurrentProfile();
+    GameRuntimeAdapterCatalog.ForProfile(profile).EnsureCanRead(GameDataSurface.Party, live: true);
+    var layout = CurrentPokemonLayout();
     var host = GetArg(args, "--host", "127.0.0.1");
     var port = GetIntArg(args, "--port", 8765);
     var minScore = GetIntArg(args, "--min-score", 13);
     var limit = GetIntArg(args, "--limit", 30);
-    using var bridge = MgbaBridgeClient.Connect(host, port);
+    using var bridge = ConnectForProfile(profile, host, port);
     Console.WriteLine(bridge.Welcome);
     Console.WriteLine($"Game code: {bridge.GameCode()}");
-    var ewram = PartyScanner.ReadEwram(bridge, (off, total) =>
+    var ewram = PartyScanner.ReadEwram(bridge, profile, (off, total) =>
     {
         if (off % 0x10000 == 0) Console.WriteLine($"read EWRAM 0x{off:X5}/0x{total:X5}");
     });
-    var hits = PartyScanner.FindCandidates(ewram, minScore);
+    var hits = PartyScanner.FindCandidates(ewram, profile.Memory.EwramBase, layout, minScore, profile.Limits.MaxSpecies);
     Console.WriteLine($"\nCandidates: {hits.Count} with score >= {minScore}");
     foreach (var c in hits.Take(limit))
     {
@@ -261,47 +328,126 @@ static int PartyScan(string[] args)
         var addrs = string.Join(", ", run.Candidates.Take(6).Select(c => $"0x{c.Address:X8}"));
         Console.WriteLine($"len={run.Length} score_sum={run.ScoreSum} start=0x{run.StartAddress:X8} :: {addrs}");
     }
-    var best = PartyScanner.LocateParty(ewram, minScore);
+    var best = PartyScanner.LocateParty(
+        ewram,
+        profile.Memory.EwramBase,
+        layout,
+        profile.Memory.DefaultPartyBase,
+        profile.Memory.PartyCountOffsetFromPartyBase,
+        profile.Limits.MaxSpecies,
+        minScore);
     if (best is not null) Console.WriteLine($"\nBest live party base: 0x{best.StartAddress:X8}");
     return 0;
 }
 
 static int BoxScan(string[] args)
 {
+    var profile = CurrentProfile();
+    var runtime = GameRuntimeAdapterCatalog.ForProfile(profile);
+    runtime.EnsureCanRead(GameDataSurface.Boxes, live: true);
     var db = Db();
     var host = GetArg(args, "--host", "127.0.0.1");
     var port = GetIntArg(args, "--port", 8765);
     var minScore = GetIntArg(args, "--min-score", 12);
     var limit = GetIntArg(args, "--limit", 30);
-    using var bridge = MgbaBridgeClient.Connect(host, port);
+    using var bridge = ConnectForProfile(profile, host, port);
     Console.WriteLine(bridge.Welcome);
     Console.WriteLine($"Game code: {bridge.GameCode()}");
-    var ewram = PartyScanner.ReadEwram(bridge, (off, total) =>
+    var ewram = PartyScanner.ReadEwram(bridge, profile, (off, total) =>
     {
         if (off % 0x10000 == 0) Console.WriteLine($"read EWRAM 0x{off:X5}/0x{total:X5}");
     });
-    var hits = BoxScanner.FindCandidates(ewram, minScore);
+    if (profile.Memory.PcBoxStoragePointerAddress != 0)
+    {
+        var pointerRaw = bridge.Read(profile.Memory.PcBoxStoragePointerAddress, 4);
+        var storageBase = (uint)(pointerRaw[0] | pointerRaw[1] << 8 | pointerRaw[2] << 16 | pointerRaw[3] << 24);
+        var recordsBase = storageBase + checked((uint)profile.Memory.PcBoxDataOffset);
+        var totalSlots = profile.Memory.PcBoxCount * profile.Memory.PcBoxSlots;
+        var byteLength = checked((uint)(totalSlots * profile.Memory.PcBoxRecordSize));
+        var ewramEnd = profile.Memory.EwramBase + checked((uint)profile.Memory.EwramSize);
+        if (storageBase < profile.Memory.EwramBase || recordsBase + byteLength > ewramEnd)
+            throw new InvalidOperationException($"PC 箱子指针 0x{profile.Memory.PcBoxStoragePointerAddress:X8} 的值 0x{storageBase:X8} 不在完整 EWRAM 箱子范围内。");
+
+        var counts = new int[profile.Memory.PcBoxCount];
+        var shown = 0;
+        for (var slot = 1; slot <= totalSlots; slot++)
+        {
+            var address = recordsBase + checked((uint)((slot - 1) * profile.Memory.PcBoxRecordSize));
+            var offset = checked((int)(address - profile.Memory.EwramBase));
+            var mon = new BoxPokemon(ewram.AsSpan(offset, profile.Memory.PcBoxRecordSize), runtime.LiveBoxLayout);
+            if (mon.IsEmpty || !mon.HasValidHeader(profile.Limits.MaxSpecies)) continue;
+            counts[(slot - 1) / profile.Memory.PcBoxSlots]++;
+            if (shown++ < limit)
+            {
+                var info = mon.GetInfo();
+                var box = (slot - 1) / profile.Memory.PcBoxSlots + 1;
+                var slotInBox = (slot - 1) % profile.Memory.PcBoxSlots + 1;
+                Console.WriteLine($"box{box:00}-{slotInBox:00} 0x{address:X8} species={info.Species}({db.NameOf("species", info.Species)}) pid=0x{info.Pid:X8}");
+            }
+        }
+        Console.WriteLine($"\nProfile PC storage pointer: 0x{profile.Memory.PcBoxStoragePointerAddress:X8} -> 0x{storageBase:X8}; records=0x{recordsBase:X8}; non_empty={counts.Sum()}/{totalSlots}");
+        for (var box = 1; box <= counts.Length; box++)
+            Console.WriteLine($"  box{box:00}: {counts[box - 1]}");
+        return 0;
+    }
+    if (profile.Memory.PcBoxRegions.Count > 0)
+    {
+        var counts = new int[profile.Memory.PcBoxCount];
+        var shown = 0;
+        var totalSlots = profile.Memory.PcBoxCount * profile.Memory.PcBoxSlots;
+        for (var globalSlot = 1; globalSlot <= totalSlots; globalSlot++)
+        {
+            var box = (globalSlot - 1) / profile.Memory.PcBoxSlots + 1;
+            var slotInBox = (globalSlot - 1) % profile.Memory.PcBoxSlots;
+            var region = profile.Memory.PcBoxRegions.Single(candidate =>
+                box >= candidate.FirstBox && box < candidate.FirstBox + candidate.BoxCount);
+            var recordIndex = (box - region.FirstBox) * profile.Memory.PcBoxSlots + slotInBox;
+            var address = region.Address + checked((uint)(recordIndex * profile.Memory.PcBoxRecordSize));
+            var offset = checked((int)(address - profile.Memory.EwramBase));
+            var mon = new BoxPokemon(ewram.AsSpan(offset, profile.Memory.PcBoxRecordSize), runtime.LiveBoxLayout);
+            if (mon.IsEmpty || !mon.HasValidHeader(profile.Limits.MaxSpecies)) continue;
+            counts[box - 1]++;
+            if (shown++ < limit)
+            {
+                var info = mon.GetInfo();
+                Console.WriteLine($"box{box:00}-{slotInBox + 1:00} 0x{address:X8} species={info.Species}({db.NameOf("species", info.Species)}) pid=0x{info.Pid:X8}");
+            }
+        }
+
+        Console.WriteLine($"\nProfile PC regions: {profile.Memory.PcBoxRegions.Count}; non_empty={counts.Sum()}/{totalSlots}");
+        for (var box = 1; box <= counts.Length; box++)
+            Console.WriteLine($"  box{box:00}: {counts[box - 1]}");
+        return 0;
+    }
+    var hits = BoxScanner.FindCandidates(ewram, profile.Memory.EwramBase, runtime.LiveBoxLayout, minScore, profile.Limits.MaxSpecies);
     Console.WriteLine($"\nBox candidates: {hits.Count} with score >= {minScore}");
     foreach (var c in hits.Take(limit))
         Console.WriteLine($"0x{c.Address:X8} score={c.Score:00} species={c.Species}({db.NameOf("species", c.Species)}) checksum={(c.ChecksumOk ? "ok" : "bad")} pid=0x{c.Pid:X8}");
 
     Console.WriteLine("\nConsecutive checksum-ok box runs:");
-    foreach (var run in BoxScanner.GroupRuns(hits, checksumRequired: true).Take(10))
+    foreach (var run in BoxScanner.GroupRuns(hits, profile.Memory.PcBoxRecordSize, checksumRequired: true).Take(10))
     {
         var addrs = string.Join(", ", run.Candidates.Take(6).Select(c => $"0x{c.Address:X8}"));
         Console.WriteLine($"len={run.Length} score_sum={run.ScoreSum} start=0x{run.StartAddress:X8} :: {addrs}");
     }
-    var best = BoxScanner.LocateBestRun(ewram);
+    var best = BoxScanner.LocateBestRun(ewram, profile.Memory.EwramBase, profile.Limits.MaxSpecies, runtime.LiveBoxLayout);
     if (best is not null) Console.WriteLine($"\nBest live box base: 0x{best.StartAddress:X8} len={best.Length}");
 
-    var storage = BoxScanner.LocatePcStorage(ewram, minScore);
+    var storage = BoxScanner.LocatePcStorage(
+        ewram,
+        profile.Memory.EwramBase,
+        runtime.LiveBoxLayout,
+        minScore,
+        profile.Limits.MaxSpecies,
+        profile.Memory.PcBoxCount,
+        profile.Memory.PcBoxSlots);
     if (storage is not null)
     {
-        Console.WriteLine($"\nBest PC storage base: 0x{storage.StartAddress:X8} non_empty={storage.NonEmptyCount}/{BoxScanner.TotalSlots} score_sum={storage.ScoreSum} boundary={storage.BoundaryScore}");
-        for (var box = 1; box <= BoxScanner.MaxBoxes; box++)
+        Console.WriteLine($"\nBest PC storage base: 0x{storage.StartAddress:X8} non_empty={storage.NonEmptyCount}/{profile.Memory.PcBoxCount * profile.Memory.PcBoxSlots} score_sum={storage.ScoreSum} boundary={storage.BoundaryScore}");
+        for (var box = 1; box <= profile.Memory.PcBoxCount; box++)
         {
-            var start = (box - 1) * BoxScanner.BoxSlots + 1;
-            var end = start + BoxScanner.BoxSlots - 1;
+            var start = (box - 1) * profile.Memory.PcBoxSlots + 1;
+            var end = start + profile.Memory.PcBoxSlots - 1;
             var count = storage.CandidatesBySlot.Keys.Count(slot => slot >= start && slot <= end);
             Console.WriteLine($"  box{box:00}: {count}");
         }
@@ -313,15 +459,224 @@ static int BoxScan(string[] args)
     return 0;
 }
 
+static uint ConfiguredBoxAddress(GameProfile profile, MgbaBridgeClient bridge, int globalSlot)
+{
+    var totalSlots = profile.Memory.PcBoxCount * profile.Memory.PcBoxSlots;
+    if (globalSlot < 1 || globalSlot > totalSlots)
+        throw new ArgumentOutOfRangeException(nameof(globalSlot), $"box slot must be 1..{totalSlots}");
+
+    if (profile.Memory.PcBoxStoragePointerAddress != 0)
+    {
+        var storageBase = BinaryPrimitives.ReadUInt32LittleEndian(bridge.Read(profile.Memory.PcBoxStoragePointerAddress, 4));
+        return storageBase + checked((uint)profile.Memory.PcBoxDataOffset) +
+               checked((uint)((globalSlot - 1) * profile.Memory.PcBoxRecordSize));
+    }
+
+    var box = (globalSlot - 1) / profile.Memory.PcBoxSlots + 1;
+    var slotInBox = (globalSlot - 1) % profile.Memory.PcBoxSlots;
+    var region = profile.Memory.PcBoxRegions.SingleOrDefault(candidate =>
+        box >= candidate.FirstBox && box < candidate.FirstBox + candidate.BoxCount)
+        ?? throw new InvalidOperationException($"Profile does not contain a configured region for box {box}.");
+    var recordIndex = (box - region.FirstBox) * profile.Memory.PcBoxSlots + slotInBox;
+    return region.Address + checked((uint)(recordIndex * profile.Memory.PcBoxRecordSize));
+}
+
+static uint NewNonShinyImportPid(uint otId)
+{
+    uint pid;
+    do
+    {
+        pid = (uint)Random.Shared.NextInt64(1, (long)uint.MaxValue + 1);
+    } while (PartyPokemon.IsShinyPid(pid, otId));
+    return pid;
+}
+
+static (ushort[] Moves, byte[] Pp) BuildDexImportMoves(ModifierDatabase db, int species, int level)
+{
+    var selected = new List<ushort>();
+    if (db.Table("species_level_moves").TryGetValue(species, out var rawLevelMoves))
+    {
+        foreach (var entry in rawLevelMoves.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = entry.Split(':');
+            if (parts.Length != 2 || !ushort.TryParse(parts[0], out var learnedAt) || !ushort.TryParse(parts[1], out var move))
+                throw new InvalidOperationException($"species {species} has an invalid level-up move row.");
+            if (learnedAt > level || move == 0) continue;
+            selected.Remove(move);
+            selected.Add(move);
+            if (selected.Count > 4) selected.RemoveAt(0);
+        }
+    }
+
+    var moves = new ushort[4];
+    var pp = new byte[4];
+    for (var i = 0; i < selected.Count; i++)
+    {
+        moves[i] = selected[i];
+        pp[i] = ReadMoveDataFromDb(db, selected[i]).Pp;
+    }
+    return (moves, pp);
+}
+
+static PartyPokemon BuildDexImportParty(
+    GameProfile profile,
+    ModifierDatabase db,
+    Gen3SaveTrainerInfo trainer,
+    int species,
+    int level = 5)
+{
+    if (species < 1 || species > profile.Limits.MaxSpecies)
+        throw new ArgumentOutOfRangeException(nameof(species), $"species must be 1..{profile.Limits.MaxSpecies}");
+
+    var stats = ReadSpeciesStatsFromDb(db, species);
+    if (!db.Table("species_nickname_bytes").TryGetValue(species, out var nicknameHex) &&
+        !db.Table("species_name_bytes").TryGetValue(species, out nicknameHex))
+        throw new InvalidOperationException($"species {species} is missing current-Profile nickname bytes.");
+    var nickname = Convert.FromHexString(nicknameHex.Trim());
+    if (nickname.Length < 10)
+        throw new InvalidOperationException($"species {species} nickname entry is shorter than 10 bytes.");
+
+    var runtime = GameRuntimeAdapterCatalog.ForProfile(profile);
+    var experience = new PokemonExperienceTable(db).ExperienceForLevel(level, stats.GrowthRate);
+    var (moves, pp) = BuildDexImportMoves(db, species, level);
+    var mon = PartyPokemon.Create(NewNonShinyImportPid(trainer.OtId), trainer.OtId, runtime.PartyLayout);
+    mon.SetOtName(trainer.NameBytes);
+    mon.SetNicknameFromSpeciesNameEntry(nickname);
+    mon.SetGrowth((ushort)species, item: 0, exp: experience, friendship: stats.Friendship, ppBonuses: 0);
+    mon.SetGameNatureCode(26);
+    mon.SetMoves(moves.Select(move => (ushort?)move).ToArray(), pp.Select(value => (byte?)value).ToArray());
+    mon.SetIvs(new Dictionary<string, int>
+    {
+        ["hp"] = 31, ["atk"] = 31, ["def"] = 31,
+        ["spe"] = 31, ["spa"] = 31, ["spd"] = 31, ["ability"] = 0
+    });
+    mon.SetEvs(new Dictionary<string, byte>
+    {
+        ["hp"] = 0, ["atk"] = 0, ["def"] = 0,
+        ["spe"] = 0, ["spa"] = 0, ["spd"] = 0
+    });
+    mon.SetUnencrypted(status: 0, level: (byte)level);
+    mon.RecalculateStats(stats);
+    return mon;
+}
+
+static int BoxVerifyCreate(string[] args)
+{
+    var profile = CurrentProfile();
+    var runtime = GameRuntimeAdapterCatalog.ForProfile(profile);
+    runtime.EnsureCanWrite(GameDataSurface.Boxes, live: true);
+    var box = GetIntArg(args, "--box", 1);
+    var slot = GetIntArg(args, "--slot", 2);
+    var species = GetIntArg(args, "--species", 1);
+    if (box < 1 || box > profile.Memory.PcBoxCount)
+        throw new ArgumentOutOfRangeException("--box", $"box must be 1..{profile.Memory.PcBoxCount}");
+    if (slot < 1 || slot > profile.Memory.PcBoxSlots)
+        throw new ArgumentOutOfRangeException("--slot", $"slot must be 1..{profile.Memory.PcBoxSlots}");
+    if (species < 1 || species > profile.Limits.MaxSpecies)
+        throw new ArgumentOutOfRangeException("--species", $"species must be 1..{profile.Limits.MaxSpecies}");
+
+    using var bridge = ConnectForProfile(profile, GetArg(args, "--host", "127.0.0.1"), GetIntArg(args, "--port", 8765));
+    var globalSlot = (box - 1) * profile.Memory.PcBoxSlots + slot;
+    var address = ConfiguredBoxAddress(profile, bridge, globalSlot);
+    var ewramEnd = profile.Memory.EwramBase + checked((uint)profile.Memory.EwramSize);
+    if (address < profile.Memory.EwramBase ||
+        (ulong)address + (uint)profile.Memory.PcBoxRecordSize > ewramEnd)
+        throw new InvalidOperationException("Configured box slot is outside the current Profile EWRAM range.");
+
+    var original = bridge.Read(address, profile.Memory.PcBoxRecordSize);
+    if (original.Any(value => value != 0))
+        throw new InvalidOperationException($"box{box:00}-{slot:00} is not an all-zero empty slot; refusing the create probe.");
+
+    var db = Db();
+    var trainer = ReadLiveTrainer(bridge, profile);
+    var stats = ReadSpeciesStatsFromDb(db, species);
+    if (!db.Table("species_nickname_bytes").TryGetValue(species, out var nicknameHex) &&
+        !db.Table("species_name_bytes").TryGetValue(species, out nicknameHex))
+        throw new InvalidOperationException($"species {species} is missing Profile nickname bytes.");
+    var nickname = Convert.FromHexString(nicknameHex.Trim());
+    if (nickname.Length < 10)
+        throw new InvalidOperationException($"species {species} nickname entry is shorter than 10 bytes.");
+
+    var selectedMoves = new List<ushort>();
+    if (db.Table("species_level_moves").TryGetValue(species, out var rawLevelMoves))
+    {
+        foreach (var entry in rawLevelMoves.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = entry.Split(':');
+            if (parts.Length != 2 || !ushort.TryParse(parts[0], out var level) || !ushort.TryParse(parts[1], out var move))
+                throw new InvalidOperationException($"species {species} has an invalid level-up move row.");
+            if (level > 5 || move == 0) continue;
+            selectedMoves.Remove(move);
+            selectedMoves.Add(move);
+            if (selectedMoves.Count > 4) selectedMoves.RemoveAt(0);
+        }
+    }
+
+    var moves = new ushort[4];
+    for (var i = 0; i < selectedMoves.Count; i++) moves[i] = selectedMoves[i];
+    var experience = new PokemonExperienceTable(db).ExperienceForLevel(5, stats.GrowthRate);
+    var mon = BoxPokemon.Create(NewNonShinyImportPid(trainer.OtId), trainer.OtId, runtime.LiveBoxLayout);
+    mon.SetOtName(trainer.NameBytes);
+    mon.SetNicknameFromSpeciesNameEntry(nickname);
+    mon.SetGrowth((ushort)species, item: 0, exp: experience, friendship: stats.Friendship, ppBonuses: 0);
+    mon.SetGameNatureCode(26);
+    mon.SetMoves(moves.Select(move => (ushort?)move).ToArray(), [null, null, null, null]);
+    mon.SetIvs(new Dictionary<string, int>
+    {
+        ["hp"] = 31, ["atk"] = 31, ["def"] = 31,
+        ["spe"] = 31, ["spa"] = 31, ["spd"] = 31, ["ability"] = 0
+    });
+    mon.SetEvs(new Dictionary<string, byte>
+    {
+        ["hp"] = 0, ["atk"] = 0, ["def"] = 0,
+        ["spe"] = 0, ["spa"] = 0, ["spd"] = 0
+    });
+
+    var intended = mon.Raw.ToArray();
+    var intendedInfo = mon.GetInfo();
+    if (!mon.HasValidHeader(profile.Limits.MaxSpecies) || intendedInfo.Species != species ||
+        intendedInfo.OtId != trainer.OtId || intendedInfo.Exp != experience)
+        throw new InvalidOperationException("Constructed box record failed pre-write validation.");
+    if (!Confirm(args, $"将在箱{box:00}-{slot:00}临时新建 {db.NameOf("species", species)}，完整读回后恢复全零槽。请先创建 mGBA 即时存档。"))
+        return 0;
+
+    try
+    {
+        bridge.WriteRangeVerified(address, intended);
+        var readback = bridge.Read(address, intended.Length);
+        if (!readback.AsSpan().SequenceEqual(intended))
+            throw new InvalidOperationException("Created box record did not match the complete intended byte sequence.");
+        var parsed = new BoxPokemon(readback, runtime.LiveBoxLayout);
+        var info = parsed.GetInfo();
+        if (!parsed.HasValidHeader(profile.Limits.MaxSpecies) || info.Species != species ||
+            info.OtId != trainer.OtId || info.Exp != experience || info.Friendship != stats.Friendship ||
+            !info.Moves.SequenceEqual(moves) || info.Ivs.Where(pair => Gen3Constants.StatNames.Contains(pair.Key)).Any(pair => pair.Value != 31))
+            throw new InvalidOperationException("Created box record semantic readback did not match the requested defaults.");
+        Console.WriteLine($"Created readback OK: box{box:00}-{slot:00} address=0x{address:X8} species={info.Species} exp={info.Exp} friendship={info.Friendship} moves={string.Join(',', info.Moves)}");
+    }
+    finally
+    {
+        bridge.WriteRangeVerified(address, original);
+    }
+
+    var restored = bridge.Read(address, original.Length);
+    if (!restored.AsSpan().SequenceEqual(original))
+        throw new InvalidOperationException("Empty target slot restore did not match its original bytes.");
+    Console.WriteLine("Restore readback OK: target slot is the original 58 zero bytes.");
+    return 0;
+}
+
 static int PartySetBasic(string[] args)
 {
+    var profile = CurrentProfile();
+    GameRuntimeAdapterCatalog.ForProfile(profile).EnsureCanWrite(GameDataSurface.Party, live: true);
     var db = Db();
     var slot = ValidateSlot(args);
     var host = GetArg(args, "--host", "127.0.0.1");
     var port = GetIntArg(args, "--port", 8765);
-    using var bridge = MgbaBridgeClient.Connect(host, port);
+    using var bridge = ConnectForProfile(profile, host, port);
     Console.WriteLine(bridge.Welcome);
-    var (_, addr, mon) = ReadMon(bridge, args, slot);
+    var (baseAddr, addr, mon) = ReadWritableMon(bridge, args, slot);
     var before = mon.GetInfo();
     var hpArg = GetArg(args, "--hp", "");
     ushort? hp = hpArg == "" ? null : (hpArg.Equals("max", StringComparison.OrdinalIgnoreCase) ? before.MaxHp : (ushort)ParseInt(hpArg));
@@ -333,7 +688,7 @@ static int PartySetBasic(string[] args)
                   $"  after  species/item/exp/friendship/hp={after.Species}({db.NameOf("species", after.Species)})/{after.Item}/{after.Exp}/{after.Friendship}/{after.Hp}";
     if (Confirm(args, summary))
     {
-        WriteMon(bridge, addr, mon);
+        WriteMon(profile, bridge, baseAddr, addr, mon);
         Console.WriteLine($"Wrote slot {slot}");
     }
     else Console.WriteLine("Cancelled");
@@ -366,15 +721,17 @@ static byte?[] ParseNullableByteList(string[] values, int count)
 
 static int PartySetMoves(string[] args)
 {
+    var profile = CurrentProfile();
+    GameRuntimeAdapterCatalog.ForProfile(profile).EnsureCanWrite(GameDataSurface.Party, live: true);
     var slot = ValidateSlot(args);
     var moveValues = ValuesAfter(args, "--moves");
     var ppValues = ValuesAfter(args, "--pp");
     if (moveValues.Length == 0 && ppValues.Length == 0) throw new ArgumentException("Supply --moves and/or --pp");
     var host = GetArg(args, "--host", "127.0.0.1");
     var port = GetIntArg(args, "--port", 8765);
-    using var bridge = MgbaBridgeClient.Connect(host, port);
+    using var bridge = ConnectForProfile(profile, host, port);
     Console.WriteLine(bridge.Welcome);
-    var (_, addr, mon) = ReadMon(bridge, args, slot);
+    var (baseAddr, addr, mon) = ReadWritableMon(bridge, args, slot);
     var before = mon.GetInfo();
     mon.SetMoves(moveValues.Length == 0 ? null : ParseNullableUShortList(moveValues, 4), ppValues.Length == 0 ? null : ParseNullableByteList(ppValues, 4));
     var after = mon.GetInfo();
@@ -383,7 +740,7 @@ static int PartySetMoves(string[] args)
                   $"  after  moves=[{string.Join(", ", after.Moves)}] pp=[{string.Join(", ", after.Pp)}]";
     if (Confirm(args, summary))
     {
-        WriteMon(bridge, addr, mon);
+        WriteMon(profile, bridge, baseAddr, addr, mon);
         Console.WriteLine($"Wrote slot {slot}");
     }
     else Console.WriteLine("Cancelled");
@@ -403,14 +760,16 @@ static Dictionary<string, byte> ByteStatArgs(string[] args)
 
 static int PartySetEvs(string[] args)
 {
+    var profile = CurrentProfile();
+    GameRuntimeAdapterCatalog.ForProfile(profile).EnsureCanWrite(GameDataSurface.Party, live: true);
     var slot = ValidateSlot(args);
     var values = ByteStatArgs(args);
     if (values.Count == 0) throw new ArgumentException("Supply at least one EV field");
     var host = GetArg(args, "--host", "127.0.0.1");
     var port = GetIntArg(args, "--port", 8765);
-    using var bridge = MgbaBridgeClient.Connect(host, port);
+    using var bridge = ConnectForProfile(profile, host, port);
     Console.WriteLine(bridge.Welcome);
-    var (_, addr, mon) = ReadMon(bridge, args, slot);
+    var (baseAddr, addr, mon) = ReadWritableMon(bridge, args, slot);
     var before = mon.GetInfo();
     var newSum = before.Evs.Select((v, i) => values.TryGetValue(Gen3Constants.StatNames[i], out var replacement) ? replacement : v).Sum(x => x);
     if (newSum > 510 && !HasArg(args, "--force")) throw new InvalidOperationException($"EV sum would be {newSum}; use --force to exceed 510");
@@ -422,7 +781,7 @@ static int PartySetEvs(string[] args)
                   $"  after  evs=[{string.Join(", ", after.Evs)}] sum={after.Evs.Sum(x => x)} stats HP {after.Hp}/{after.MaxHp} Atk {after.Attack} Def {after.Defense} Spe {after.Speed} SpA {after.SpAttack} SpD {after.SpDefense}";
     if (Confirm(args, summary))
     {
-        WriteMon(bridge, addr, mon);
+        WriteMon(profile, bridge, baseAddr, addr, mon);
         Console.WriteLine($"Wrote slot {slot}");
     }
     else Console.WriteLine("Cancelled");
@@ -431,6 +790,8 @@ static int PartySetEvs(string[] args)
 
 static int PartySetIvs(string[] args)
 {
+    var profile = CurrentProfile();
+    GameRuntimeAdapterCatalog.ForProfile(profile).EnsureCanWrite(GameDataSurface.Party, live: true);
     var slot = ValidateSlot(args);
     var values = new Dictionary<string, int>();
     foreach (var name in Gen3Constants.StatNames)
@@ -460,9 +821,9 @@ static int PartySetIvs(string[] args)
     if (values.Count == 0) throw new ArgumentException("Supply at least one IV field");
     var host = GetArg(args, "--host", "127.0.0.1");
     var port = GetIntArg(args, "--port", 8765);
-    using var bridge = MgbaBridgeClient.Connect(host, port);
+    using var bridge = ConnectForProfile(profile, host, port);
     Console.WriteLine(bridge.Welcome);
-    var (_, addr, mon) = ReadMon(bridge, args, slot);
+    var (baseAddr, addr, mon) = ReadWritableMon(bridge, args, slot);
     var before = mon.GetInfo();
     mon.SetIvs(values);
     RecalculateLiveStats(mon, args);
@@ -472,7 +833,7 @@ static int PartySetIvs(string[] args)
                   $"  after  ivs=[{string.Join(", ", after.Ivs.Select(kv => $"{kv.Key}={kv.Value}"))}] stats HP {after.Hp}/{after.MaxHp} Atk {after.Attack} Def {after.Defense} Spe {after.Speed} SpA {after.SpAttack} SpD {after.SpDefense}";
     if (Confirm(args, summary))
     {
-        WriteMon(bridge, addr, mon);
+        WriteMon(profile, bridge, baseAddr, addr, mon);
         Console.WriteLine($"Wrote slot {slot}");
     }
     else Console.WriteLine("Cancelled");
@@ -481,18 +842,21 @@ static int PartySetIvs(string[] args)
 
 static int PartyHeal(string[] args)
 {
+    var profile = CurrentProfile();
+    var runtime = GameRuntimeAdapterCatalog.ForProfile(profile);
+    runtime.EnsureCanWrite(GameDataSurface.Party, live: true);
     var host = GetArg(args, "--host", "127.0.0.1");
     var port = GetIntArg(args, "--port", 8765);
-    using var bridge = MgbaBridgeClient.Connect(host, port);
+    using var bridge = ConnectForProfile(profile, host, port);
     Console.WriteLine(bridge.Welcome);
-    var baseAddr = ResolvePartyBase(args, bridge);
+    var baseAddr = ResolveWritablePartyBase(args, bridge);
     var slots = GetUIntArg(args, "--slot") is uint slot ? [checked((int)slot)] : Enumerable.Range(1, Gen3Constants.PartySlots).ToArray();
     var changed = new List<(int Slot, uint Addr, PartyPokemon Mon, ushort OldHp, ushort MaxHp, uint Status)>();
     foreach (var s in slots)
     {
         if (s is < 1 or > 6) throw new ArgumentOutOfRangeException("--slot", "slot must be 1..6");
         var addr = SlotAddress(baseAddr, s);
-        var mon = new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize));
+        var mon = new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize), runtime.PartyLayout);
         if (mon.IsEmpty) continue;
         var info = mon.GetInfo();
         if (info.MaxHp == 0 || info.MaxHp > 999) continue;
@@ -507,7 +871,7 @@ static int PartyHeal(string[] args)
     var summary = "Will heal:\n" + string.Join("\n", changed.Select(c => $"  slot {c.Slot}: HP {c.OldHp}/{c.MaxHp}, status 0x{c.Status:X8} -> 0"));
     if (Confirm(args, summary))
     {
-        foreach (var c in changed) WriteMon(bridge, c.Addr, c.Mon);
+        foreach (var c in changed) WriteMon(profile, bridge, baseAddr, c.Addr, c.Mon);
         Console.WriteLine($"Wrote {changed.Count} slot(s)");
     }
     else Console.WriteLine("Cancelled");
@@ -538,7 +902,7 @@ static int MoveStats(string[] args)
         var m = ReadMoveDataFromDb(db, id);
         Console.WriteLine($"Move {id} ({db.NameOf("moves", id)})");
         Console.WriteLine($"  power {m.Power} type {m.Type}({MoveDataReader.TypeName(m.Type)}) accuracy {m.Accuracy} pp {m.Pp} category {m.Category}({MoveDataReader.CategoryName(m.Category)}) priority {m.Priority}");
-        Console.WriteLine($"  chance {m.SecondaryEffectChance} target=0x{m.Target:X4} flags=0x{m.Flags:X4} zPower={m.ZMovePower} raw={Convert.ToHexString(m.Raw)}");
+        Console.WriteLine($"  effect {m.Effect}({db.NameOf("move_effects", m.Effect)}) chance {m.SecondaryEffectChance} target=0x{m.Target:X4} flags=0x{m.Flags:X4} zPower={m.ZMovePower} raw={Convert.ToHexString(m.Raw)}");
     }
     return 0;
 }
@@ -559,126 +923,463 @@ static int ItemStats(string[] args)
     return 0;
 }
 
+static int ProfileSelfTest()
+{
+    var profile = CurrentProfile();
+    ProfileIsolationSelfTest.Verify(profile);
+    Console.WriteLine($"Profile isolation OK: {profile.Id}");
+    return 0;
+}
+
+static int ProfileDataVerify()
+{
+    var profile = CurrentProfile();
+    var db = Db();
+    var errors = new List<string>();
+    var warnings = new List<string>();
+
+    var romPath = Path.GetFullPath(Path.Combine(RootDir(), "..", "rom", profile.RomIdentity.FileName));
+    if (!File.Exists(romPath))
+    {
+        errors.Add($"source ROM missing: {romPath}");
+    }
+    else
+    {
+        var rom = File.ReadAllBytes(romPath);
+        var sha256 = Convert.ToHexString(SHA256.HashData(rom)).ToLowerInvariant();
+        var title = Encoding.ASCII.GetString(rom, 0xA0, 12).TrimEnd('\0', ' ');
+        var gameCode = Encoding.ASCII.GetString(rom, 0xAC, 4);
+        Console.WriteLine($"  source ROM                   {rom.Length} bytes / {sha256}");
+        if (rom.Length != profile.RomIdentity.RomSize) errors.Add($"ROM size: expected {profile.RomIdentity.RomSize}, got {rom.Length}");
+        if (!string.Equals(sha256, profile.RomIdentity.Sha256, StringComparison.OrdinalIgnoreCase)) errors.Add("ROM SHA-256 does not match profile");
+        if (!string.Equals(title, profile.RomIdentity.HeaderTitle, StringComparison.Ordinal)) errors.Add($"ROM title: expected {profile.RomIdentity.HeaderTitle}, got {title}");
+        if (!string.Equals(gameCode, profile.RomIdentity.GameCode, StringComparison.Ordinal)) errors.Add($"ROM game code: expected {profile.RomIdentity.GameCode}, got {gameCode}");
+        foreach (var fingerprint in profile.RomIdentity.LiveFingerprints)
+        {
+            var expected = Convert.FromHexString(fingerprint.Hex);
+            if (fingerprint.Offset < 0 || fingerprint.Offset + expected.Length > rom.Length ||
+                !rom.AsSpan(fingerprint.Offset, expected.Length).SequenceEqual(expected))
+                errors.Add($"ROM fingerprint mismatch at 0x{fingerprint.Offset:X}");
+        }
+    }
+
+    void RequireCount(string table, int expected)
+    {
+        var actual = db.Table(table).Count;
+        Console.WriteLine($"  {table,-28} {actual,5} / {expected}");
+        if (actual != expected) errors.Add($"{table}: expected {expected}, got {actual}");
+    }
+
+    RequireCount("species", profile.Limits.MaxSpecies);
+    RequireCount("moves", profile.Limits.MaxMove);
+    RequireCount("items", profile.Limits.MaxItem + 1);
+    RequireCount("abilities", profile.Limits.MaxAbility + 1);
+    RequireCount("move_data", profile.RomTables.Moves.Count);
+    RequireCount("item_data", profile.RomTables.Items.Count);
+    RequireCount("move_descriptions", profile.Limits.MaxMove);
+    RequireCount("item_descriptions", profile.RomTables.Items.Count);
+    RequireCount("ability_descriptions", profile.Limits.MaxAbility + 1);
+    RequireCount("species_evolutions", profile.Limits.MaxSpecies);
+    RequireCount("species_level_moves", profile.Limits.MaxSpecies);
+    RequireCount("experience", profile.RomTables.Experience.Count);
+
+    foreach (var table in new[] { "species", "moves", "items", "abilities" })
+    {
+        var placeholders = db.Table(table)
+            .Where(row => row.Value.StartsWith('#') || row.Value.Contains('□'))
+            .Select(row => row.Key)
+            .ToArray();
+        if (placeholders.Length > 0)
+            errors.Add($"{table}: unresolved display rows {string.Join(',', placeholders.Take(12))}{(placeholders.Length > 12 ? "..." : "")}");
+    }
+
+    foreach (var table in new[] { "move_effects", "item_effects", "species_national_dex", "species_forms", "maps", "map_sections", "map_warps" })
+    {
+        var lineCount = db.Lines(table).Count(line => !string.IsNullOrWhiteSpace(line));
+        Console.WriteLine($"  {table,-28} {lineCount,5} rows");
+        if (lineCount == 0) errors.Add($"{table}: missing or empty");
+    }
+
+    if (profile.Graphics.SpritesVerified)
+    {
+        var assetRoot = Path.Combine(RootDir(), "RocketTool.Avalonia", "Assets", profile.Graphics.SpriteAssetRoot.Replace('/', Path.DirectorySeparatorChar));
+        var iconRoot = Path.Combine(RootDir(), "RocketTool.Avalonia", "Assets", profile.Graphics.IconAssetRoot.Replace('/', Path.DirectorySeparatorChar));
+        var sprites = Directory.Exists(assetRoot) ? Directory.EnumerateFiles(assetRoot, "*.png").Count() : 0;
+        var icons = Directory.Exists(iconRoot) ? Directory.EnumerateFiles(iconRoot, "*.png").Count() : 0;
+        Console.WriteLine($"  front sprites                {sprites,5}");
+        Console.WriteLine($"  menu icons                   {icons,5}");
+        if (sprites == 0 || icons == 0) errors.Add("verified graphics asset directory is missing or empty");
+        var egg = Path.Combine(assetRoot, $"{profile.Graphics.EggSpeciesId:0000}.png");
+        if (!File.Exists(egg)) errors.Add($"egg front sprite missing: {profile.Graphics.EggSpeciesId}");
+    }
+
+    if (db.Table("map_sections").Values.Any(name => name.StartsWith("区域", StringComparison.Ordinal)))
+        warnings.Add("expanded map section names still use neutral ROM-derived region labels");
+
+    foreach (var warning in warnings) Console.WriteLine("WARN: " + warning);
+    if (errors.Count > 0)
+        throw new InvalidOperationException("Profile database verification failed:\n  " + string.Join("\n  ", errors));
+
+    Console.WriteLine($"Profile database OK: {profile.Id}");
+    return 0;
+}
+
+static (uint SaveBlock1, uint SaveBlock2, byte[] NameBytes, uint OtId, uint MoneyKey, uint EncryptedMoney, uint Money) ReadLiveTrainer(
+    MgbaBridgeClient bridge,
+    GameProfile profile)
+{
+    static uint U32(ReadOnlySpan<byte> data) => BinaryPrimitives.ReadUInt32LittleEndian(data);
+    bool Ewram(uint address, int length)
+        => address >= profile.Memory.EwramBase &&
+           (ulong)address + (uint)length <= (ulong)profile.Memory.EwramBase + (uint)profile.Memory.EwramSize;
+
+    var saveBlock1 = U32(bridge.Read(profile.Memory.SaveBlock1PointerAddress, 4));
+    var saveBlock2 = U32(bridge.Read(profile.Memory.SaveBlock2PointerAddress, 4));
+    if (!Ewram(saveBlock1, checked((int)profile.Memory.SaveBlock1MoneyOffset + 4)))
+        throw new InvalidOperationException("SaveBlock1 pointer or money field is outside current Profile EWRAM.");
+    if (!Ewram(saveBlock2, checked((int)profile.Memory.SaveBlock2EncryptionKeyOffset + 4)))
+        throw new InvalidOperationException("SaveBlock2 pointer or encryption key is outside current Profile EWRAM.");
+
+    var header = bridge.Read(saveBlock2, profile.Memory.SaveBlock2HeaderLength);
+    var name = header.AsSpan(0, profile.Memory.PlayerNameLength).ToArray();
+    var otId = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(profile.Memory.SaveBlock2PlayerOtIdOffset, 4));
+    if (otId == 0 || !name.Contains((byte)0xFF))
+        throw new InvalidOperationException("SaveBlock2 trainer header failed the current Profile safety checks.");
+
+    var key = U32(bridge.Read(saveBlock2 + profile.Memory.SaveBlock2EncryptionKeyOffset, 4));
+    var encrypted = U32(bridge.Read(saveBlock1 + profile.Memory.SaveBlock1MoneyOffset, 4));
+    var money = encrypted ^ key;
+    if (money > profile.Runtime.MaxTrainerMoney)
+        throw new InvalidOperationException($"Decrypted money {money} exceeds Profile limit {profile.Runtime.MaxTrainerMoney}.");
+    return (saveBlock1, saveBlock2, name, otId, key, encrypted, money);
+}
+
+static string DecodeGameText(ReadOnlySpan<byte> raw, ModifierDatabase db)
+{
+    var map = db.Table("game_text_chars");
+    var output = new StringBuilder();
+    for (var i = 0; i < raw.Length;)
+    {
+        var value = raw[i];
+        if (value is 0 or 0xFF) break;
+        if (i + 1 < raw.Length && raw[i + 1] != 0xFF && map.TryGetValue(value << 8 | raw[i + 1], out var pair))
+        {
+            output.Append(pair);
+            i += 2;
+        }
+        else if (value is >= 0xA1 and <= 0xAA)
+        {
+            output.Append((char)('0' + value - 0xA1));
+            i++;
+        }
+        else if (value is >= 0xBB and <= 0xD4)
+        {
+            output.Append((char)('A' + value - 0xBB));
+            i++;
+        }
+        else if (value == 0xBA)
+        {
+            output.Append('-');
+            i++;
+        }
+        else
+        {
+            output.Append('□');
+            i++;
+        }
+    }
+    return output.ToString();
+}
+
+static byte[] EncodeGameText(string text, int length, ModifierDatabase db)
+{
+    if (string.IsNullOrWhiteSpace(text)) throw new InvalidOperationException("名字不能为空。");
+    var encode = db.Table("game_text_chars")
+        .Where(row => row.Value.Length == 1 && row.Key is >= 0 and <= 0xFFFF)
+        .GroupBy(row => row.Value[0])
+        .ToDictionary(group => group.Key, group => (ushort)group.First().Key);
+    var output = new List<byte>(length);
+    foreach (var ch in text.Trim().ToUpperInvariant())
+    {
+        if (ch is >= '0' and <= '9') output.Add((byte)(0xA1 + ch - '0'));
+        else if (ch is >= 'A' and <= 'Z') output.Add((byte)(0xBB + ch - 'A'));
+        else if (ch == '-') output.Add(0xBA);
+        else if (encode.TryGetValue(ch, out var code))
+        {
+            output.Add((byte)(code >> 8));
+            output.Add((byte)code);
+        }
+        else throw new InvalidOperationException($"当前 Profile 字库不能安全编码“{ch}”。");
+        if (output.Count > length - 1)
+            throw new InvalidOperationException($"名字内部编码超过 {length - 1} 字节，必须保留结束符。");
+    }
+    var result = Enumerable.Repeat((byte)0xFF, length).ToArray();
+    output.CopyTo(result);
+    return result;
+}
+
+static int TrainerProbe(string[] args)
+{
+    var profile = CurrentProfile();
+    var runtime = CurrentRuntime();
+    runtime.EnsureCanRead(GameDataSurface.Trainer, live: true);
+    var host = GetArg(args, "--host", "127.0.0.1");
+    var port = GetIntArg(args, "--port", 8765);
+    using var bridge = ConnectForProfile(profile, host, port);
+    var value = ReadLiveTrainer(bridge, profile);
+    Console.WriteLine($"Trainer: {DecodeGameText(value.NameBytes, Db())}");
+    Console.WriteLine($"  rawName={Convert.ToHexString(value.NameBytes)} publicId={(ushort)value.OtId} secretId={(ushort)(value.OtId >> 16)}");
+    Console.WriteLine($"  saveBlock1=0x{value.SaveBlock1:X8} saveBlock2=0x{value.SaveBlock2:X8}");
+    Console.WriteLine($"  money={value.Money} encrypted=0x{value.EncryptedMoney:X8} key=0x{value.MoneyKey:X8}");
+    return 0;
+}
+
+static int TrainerSetMoney(string[] args)
+{
+    var profile = CurrentProfile();
+    var runtime = CurrentRuntime();
+    runtime.EnsureCanWrite(GameDataSurface.Trainer, live: true);
+    var money = RequiredIntArg(args, "--money");
+    if (money < 0 || money > profile.Runtime.MaxTrainerMoney)
+        throw new ArgumentOutOfRangeException("--money", $"money must be 0..{profile.Runtime.MaxTrainerMoney}");
+    using var bridge = ConnectForProfile(profile, GetArg(args, "--host", "127.0.0.1"), GetIntArg(args, "--port", 8765));
+    var before = ReadLiveTrainer(bridge, profile);
+    if (!Confirm(args, $"将金钱从 {before.Money} 改为 {money}。首次验证前请先创建 mGBA 即时存档。")) return 0;
+    var encoded = (uint)money ^ before.MoneyKey;
+    var raw = new byte[4];
+    BinaryPrimitives.WriteUInt32LittleEndian(raw, encoded);
+    bridge.WriteRangeVerified(before.SaveBlock1 + profile.Memory.SaveBlock1MoneyOffset, raw);
+    var after = ReadLiveTrainer(bridge, profile);
+    if (after.Money != money) throw new InvalidOperationException("金钱写入后的解密回读不一致。");
+    Console.WriteLine($"Verified money write: {before.Money} -> {after.Money}");
+    return 0;
+}
+
+static int TrainerSetName(string[] args)
+{
+    var profile = CurrentProfile();
+    var runtime = CurrentRuntime();
+    runtime.EnsureCanWrite(GameDataSurface.Trainer, live: true);
+    var name = GetArg(args, "--name", "");
+    var db = Db();
+    var encoded = EncodeGameText(name, profile.Memory.PlayerNameLength, db);
+    using var bridge = ConnectForProfile(profile, GetArg(args, "--host", "127.0.0.1"), GetIntArg(args, "--port", 8765));
+    var before = ReadLiveTrainer(bridge, profile);
+    if (!Confirm(args, $"将训练家名字从 {DecodeGameText(before.NameBytes, db)} 改为 {name}。首次验证前请先创建 mGBA 即时存档。")) return 0;
+    bridge.WriteRangeVerified(before.SaveBlock2, encoded);
+    var after = ReadLiveTrainer(bridge, profile);
+    if (!after.NameBytes.AsSpan().SequenceEqual(encoded)) throw new InvalidOperationException("训练家名字写入回读不一致。");
+    Console.WriteLine($"Verified trainer name write: {DecodeGameText(before.NameBytes, db)} -> {DecodeGameText(after.NameBytes, db)}");
+    return 0;
+}
+
 static int ShopProbe(string[] args)
 {
+    var profile = CurrentProfile();
+    var probe = profile.Runtime.ShopProbe;
+    if (!probe.Enabled)
+        throw new InvalidOperationException($"版本 {profile.DisplayName} 未验证商店内存探测，不能借用其他 Profile 的地址。");
     var db = Db();
     var host = GetArg(args, "--host", "127.0.0.1");
     var port = GetIntArg(args, "--port", 8765);
-    using var bridge = MgbaBridgeClient.Connect(host, port);
+    using var bridge = ConnectForProfile(profile, host, port);
     Console.WriteLine(bridge.Welcome);
     Console.WriteLine($"Game code: {bridge.GameCode()}");
-    var s = LiveMemoryProbe.ReadShopSnapshot(bridge);
-    Console.WriteLine($"Shop price/current lock field @ 0x{LiveMemoryAddresses.ShopPriceAddress:X8}: {s.ShopPrice}");
-    Console.WriteLine($"Shop first item field      @ 0x{LiveMemoryAddresses.ShopFirstItemAddress:X8}: {s.ShopFirstItem}({(s.ShopFirstItem == 0 ? "无" : db.NameOf("items", s.ShopFirstItem))})");
-    Console.WriteLine($"Sell price primary         @ 0x{LiveMemoryAddresses.SellPricePrimaryAddress:X8}: {s.SellPricePrimary}");
-    Console.WriteLine($"Sell price fallback        @ 0x{LiveMemoryAddresses.SellPriceFallbackAddress:X8}: {s.SellPriceFallback}");
+    var s = LiveMemoryProbe.ReadShopSnapshot(bridge, probe);
+    Console.WriteLine($"Shop price/current lock field @ 0x{probe.ShopPriceAddress:X8}: {s.ShopPrice}");
+    Console.WriteLine($"Shop first item field      @ 0x{probe.ShopFirstItemAddress:X8}: {s.ShopFirstItem}({(s.ShopFirstItem == 0 ? "无" : db.NameOf("items", s.ShopFirstItem))})");
+    Console.WriteLine($"Sell price primary         @ 0x{probe.SellPricePrimaryAddress:X8}: {s.SellPricePrimary}");
+    Console.WriteLine($"Sell price fallback        @ 0x{probe.SellPriceFallbackAddress:X8}: {s.SellPriceFallback}");
     return 0;
 }
 
 static int BagScan(string[] args)
 {
+    var profile = CurrentProfile();
+    var runtime = GameRuntimeAdapterCatalog.ForProfile(profile);
+    runtime.EnsureCanRead(GameDataSurface.Bag, live: true);
     var db = Db();
     var host = GetArg(args, "--host", "127.0.0.1");
     var port = GetIntArg(args, "--port", 8765);
     var limit = GetIntArg(args, "--limit", 12);
-    using var bridge = MgbaBridgeClient.Connect(host, port);
+    var singleLimit = GetIntArg(args, "--single-limit", 12);
+    using var bridge = ConnectForProfile(profile, host, port);
     Console.WriteLine(bridge.Welcome);
     Console.WriteLine($"Game code: {bridge.GameCode()}");
+    if (runtime.UsesFixedLiveBag)
+    {
+        var fixedQuantityKey = ReadLiveBagQuantityKey(bridge, profile);
+        Console.WriteLine($"\n{profile.DisplayName} 固定背包口袋，qtyKey=0x{fixedQuantityKey:X4}");
+        foreach (var area in profile.Runtime.LiveBag.Areas)
+        {
+            var raw = bridge.Read(area.Address, area.Capacity * 4);
+            var printedHeader = false;
+            var displaySlot = 0;
+            for (var i = 0; i < area.Capacity; i++)
+            {
+                var item = U16(raw, i * 4);
+                if (item == 0 || item > profile.Limits.MaxItem) continue;
+                var quantity = (ushort)(U16(raw, i * 4 + 2) ^ fixedQuantityKey);
+                if (quantity == 0) quantity = 1;
+                if (!printedHeader)
+                {
+                    Console.WriteLine($"{area.Name} 0x{area.Address:X8} capacity={area.Capacity}");
+                    printedHeader = true;
+                }
+                displaySlot++;
+                Console.WriteLine($"  {displaySlot:00}. 0x{area.Address + (uint)(i * 4):X8}: {item}({db.NameOf("items", item)}) x{quantity}");
+                if (displaySlot >= limit) break;
+            }
+            if (!printedHeader)
+                Console.WriteLine($"{area.Name} 0x{area.Address:X8} capacity={area.Capacity}: empty");
+        }
+        return 0;
+    }
     uint? bagBase = null;
-    try { bagBase = BagScanner.LocateSaveBlockBase(bridge); }
+    try { bagBase = BagScanner.LocateSaveBlockBase(bridge, profile, runtime.ScannedBagDefinitions); }
     catch { }
-    var ewram = PartyScanner.ReadEwram(bridge, (off, total) =>
+    var ewram = PartyScanner.ReadEwram(bridge, profile, (off, total) =>
     {
         if (off % 0x10000 == 0) Console.WriteLine($"read EWRAM 0x{off:X5}/0x{total:X5}");
     });
     var quantityKey = BagScanner.InferQuantityKey(ewram);
-    var pockets = BagScanner.FindLivePockets(ewram, bagBase, PocketOfItem).ToArray();
+    var pockets = BagScanner.FindLivePockets(
+        ewram, profile.Memory.EwramBase, bagBase,
+        runtime.BagPockets(true).Select(candidate => candidate.Id).ToArray(),
+        PocketOfItem, candidate => runtime.IsKeyItemPocket(candidate, true),
+        candidate => runtime.BagBatchCapacity(candidate, true),
+        profile.Limits.MaxItem, profile.Limits.MaxBagQuantity).ToArray();
     Console.WriteLine($"\n背包口袋: {pockets.Length}，base={(bagBase is null ? "unknown" : $"0x{bagBase:X8}")} qtyKey=0x{quantityKey:X4}");
     foreach (var pocket in pockets)
     {
-        Console.WriteLine($"{PocketNameZh(pocket.Pocket)} 0x{pocket.StartAddress:X8} nonEmpty={pocket.NonEmptyCount} score={pocket.Score}");
+        Console.WriteLine($"{runtime.PocketName(pocket.Pocket, live: true)} 0x{pocket.StartAddress:X8} nonEmpty={pocket.NonEmptyCount} score={pocket.Score}");
         foreach (var slot in pocket.Slots.Take(limit))
         {
             Console.WriteLine($"  0x{slot.Address:X8}: {slot.ItemId}({db.NameOf("items", slot.ItemId)}) x{slot.Quantity}");
         }
     }
+    if (bagBase is not null)
+    {
+        var baseOffset = checked((int)(bagBase.Value - profile.Memory.EwramBase));
+        var endOffset = Math.Min(ewram.Length - 8, baseOffset + 0x4000);
+        var singles = new List<(uint Address, ushort Item, ushort Quantity, int Pocket, int Offset)>();
+        for (var off = baseOffset; off <= endOffset; off += 4)
+        {
+            var item = U16(ewram, off);
+            var quantity = U16(ewram, off + 2);
+            var nextItem = U16(ewram, off + 4);
+            var nextQuantity = U16(ewram, off + 6);
+            if (item == 0 ||
+                item > profile.Limits.MaxItem ||
+                quantity == 0 ||
+                quantity > profile.Limits.MaxBagQuantity ||
+                nextItem != 0 ||
+                nextQuantity != 0)
+            {
+                continue;
+            }
+            singles.Add((profile.Memory.EwramBase + (uint)off, item, quantity, PocketOfItem(item), off - baseOffset));
+        }
+
+        if (singles.Count > 0)
+        {
+            Console.WriteLine($"\n一格背包候选: {singles.Count}（用于空背包/单一道具样本对照，不作为写入证据）");
+            foreach (var slot in singles.Take(singleLimit))
+            {
+                Console.WriteLine($"  +0x{slot.Offset:X4} 0x{slot.Address:X8}: {slot.Item}({db.NameOf("items", slot.Item)}) x{slot.Quantity} pocket={slot.Pocket}");
+            }
+        }
+    }
     return 0;
+
+    static ushort U16(byte[] data, int offset) => (ushort)(data[offset] | data[offset + 1] << 8);
 
     int PocketOfItem(int item)
     {
         if (item <= 0) return -1;
-        if (item is >= 1 and <= 27) return 3;
-        if (item is >= 28 and <= 48 or 921) return 2;
-        if (item is >= 512 and <= 591) return 5;
-        if (item is >= 592 and <= 837) return 7;
-        if (item is >= 838 and <= 845) return 7;
-        if (db.Table("item_pockets").TryGetValue(item, out var pocket) && int.TryParse(pocket, out var pocketId)) return pocketId;
-        try { return ReadItemDataFromDb(db, item).Pocket; }
-        catch { return -1; }
+        if (db.Table("item_pockets").TryGetValue(item, out var pocket) && int.TryParse(pocket, out var pocketId))
+            return runtime.RemapItemPocket(pocketId);
+        try { return runtime.RemapItemPocket(ReadItemDataFromDb(db, item).Pocket); }
+        catch { return runtime.FallbackPocketOfItem(item); }
     }
+}
+
+static ushort ReadLiveBagQuantityKey(MgbaBridgeClient bridge, GameProfile profile)
+{
+    if (profile.Runtime.LiveBag.QuantityKeyMode != "save-block2-key-low16")
+        throw new InvalidOperationException($"Profile {profile.Id} does not use a fixed live bag quantity key.");
+    var saveBlock2 = BitConverter.ToUInt32(bridge.Read(profile.Memory.SaveBlock2PointerAddress, 4));
+    return (ushort)(BitConverter.ToUInt32(bridge.Read(saveBlock2 + profile.Memory.SaveBlock2EncryptionKeyOffset, 4)) & 0xFFFF);
 }
 
 static int BagRead(string[] args)
 {
+    var profile = CurrentProfile();
+    var runtime = GameRuntimeAdapterCatalog.ForProfile(profile);
+    runtime.EnsureCanRead(GameDataSurface.Bag, live: true);
     var db = Db();
     var host = GetArg(args, "--host", "127.0.0.1");
     var port = GetIntArg(args, "--port", 8765);
     var addr = GetUIntArg(args, "--addr") ?? throw new ArgumentException("Missing --addr 0x...");
-    using var bridge = MgbaBridgeClient.Connect(host, port);
+    using var bridge = ConnectForProfile(profile, host, port);
     Console.WriteLine(bridge.Welcome);
-    var slot = BagScanner.ReadSlot(bridge, addr);
+    var (definition, maxQuantity) = ResolveLiveBagSlot(profile, runtime, bridge, addr);
+    var slot = BagScanner.ReadSlot(bridge, addr, definition, maxQuantity);
     Console.WriteLine($"0x{slot.Address:X8}: item={slot.ItemId}({(slot.ItemId == 0 ? "无" : db.NameOf("items", slot.ItemId))}) qty={slot.Quantity} score={slot.Score} {slot.Note}");
     return 0;
 }
 
-static string PocketNameZh(int pocket) => pocket switch
-{
-    1 => "普通道具",
-    2 => "回复药品",
-    3 => "精灵球",
-    4 => "战斗道具",
-    5 => "树果",
-    6 => "宝物",
-    7 => "招式机器/秘传机器",
-    8 => "重要物品",
-    _ => $"#{pocket}"
-};
-
-static string UnboundPocketNameZh(int pocket) => pocket switch
-{
-    1 => "道具",
-    2 => "重要物品",
-    3 => "精灵球",
-    4 => "招式机器",
-    5 => "树果",
-    _ => $"#{pocket}"
-};
-
 static int BagSet(string[] args)
 {
+    var profile = CurrentProfile();
+    var runtime = GameRuntimeAdapterCatalog.ForProfile(profile);
+    runtime.EnsureCanWrite(GameDataSurface.Bag, live: true);
     var db = Db();
     var host = GetArg(args, "--host", "127.0.0.1");
     var port = GetIntArg(args, "--port", 8765);
     var addr = GetUIntArg(args, "--addr") ?? throw new ArgumentException("Missing --addr 0x...");
     var item = RequiredIntArg(args, "--item");
     var qty = RequiredIntArg(args, "--qty");
-    if (item is < 0 or > ushort.MaxValue) throw new ArgumentOutOfRangeException("--item", "item must be 0..65535");
-    if (qty is < 0 or > ushort.MaxValue) throw new ArgumentOutOfRangeException("--qty", "qty must be 0..65535");
-    using var bridge = MgbaBridgeClient.Connect(host, port);
+    if (item < 0 || item > profile.Limits.MaxItem) throw new ArgumentOutOfRangeException("--item", $"item must be 0..{profile.Limits.MaxItem}");
+    using var bridge = ConnectForProfile(profile, host, port);
     Console.WriteLine(bridge.Welcome);
-    var before = BagScanner.ReadSlot(bridge, addr);
+    var (definition, maxQuantity) = ResolveLiveBagSlot(profile, runtime, bridge, addr);
+    if (qty < 0 || qty > maxQuantity) throw new ArgumentOutOfRangeException("--qty", $"qty must be 0..{maxQuantity}");
+    var before = BagScanner.ReadSlot(bridge, addr, definition, maxQuantity);
     var summary = $"将写入背包槽 0x{addr:X8}\n" +
                   $"  原来: {before.ItemId}({(before.ItemId == 0 ? "无" : db.NameOf("items", before.ItemId))}) x{before.Quantity}\n" +
                   $"  新值: {item}({(item == 0 ? "无" : db.NameOf("items", item))}) x{qty}\n" +
-                  "提示：当前按普通 Gen3 {u16道具,u16数量} 写入；如果该改版对数量加密，请先用少量测试。";
+                  $"编码: {profile.DisplayName}/{definition.Name}，数量{(definition.QuantityXor ? "使用 Profile 密钥" : "不加密")}。";
     if (Confirm(args, summary))
     {
-        bridge.WriteRangeVerified(addr, BagScanner.EncodeSlot((ushort)item, (ushort)qty));
-        var after = BagScanner.ReadSlot(bridge, addr);
+        bridge.WriteRangeVerified(addr, BagScanner.EncodeSlot((ushort)item, (ushort)qty, definition.QuantityKey, definition.QuantityXor));
+        var after = BagScanner.ReadSlot(bridge, addr, definition, maxQuantity);
         Console.WriteLine($"已写入: {after.ItemId}({(after.ItemId == 0 ? "无" : db.NameOf("items", after.ItemId))}) x{after.Quantity}");
     }
     else Console.WriteLine("Cancelled");
     return 0;
+}
+
+static (BagPocketDefinition Definition, int MaxQuantity) ResolveLiveBagSlot(
+    GameProfile profile,
+    IGameRuntimeAdapter runtime,
+    MgbaBridgeClient bridge,
+    uint address)
+{
+    if ((address & 3) != 0) throw new InvalidOperationException("背包槽地址必须按 4 字节对齐。");
+    if (runtime.UsesFixedLiveBag)
+    {
+        var area = profile.Runtime.LiveBag.Areas.FirstOrDefault(candidate =>
+            address >= candidate.Address && address < candidate.Address + checked((uint)candidate.Capacity * 4U));
+        if (area is null) throw new InvalidOperationException("地址不属于当前 Profile 的任何实时背包口袋，已拒绝访问。");
+        var key = ReadLiveBagQuantityKey(bridge, profile);
+        return (new BagPocketDefinition(area.Pocket, area.Name, 0, area.Capacity, true, key), profile.Limits.MaxBagQuantityForPocket(area.Pocket));
+    }
+
+    var baseAddress = BagScanner.LocateSaveBlockBase(bridge, profile, runtime.ScannedBagDefinitions);
+    var definition = BagScanner.DefinitionForAddress(runtime.ScannedBagDefinitions, baseAddress, address)
+                     ?? throw new InvalidOperationException("地址不属于当前 Profile 已验证的扫描背包口袋，已拒绝访问。");
+    return (definition, profile.Limits.MaxBagQuantityForPocket(definition.Pocket));
 }
 
 static int SaveProbe(string[] args)
@@ -691,7 +1392,9 @@ static int SaveProbe(string[] args)
         throw new ArgumentException("Missing --save path");
 
     var profile = CurrentProfile();
-    var usesFivePocketLayout = string.Equals(profile.Strategies.Pokemon, "unbound-cfru-pokemon-v1", StringComparison.Ordinal);
+    var runtime = GameRuntimeAdapterCatalog.ForProfile(profile);
+    if (!profile.Features.SaveEditing)
+        throw new InvalidOperationException($"版本 {profile.DisplayName} 未启用存档读取。");
     var result = Gen3SaveReader.Read(path, profile);
     Console.WriteLine($"Save: {result.FileName}");
     Console.WriteLine($"  size={result.FileSize} slot={result.SaveSlot} saveIndex={result.SaveIndex} sections={result.ValidSectionCount}/14");
@@ -714,7 +1417,7 @@ static int SaveProbe(string[] args)
     Console.WriteLine("\nBag:");
     foreach (var group in result.Bag.GroupBy(b => b.Pocket).OrderBy(g => g.Key))
     {
-        Console.WriteLine($"  {(usesFivePocketLayout ? UnboundPocketNameZh(group.Key) : PocketNameZh(group.Key))} ({group.Count()}):");
+        Console.WriteLine($"  {runtime.PocketName(group.Key, live: false)} ({group.Count()}):");
         foreach (var entry in group.Take(80))
         {
             var qty = entry.Pocket == 8 ? "" : $" x{entry.Quantity}";
@@ -740,12 +1443,15 @@ static int SaveVerifyWrite(string[] args)
 {
     var path = GetArg(args, "--save", "");
     var output = GetArg(args, "--output", "");
-    if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(output))
-        throw new ArgumentException("Missing --save or --output path");
+    var inPlace = HasArg(args, "--in-place");
+    if (string.IsNullOrWhiteSpace(path) || !inPlace && string.IsNullOrWhiteSpace(output))
+        throw new ArgumentException("Missing --save, or --output when --in-place is not used");
     if (!HasArg(args, "--yes"))
         throw new InvalidOperationException("该命令会生成测试存档副本；确认后请加 --yes。");
 
     var profile = CurrentProfile();
+    if (!profile.Features.SaveEditing)
+        throw new InvalidOperationException($"版本 {profile.DisplayName} 未启用存档读写。");
     var document = Gen3SaveReader.Open(path, profile);
     PartyMonInfo? info = null;
     if (document.Snapshot.Party.Count > 0)
@@ -765,58 +1471,118 @@ static int SaveVerifyWrite(string[] args)
         document.ReplaceBagEntry(bag.SaveOffset, bag.ItemId, targetQuantity);
     }
 
-    if (string.Equals(profile.Strategies.Save, "pokemon-destiny-save-v1", StringComparison.Ordinal) &&
-        document.Snapshot.Bag.All(entry => entry.ItemId != 13))
-    {
-        document.AddBagItem(1, 13, 1);
-    }
-
-    if (string.Equals(profile.Strategies.Save, "pokemon-destiny-save-v1", StringComparison.Ordinal))
-    {
-        var replaceable = document.CurrentBag.FirstOrDefault(entry => entry.Pocket == 1 && entry.ItemId is 13 or 14);
-        if (replaceable is not null)
-        {
-            var replacement = replaceable.ItemId == 13 ? (ushort)14 : (ushort)13;
-            if (document.CurrentBag.All(entry => entry.Pocket != 1 || entry.ItemId != replacement))
-                document.ReplaceBagEntry(replaceable.SaveOffset, replacement, replaceable.Quantity);
-        }
-
-        foreach (var (pocket, item) in new[] { (1, (ushort)86), (3, (ushort)10), (4, (ushort)289) })
-            if (document.CurrentBag.All(entry => entry.ItemId != item))
-                document.AddBagItem(pocket, item, 1);
-    }
-
-    if (string.Equals(profile.Strategies.Save, "pokemon-destiny-save-v1", StringComparison.Ordinal) &&
-        document.Snapshot.Boxes.FirstOrDefault() is { } destinyBox)
-    {
-        var box = new BoxPokemon(destinyBox.Mon.Raw, destinyBox.Mon.Layout);
-        var boxInfo = box.GetInfo();
-        box.SetGrowth(friendship: (byte)(boxInfo.Friendship == 255 ? 254 : boxInfo.Friendship + 1));
-        document.ReplaceBoxPokemon(destinyBox.GlobalSlot, box);
-    }
+    ProfileSaveScenarioCatalog.ForProfile(profile).ApplyVerificationChanges(document, info);
 
     if (!document.HasChanges)
         throw new InvalidOperationException("测试存档没有可验证的队伍、背包、箱子或训练家字段。");
 
-    if (string.Equals(profile.Strategies.Save, "unbound-cfru-save-v1", StringComparison.Ordinal) && info is not null)
+    if (inPlace)
     {
-        if (document.Snapshot.Trainer is { } trainer)
-        {
-            document.ReplaceTrainerName(trainer.NameBytes);
-            document.ReplaceTrainerMoney(trainer.Money == 99_999_999 ? trainer.Money - 1 : trainer.Money + 1);
-        }
-        var targetSlots = new[] { 1, 20 * 30 - 29, 22 * 30, 23 * 30 - 29, 25 * 30 - 29 };
-        for (var i = 0; i < targetSlots.Length; i++)
-        {
-            var box = BoxPokemon.Create(0x12345679u + (uint)(i * 2), info.OtId, PokemonDataLayout.UnboundCfruPlainParty);
-            box.SetGrowth(species: (ushort)(i + 1), item: 0, exp: 0, friendship: 70, ppBonuses: 0);
-            box.SetIvs(new Dictionary<string, int> { ["hp"] = 1, ["atk"] = 2, ["def"] = 3, ["spe"] = 4, ["spa"] = 5, ["spd"] = 6 });
-            document.ReplaceBoxPokemon(targetSlots[i], box);
-        }
+        var writeResult = document.SaveInPlaceWithBackup();
+        var result = writeResult.Snapshot;
+        Console.WriteLine($"Verified in-place write: {result.FileName} backup={writeResult.BackupPath} created={writeResult.BackupCreated} sections={result.ValidSectionCount}/14 party={result.Party.Count} bag={result.Bag.Count} boxes={result.Boxes.Count} trainer={(result.Trainer is null ? "n/a" : "ok")}");
     }
+    else
+    {
+        var result = document.SaveAs(output);
+        Console.WriteLine($"Verified write: {result.FileName} sections={result.ValidSectionCount}/14 party={result.Party.Count} bag={result.Bag.Count} boxes={result.Boxes.Count} trainer={(result.Trainer is null ? "n/a" : "ok")}");
+    }
+    return 0;
+}
 
+static int SaveVerifyImportBox(string[] args)
+{
+    var path = GetArg(args, "--save", "");
+    var output = GetArg(args, "--output", "");
+    var species = GetIntArg(args, "--species", 1);
+    if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(output))
+        throw new ArgumentException("Missing --save or --output path");
+    if (!HasArg(args, "--yes"))
+        throw new InvalidOperationException("该命令会生成包含新箱子宝可梦的测试存档副本；确认后请加 --yes。");
+
+    var profile = CurrentProfile();
+    if (!profile.Features.ImportToSaveBoxes || !profile.Features.SaveBoxes.Write)
+        throw new InvalidOperationException($"版本 {profile.DisplayName} 未启用存档图鉴导入箱子。");
+    var document = Gen3SaveReader.Open(path, profile);
+    var trainer = document.Snapshot.Trainer
+                  ?? throw new InvalidOperationException("存档没有玩家名字和 OT ID，不能构造新宝可梦。");
+    var maxSlots = profile.Memory.SavePcBoxWritableSlotCount > 0
+        ? profile.Memory.SavePcBoxWritableSlotCount
+        : profile.Memory.PcBoxCount * profile.Memory.PcBoxSlots;
+    var occupied = document.Snapshot.Boxes.Select(entry => entry.GlobalSlot).ToHashSet();
+    var targetSlot = Enumerable.Range(1, maxSlots).FirstOrDefault(slot => !occupied.Contains(slot));
+    if (targetSlot == 0) throw new InvalidOperationException("已验证的存档箱子槽位已满。");
+
+    var db = Db();
+    if (!db.Table("species_nickname_bytes").TryGetValue(species, out var nicknameHex) &&
+        !db.Table("species_name_bytes").TryGetValue(species, out nicknameHex))
+        throw new InvalidOperationException($"物种 {species} 缺少当前 Profile 的昵称字节。");
+    var nickname = Convert.FromHexString(nicknameHex);
+    var runtime = GameRuntimeAdapterCatalog.ForProfile(profile);
+    var mon = BoxPokemon.Create(0x12345678u, trainer.OtId, runtime.LiveBoxLayout);
+    mon.SetOtName(trainer.NameBytes);
+    mon.SetNicknameFromSpeciesNameEntry(nickname);
+    mon.SetGrowth((ushort)species, item: 0, exp: 125, friendship: 70, ppBonuses: 0);
+    mon.SetGameNatureCode(26);
+    mon.SetMoves([(ushort?)33, null, null, null], [(byte?)35, null, null, null]);
+    mon.SetIvs(new Dictionary<string, int>
+    {
+        ["hp"] = 31, ["atk"] = 31, ["def"] = 31,
+        ["spe"] = 31, ["spa"] = 31, ["spd"] = 31, ["ability"] = 0
+    });
+    mon.SetEvs(new Dictionary<string, byte>
+    {
+        ["hp"] = 0, ["atk"] = 0, ["def"] = 0,
+        ["spe"] = 0, ["spa"] = 0, ["spd"] = 0
+    });
+    document.ReplaceBoxPokemon(targetSlot, mon);
     var result = document.SaveAs(output);
-    Console.WriteLine($"Verified write: {result.FileName} sections={result.ValidSectionCount}/14 party={result.Party.Count} bag={result.Bag.Count} boxes={result.Boxes.Count} trainer={(result.Trainer is null ? "n/a" : "ok")}");
+    var imported = result.Boxes.Single(entry => entry.GlobalSlot == targetSlot).Mon.GetInfo();
+    Console.WriteLine($"Verified box import: slot={targetSlot} species={imported.Species} sections={result.ValidSectionCount}/14 boxes={result.Boxes.Count}");
+    return 0;
+}
+
+static int SaveVerifyImportParty(string[] args)
+{
+    var path = GetArg(args, "--save", "");
+    var output = GetArg(args, "--output", "");
+    var species = GetIntArg(args, "--species", 1);
+    if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(output))
+        throw new ArgumentException("Missing --save or --output path");
+    if (!HasArg(args, "--yes"))
+        throw new InvalidOperationException("该命令会生成包含新增队伍宝可梦的测试存档副本；确认后请加 --yes。");
+
+    var profile = CurrentProfile();
+    if (!profile.Features.ImportToSaveParty || !profile.Features.SaveParty.Write)
+        throw new InvalidOperationException($"版本 {profile.DisplayName} 未启用存档图鉴导入队伍。");
+    var document = Gen3SaveReader.Open(path, profile);
+    if (document.Snapshot.Party.Count >= Gen3Constants.PartySlots)
+        throw new InvalidOperationException("测试存档队伍已满，不能验证追加导入。");
+    var trainer = document.Snapshot.Trainer
+                  ?? throw new InvalidOperationException("存档没有玩家名字和 OT ID，不能构造新宝可梦。");
+    var db = Db();
+    var stats = ReadSpeciesStatsFromDb(db, species);
+    var experience = new PokemonExperienceTable(db).ExperienceForLevel(5, stats.GrowthRate);
+    var (expectedMoves, expectedPp) = BuildDexImportMoves(db, species, 5);
+    var mon = BuildDexImportParty(profile, db, trainer, species);
+    var intended = mon.Raw.ToArray();
+    var targetSlot = document.AppendPartyPokemon(mon);
+    var result = document.SaveAs(output);
+    if (result.ValidSectionCount != 14 || result.Party.Count != targetSlot)
+        throw new InvalidOperationException("Imported save did not reopen with the expected sections or party count.");
+    var importedMon = result.Party[targetSlot - 1];
+    if (!importedMon.Raw.SequenceEqual(intended))
+        throw new InvalidOperationException("Imported party record did not match the complete intended 100-byte record.");
+    var imported = importedMon.GetInfo();
+    if (imported.Checksum != imported.CalculatedChecksum ||
+        imported.Species != species || imported.Level != 5 || imported.OtId != trainer.OtId ||
+        imported.Exp != experience || imported.Friendship != stats.Friendship ||
+        imported.Item != 0 || imported.Status != 0 || imported.GameNatureCode != 26 ||
+        !imported.Moves.SequenceEqual(expectedMoves) || !imported.Pp.SequenceEqual(expectedPp) ||
+        imported.Ivs.Where(pair => Gen3Constants.StatNames.Contains(pair.Key)).Any(pair => pair.Value != 31) ||
+        imported.Ivs["ability"] != 0 || imported.Evs.Any(value => value != 0) || imported.MaxHp == 0)
+        throw new InvalidOperationException("Imported party record semantic readback did not match the current-Profile defaults.");
+    Console.WriteLine($"Verified party import: slot={targetSlot} species={imported.Species} level={imported.Level} exp={imported.Exp} friendship={imported.Friendship} moves={string.Join(',', imported.Moves)} pp={string.Join(',', imported.Pp)} hp={imported.Hp}/{imported.MaxHp} sections={result.ValidSectionCount}/14 party={result.Party.Count}");
     return 0;
 }
 
@@ -829,29 +1595,9 @@ static int SaveDestinyRepairBag(string[] args)
         throw new InvalidOperationException("该命令会备份并修复命运存档的招式机盒；确认后请加 --yes。");
 
     var profile = CurrentProfile();
-    if (!string.Equals(profile.Strategies.Save, "pokemon-destiny-save-v1", StringComparison.Ordinal))
-        throw new InvalidOperationException("该修复命令只支持宝可梦命运 Profile。");
-
-    var document = Gen3SaveReader.Open(path, profile);
-    var machineEntries = document.CurrentBag
-        .Where(entry => entry.Pocket == 4 && entry.SaveOffset < 0x10000)
-        .OrderBy(entry => entry.SaveOffset)
-        .ToArray();
-    ushort[] expectedMachines = [305, 336];
-    if (machineEntries.Length < expectedMachines.Length ||
-        expectedMachines.Any(item => machineEntries.All(entry => entry.ItemId != item)))
-        throw new InvalidOperationException("当前招式机盒中没有同时找到 TM017 和 TM048，已取消自动修复。");
-
-    for (var i = 0; i < machineEntries.Length; i++)
-    {
-        var entry = machineEntries[i];
-        if (i < expectedMachines.Length)
-            document.ReplaceBagEntry(entry.SaveOffset, expectedMachines[i], 1);
-        else
-            document.ReplaceBagEntry(entry.SaveOffset, 0, 0);
-    }
-
-    var result = document.SaveInPlaceWithBackup();
+    if (!profile.Features.SaveEditing || !profile.Features.SaveBag.Write)
+        throw new InvalidOperationException($"版本 {profile.DisplayName} 未启用存档背包写入。");
+    var result = PokemonDestinySaveScenario.RepairMachineBag(path, profile);
     Console.WriteLine($"Repaired Destiny machine box: {result.DestinationPath}");
     Console.WriteLine($"  backup={result.BackupPath} created={result.BackupCreated}");
     Console.WriteLine($"  sections={result.Snapshot.ValidSectionCount}/14 bag={result.Snapshot.Bag.Count}");
@@ -864,20 +1610,28 @@ if (args.Length == 0)
     Console.WriteLine("  RocketTool.Cli species --species 42 229");
     Console.WriteLine("  RocketTool.Cli move --moves 17 44 305");
     Console.WriteLine("  RocketTool.Cli item --items 1 44 231");
+    Console.WriteLine("  RocketTool.Cli profile-self-test");
+    Console.WriteLine("  RocketTool.Cli profile-data-verify");
     Console.WriteLine("  RocketTool.Cli party-scan [--host 127.0.0.1 --port 8765]");
     Console.WriteLine("  RocketTool.Cli party-dump [--base 0x02025170] [--slot 1]");
     Console.WriteLine("  RocketTool.Cli box-scan [--limit 30 --min-score 12]");
+    Console.WriteLine("  RocketTool.Cli box-verify-create [--box 1 --slot 2 --species 1] [--yes]");
     Console.WriteLine("  RocketTool.Cli party-set-basic --slot 1 [--species N --item N --exp N --friendship N --pp-bonuses N --level N --hp N|max --max-hp N --status N] [--yes]");
     Console.WriteLine("  RocketTool.Cli party-set-moves --slot 1 [--moves a b c d] [--pp a b c d] [--yes]");
     Console.WriteLine("  RocketTool.Cli party-set-evs --slot 1 [--hp N --atk N --def N --spe N --spa N --spd N] [--force] [--yes]");
     Console.WriteLine("  RocketTool.Cli party-set-ivs --slot 1 [--hp N --atk N --def N --spe N --spa N --spd N --ability 0|1|2 --egg 0|1] [--yes]");
     Console.WriteLine("  RocketTool.Cli party-heal [--slot 1] [--yes]");
     Console.WriteLine("  RocketTool.Cli shop-probe");
-    Console.WriteLine("  RocketTool.Cli bag-scan [--limit 12 --min-items 2]");
+    Console.WriteLine("  RocketTool.Cli bag-scan [--limit 12] [--single-limit 12]");
     Console.WriteLine("  RocketTool.Cli bag-read --addr 0x02000000");
     Console.WriteLine("  RocketTool.Cli bag-set --addr 0x02000000 --item N --qty N [--yes]");
+    Console.WriteLine("  RocketTool.Cli trainer-probe");
+    Console.WriteLine("  RocketTool.Cli trainer-set-money --money N [--yes]");
+    Console.WriteLine("  RocketTool.Cli trainer-set-name --name NAME [--yes]");
     Console.WriteLine("  RocketTool.Cli save-probe --save path/to/file.sav");
-    Console.WriteLine("  RocketTool.Cli save-verify-write --save input.sav --output output.sav --yes");
+    Console.WriteLine("  RocketTool.Cli save-verify-write --save input.sav [--output output.sav | --in-place] --yes");
+    Console.WriteLine("  RocketTool.Cli save-verify-import-box --save input.sav --output output.sav [--species N] --yes");
+    Console.WriteLine("  RocketTool.Cli save-verify-import-party --save input.sav --output output.sav [--species N] --yes");
     Console.WriteLine("  RocketTool.Cli save-destiny-repair-bag --save input.srm --yes");
     return 1;
 }
@@ -887,6 +1641,7 @@ return args[0] switch
     "party-dump" => PartyDump(args[1..]),
     "party-scan" => PartyScan(args[1..]),
     "box-scan" => BoxScan(args[1..]),
+    "box-verify-create" => BoxVerifyCreate(args[1..]),
     "party-set-basic" => PartySetBasic(args[1..]),
     "party-set-moves" => PartySetMoves(args[1..]),
     "party-set-evs" => PartySetEvs(args[1..]),
@@ -895,12 +1650,19 @@ return args[0] switch
     "species" => SpeciesStats(args[1..]),
     "move" or "moves" => MoveStats(args[1..]),
     "item" or "items" => ItemStats(args[1..]),
+    "profile-self-test" => ProfileSelfTest(),
+    "profile-data-verify" => ProfileDataVerify(),
     "shop-probe" => ShopProbe(args[1..]),
     "bag-scan" => BagScan(args[1..]),
     "bag-read" => BagRead(args[1..]),
     "bag-set" => BagSet(args[1..]),
+    "trainer-probe" => TrainerProbe(args[1..]),
+    "trainer-set-money" => TrainerSetMoney(args[1..]),
+    "trainer-set-name" => TrainerSetName(args[1..]),
     "save-probe" => SaveProbe(args[1..]),
     "save-verify-write" => SaveVerifyWrite(args[1..]),
+    "save-verify-import-box" => SaveVerifyImportBox(args[1..]),
+    "save-verify-import-party" => SaveVerifyImportParty(args[1..]),
     "save-destiny-repair-bag" => SaveDestinyRepairBag(args[1..]),
     _ => throw new ArgumentException($"Unknown command: {args[0]}")
 };

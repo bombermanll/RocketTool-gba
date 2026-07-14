@@ -794,22 +794,24 @@
                                                         <TextBlock Text="种族值 / 能力预估" FontSize="18" FontWeight="SemiBold" Foreground="#102E4A" />
                                                         <TextBlock x:Name="DexStatsNoteText" Text="按 31 个体、0 努力、无性格修正计算。" Foreground="#6C6255" TextWrapping="Wrap" />
                                                         <Grid RowDefinitions="Auto,Auto">
-                                                            <Grid ColumnDefinitions="*,70,70,76,76" ColumnSpacing="8" Margin="0,0,0,6">
+                                                            <Grid ColumnDefinitions="*,82,82,70,76,76" ColumnSpacing="8" Margin="0,0,0,6">
                                                                 <TextBlock Text="能力" Classes="label" />
-                                                                <TextBlock Grid.Column="1" Text="种族值" Classes="label" HorizontalAlignment="Right" />
-                                                                <TextBlock Grid.Column="2" Text="50级时" Classes="label" HorizontalAlignment="Right" />
-                                                                <TextBlock Grid.Column="3" Text="100级时" Classes="label" HorizontalAlignment="Right" />
-                                                                <TextBlock x:Name="DexMaxLevelHeaderText" Grid.Column="4" Text="最高级时" Classes="label" HorizontalAlignment="Right" />
+                                                                <TextBlock Grid.Column="1" Text="当前种族值" Classes="label" HorizontalAlignment="Right" />
+                                                                <TextBlock Grid.Column="2" Text="原版种族值" Classes="label" HorizontalAlignment="Right" />
+                                                                <TextBlock Grid.Column="3" Text="50级时" Classes="label" HorizontalAlignment="Right" />
+                                                                <TextBlock Grid.Column="4" Text="100级时" Classes="label" HorizontalAlignment="Right" />
+                                                                <TextBlock x:Name="DexMaxLevelHeaderText" Grid.Column="5" Text="最高级时" Classes="label" HorizontalAlignment="Right" />
                                                             </Grid>
                                                             <ItemsControl x:Name="DexStatRowsView" Grid.Row="1">
                                                                 <ItemsControl.ItemTemplate>
                                                                     <DataTemplate>
-                                                                        <Grid ColumnDefinitions="*,70,70,76,76" ColumnSpacing="8" Margin="0,0,0,5">
+                                                                        <Grid ColumnDefinitions="*,82,82,70,76,76" ColumnSpacing="8" Margin="0,0,0,5">
                                                                             <TextBlock Text="{Binding Name}" Foreground="#102E4A" />
-                                                                            <TextBlock Grid.Column="1" Text="{Binding Base}" Foreground="#102E4A" HorizontalAlignment="Right" />
-                                                                            <TextBlock Grid.Column="2" Text="{Binding Level50}" Foreground="#102E4A" HorizontalAlignment="Right" />
-                                                                            <TextBlock Grid.Column="3" Text="{Binding Level100}" Foreground="#102E4A" HorizontalAlignment="Right" />
-                                                                            <TextBlock Grid.Column="4" Text="{Binding MaxLevel}" Foreground="#102E4A" HorizontalAlignment="Right" />
+                                                                            <TextBlock Grid.Column="1" Text="{Binding ModifiedBase}" Foreground="{Binding ModifiedBaseForeground}" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                                                            <TextBlock Grid.Column="2" Text="{Binding OfficialBase}" Foreground="#102E4A" HorizontalAlignment="Right" />
+                                                                            <TextBlock Grid.Column="3" Text="{Binding Level50}" Foreground="#102E4A" HorizontalAlignment="Right" />
+                                                                            <TextBlock Grid.Column="4" Text="{Binding Level100}" Foreground="#102E4A" HorizontalAlignment="Right" />
+                                                                            <TextBlock Grid.Column="5" Text="{Binding MaxLevel}" Foreground="#102E4A" HorizontalAlignment="Right" />
                                                                         </Grid>
                                                                     </DataTemplate>
                                                                 </ItemsControl.ItemTemplate>
@@ -833,26 +835,35 @@
                                         <ScrollViewer x:Name="DexMovesScroll" Padding="0,14,20,56" HorizontalScrollBarVisibility="Disabled">
                                             <Border Background="#FFF9EE" CornerRadius="14" Padding="14" Margin="0,0,0,96" MaxWidth="{Binding #DexMovesScroll.Bounds.Width}">
                                                 <StackPanel Spacing="8">
-                                                    <Grid ColumnDefinitions="58,*,74,64,48,48,38" ColumnSpacing="8">
+                                                    <TextBlock x:Name="DexLevelMoveComparisonNote"
+                                                               Text="威力和命中分为当前/原版两列；当前值更高为红色、更低为绿色、相同不染色。"
+                                                               Foreground="#6C6255"
+                                                               TextWrapping="Wrap"
+                                                               IsVisible="False" />
+                                                    <Grid ColumnDefinitions="58,*,74,64,54,54,54,54,38" ColumnSpacing="8">
                                                         <TextBlock Text="等级" Classes="label" HorizontalAlignment="Right" />
                                                         <TextBlock Grid.Column="1" Text="招式" Classes="label" />
                                                         <TextBlock Grid.Column="2" Text="属性" Classes="label" />
                                                         <TextBlock Grid.Column="3" Text="分类" Classes="label" />
                                                         <TextBlock Grid.Column="4" Text="威力" Classes="label" HorizontalAlignment="Right" />
-                                                        <TextBlock Grid.Column="5" Text="命中" Classes="label" HorizontalAlignment="Right" />
-                                                        <TextBlock Grid.Column="6" Text="PP" Classes="label" HorizontalAlignment="Right" />
+                                                        <TextBlock Grid.Column="5" Text="原版" Classes="label" HorizontalAlignment="Right" />
+                                                        <TextBlock Grid.Column="6" Text="命中" Classes="label" HorizontalAlignment="Right" />
+                                                        <TextBlock Grid.Column="7" Text="原版" Classes="label" HorizontalAlignment="Right" />
+                                                        <TextBlock Grid.Column="8" Text="PP" Classes="label" HorizontalAlignment="Right" />
                                                     </Grid>
                                                     <ItemsControl x:Name="DexLevelMoveRowsView">
                                                         <ItemsControl.ItemTemplate>
                                                             <DataTemplate>
-                                                                <Grid ColumnDefinitions="58,*,74,64,48,48,38" ColumnSpacing="8" Margin="0,0,0,5">
+                                                                <Grid ColumnDefinitions="58,*,74,64,54,54,54,54,38" ColumnSpacing="8" Margin="0,0,0,5">
                                                                     <TextBlock Text="{Binding Level}" Foreground="#102E4A" HorizontalAlignment="Right" />
                                                                     <TextBlock Grid.Column="1" Text="{Binding Move}" Foreground="#102E4A" TextWrapping="Wrap" />
                                                                     <TextBlock Grid.Column="2" Text="{Binding Type}" Foreground="#102E4A" />
                                                                     <TextBlock Grid.Column="3" Text="{Binding Category}" Foreground="#102E4A" />
-                                                                    <TextBlock Grid.Column="4" Text="{Binding Power}" Foreground="#102E4A" HorizontalAlignment="Right" />
-                                                                    <TextBlock Grid.Column="5" Text="{Binding Accuracy}" Foreground="#102E4A" HorizontalAlignment="Right" />
-                                                                    <TextBlock Grid.Column="6" Text="{Binding Pp}" Foreground="#102E4A" HorizontalAlignment="Right" />
+                                                                    <TextBlock Grid.Column="4" Text="{Binding Power}" Foreground="{Binding PowerForeground}" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                                                    <TextBlock Grid.Column="5" Text="{Binding OfficialPower}" Foreground="#102E4A" HorizontalAlignment="Right" />
+                                                                    <TextBlock Grid.Column="6" Text="{Binding Accuracy}" Foreground="{Binding AccuracyForeground}" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                                                    <TextBlock Grid.Column="7" Text="{Binding OfficialAccuracy}" Foreground="#102E4A" HorizontalAlignment="Right" />
+                                                                    <TextBlock Grid.Column="8" Text="{Binding Pp}" Foreground="#102E4A" HorizontalAlignment="Right" />
                                                                 </Grid>
                                                             </DataTemplate>
                                                         </ItemsControl.ItemTemplate>
@@ -869,7 +880,14 @@
 
                     <TabItem x:Name="MoveDexTab" Header="招式图鉴">
                         <Grid RowDefinitions="Auto,Auto,*" Margin="20,20,36,56" RowSpacing="12">
-                            <TextBlock Text="招式图鉴" FontSize="24" FontWeight="Bold" Foreground="#102E4A" />
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="招式图鉴" FontSize="24" FontWeight="Bold" Foreground="#102E4A" />
+                                <TextBlock x:Name="MoveDexComparisonNote"
+                                           Text="威力和命中分为当前/原版两列；当前值更高为红色、更低为绿色、相同不染色。"
+                                           Foreground="#6C6255"
+                                           TextWrapping="Wrap"
+                                           IsVisible="False" />
+                            </StackPanel>
                             <Grid Grid.Row="1" ColumnDefinitions="*,150,150" ColumnSpacing="10">
                                 <TextBox x:Name="MoveDexSearchBox" Watermark="输入招式名或编号搜索" TextChanged="OnMoveDexSearchChanged" />
                                 <ComboBox x:Name="MoveDexTypeFilterBox" Grid.Column="1" SelectionChanged="OnMoveDexFilterChanged" />
@@ -877,20 +895,22 @@
                             </Grid>
                             <Border Grid.Row="2" Background="#FFF9EE" CornerRadius="14" Padding="14">
                                 <Grid RowDefinitions="Auto,*" RowSpacing="8">
-                                    <Grid ColumnDefinitions="72,*,96,76,58,58,42" ColumnSpacing="10">
+                                    <Grid ColumnDefinitions="72,*,96,76,56,56,56,56,42" ColumnSpacing="10">
                                         <TextBlock Text="编号" Classes="label" HorizontalAlignment="Right" />
                                         <TextBlock Grid.Column="1" Text="招式" Classes="label" />
                                         <TextBlock Grid.Column="2" Text="属性" Classes="label" />
                                         <TextBlock Grid.Column="3" Text="分类" Classes="label" />
                                         <TextBlock Grid.Column="4" Text="威力" Classes="label" HorizontalAlignment="Right" />
-                                        <TextBlock Grid.Column="5" Text="命中" Classes="label" HorizontalAlignment="Right" />
-                                        <TextBlock Grid.Column="6" Text="PP" Classes="label" HorizontalAlignment="Right" />
+                                        <TextBlock Grid.Column="5" Text="原版" Classes="label" HorizontalAlignment="Right" />
+                                        <TextBlock Grid.Column="6" Text="命中" Classes="label" HorizontalAlignment="Right" />
+                                        <TextBlock Grid.Column="7" Text="原版" Classes="label" HorizontalAlignment="Right" />
+                                        <TextBlock Grid.Column="8" Text="PP" Classes="label" HorizontalAlignment="Right" />
                                     </Grid>
                                     <ListBox x:Name="MoveDexList" Grid.Row="1" Classes="compactList">
                                         <ListBox.ItemTemplate>
                                             <DataTemplate>
                                                 <Border Padding="6,4" Margin="0" CornerRadius="7" Background="#FFF9EE">
-                                                    <Grid ColumnDefinitions="72,*,96,76,58,58,42" ColumnSpacing="10">
+                                                    <Grid ColumnDefinitions="72,*,96,76,56,56,56,56,42" ColumnSpacing="10">
                                                         <TextBlock Text="{Binding Id}" Foreground="#102E4A" HorizontalAlignment="Right" />
                                                         <TextBlock Grid.Column="1" Text="{Binding Title}" Foreground="#102E4A" FontWeight="SemiBold" TextWrapping="Wrap" />
                                                         <ItemsControl Grid.Column="2" ItemsSource="{Binding TypeBadges}" IsVisible="{Binding HasTypeBadges}">
@@ -908,9 +928,11 @@
                                                             </ItemsControl.ItemTemplate>
                                                         </ItemsControl>
                                                         <TextBlock Grid.Column="3" Text="{Binding Category}" Foreground="#102E4A" />
-                                                        <TextBlock Grid.Column="4" Text="{Binding Power}" Foreground="#102E4A" HorizontalAlignment="Right" />
-                                                        <TextBlock Grid.Column="5" Text="{Binding Accuracy}" Foreground="#102E4A" HorizontalAlignment="Right" />
-                                                        <TextBlock Grid.Column="6" Text="{Binding Pp}" Foreground="#102E4A" HorizontalAlignment="Right" />
+                                                        <TextBlock Grid.Column="4" Text="{Binding Power}" Foreground="{Binding PowerForeground}" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                                        <TextBlock Grid.Column="5" Text="{Binding OfficialPower}" Foreground="#102E4A" HorizontalAlignment="Right" />
+                                                        <TextBlock Grid.Column="6" Text="{Binding Accuracy}" Foreground="{Binding AccuracyForeground}" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                                        <TextBlock Grid.Column="7" Text="{Binding OfficialAccuracy}" Foreground="#102E4A" HorizontalAlignment="Right" />
+                                                        <TextBlock Grid.Column="8" Text="{Binding Pp}" Foreground="#102E4A" HorizontalAlignment="Right" />
                                                     </Grid>
                                                 </Border>
                                             </DataTemplate>
@@ -927,7 +949,7 @@
                             <StackPanel Spacing="14" Margin="0,0,0,96">
                                 <TextBlock Text="实验功能" FontSize="24" FontWeight="Bold" Foreground="#102E4A" />
                                 <TextBlock Text="这些功能由 mGBA Lua 脚本每帧持续处理，可能导致卡死或异常，请先保存 mGBA 即时存档。" Foreground="#B3261E" FontWeight="SemiBold" TextWrapping="Wrap" />
-                                <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
+                                <Border x:Name="TeleportExperimentPanel" Background="#FFF9EE" CornerRadius="14" Padding="14">
                                     <StackPanel Spacing="10">
                                         <TextBlock Text="跨地图传送" FontWeight="SemiBold" Foreground="#102E4A" />
                                         <TextBlock Text="实验功能：先选地图组和地图，再选择出入口/中心点，或手动输入坐标。传送会临时请求游戏重载地图，建议先即时存档。" Foreground="#B3261E" TextWrapping="Wrap" />
@@ -951,11 +973,13 @@
                                         </WrapPanel>
                                     </StackPanel>
                                 </Border>
-                                <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
+                                <Border x:Name="BattleExperimentPanel" Background="#FFF9EE" CornerRadius="14" Padding="14">
                                     <StackPanel Spacing="10">
                                         <TextBlock Text="战斗/地图辅助" FontWeight="SemiBold" Foreground="#102E4A" />
                                         <CheckBox x:Name="CheatInfinitePpBox" Content="无限 PP（每帧把队伍内非空招式 PP 维持为 99）" IsCheckedChanged="OnCheatToggleChanged" />
                                         <CheckBox x:Name="CheatLockHpBox" Content="锁血（队伍 HP + 战斗中的临时 HP 都尝试维持满血）" IsCheckedChanged="OnCheatToggleChanged" />
+                                        <CheckBox x:Name="CheatClearStatusBox" Content="清除异常状态" IsCheckedChanged="OnCheatToggleChanged" />
+                                        <CheckBox x:Name="CheatAlwaysCritBox" Content="必定要害" IsCheckedChanged="OnCheatToggleChanged" />
                                         <CheckBox x:Name="CheatNoEncounterBox" Content="关闭遇怪（实验：持续写入喷雾步数；如不生效需要继续逆向遇怪函数）" IsCheckedChanged="OnCheatToggleChanged" />
                                         <CheckBox x:Name="CheatWalkThroughWallsBox" Content="穿墙（实验：逆向 patch 碰撞函数，可能影响 NPC 碰撞；建议先即时存档）" IsCheckedChanged="OnCheatToggleChanged" />
                                         <TextBlock x:Name="CheatStatusText" Text="实验功能状态：未开启" Foreground="#6C6255" TextWrapping="Wrap" />

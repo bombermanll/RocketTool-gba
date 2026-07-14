@@ -10,10 +10,6 @@ public sealed record SpeciesEvolution(
 
 public sealed class SpeciesEvolutionReader
 {
-    public const int DefaultEvolutionTableOffset = 0x5F96D4;
-    public const int DefaultEntriesPerSpecies = 10;
-    public const int DefaultEntrySize = 8;
-
     private readonly byte[] _rom;
     private readonly int _tableOffset;
     private readonly int _entriesPerSpecies;
@@ -21,9 +17,9 @@ public sealed class SpeciesEvolutionReader
 
     public SpeciesEvolutionReader(
         string romPath,
-        int tableOffset = DefaultEvolutionTableOffset,
-        int entriesPerSpecies = DefaultEntriesPerSpecies,
-        int entrySize = DefaultEntrySize)
+        int tableOffset,
+        int entriesPerSpecies,
+        int entrySize)
     {
         _rom = File.ReadAllBytes(romPath);
         _tableOffset = tableOffset;
