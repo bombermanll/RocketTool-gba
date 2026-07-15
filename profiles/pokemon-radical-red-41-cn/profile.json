@@ -1,7 +1,7 @@
 {
   "id": "pokemon-radical-red-41-cn",
   "displayName": "宝可梦激进红4.1 全汉化by兔砸博士",
-  "description": "宝可梦激进红4.1 汉化版独立配置；当前启用本 ROM 提取的内置图鉴/地图基础表、已验证的实时队伍/背包/箱子编辑、实时与存档箱子图鉴导入，以及队伍/背包/箱子/训练家存档修改和存档图鉴导入队伍。实时图鉴导入队伍、实时训练家写入和实验功能保持关闭。",
+  "description": "宝可梦激进红4.1 汉化版独立配置；当前启用本 ROM 提取的内置图鉴/地图基础表、已验证的实时与存档队伍/背包/箱子编辑、实时与存档图鉴导入，以及实时与存档训练家修改。实验功能保持关闭。",
   "romIdentity": {
     "fileName": "宝可梦 激进红4.1 全汉化by兔砸博士.gba",
     "romSize": 33554432,
@@ -91,16 +91,41 @@
       "entrySize": 2,
       "count": 128
     },
+    "tutorMoves": {
+      "offset": "0x18223B8",
+      "entrySize": 2,
+      "count": 128
+    },
+    "machineCompatibility": {
+      "offset": "0x13E6DB4",
+      "entrySize": 16,
+      "count": 1381
+    },
+    "tutorCompatibility": {
+      "offset": "0x13EC404",
+      "entrySize": 16,
+      "count": 1381
+    },
+    "eggMoves": {
+      "offset": "0x17CB0E4",
+      "entrySize": 2,
+      "count": 4531
+    },
     "evolutions": {
-      "offset": "0x259754",
+      "offset": "0x17CD9B0",
       "entrySize": 8,
-      "count": 1377,
-      "entriesPerRecord": 5
+      "count": 1381,
+      "entriesPerRecord": 16
     },
     "levelMoves": {
-      "offset": "0x25D7B4",
-      "entrySize": 2,
-      "count": 1377
+      "offset": "0x180175C",
+      "entrySize": 3,
+      "count": 1376
+    },
+    "wildEncounters": {
+      "offset": "0x72C984",
+      "entrySize": 20,
+      "count": 142
     },
     "experience": {
       "offset": "0x253AE4",
@@ -126,6 +151,10 @@
     "maxAbility": 255,
     "maxLevel": 100,
     "maxBagQuantity": 999
+  },
+  "dataVerification": {
+    "visibleSpeciesCount": 1376,
+    "verifiedMenuIconCount": 1375
   },
   "features": {
     "liveEditing": true,
@@ -156,7 +185,7 @@
     },
     "liveTrainer": {
       "read": true,
-      "write": false
+      "write": true
     },
     "saveTrainer": {
       "read": true,
@@ -164,7 +193,7 @@
     },
     "builtInDex": true,
     "moveDex": true,
-    "importToParty": false,
+    "importToParty": true,
     "importToBoxes": true,
     "importToSaveParty": true,
     "importToSaveBoxes": true,

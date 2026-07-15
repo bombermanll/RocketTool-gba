@@ -67,6 +67,10 @@
       "5": 80
     }
   },
+  "dataVerification": {
+    "visibleSpeciesCount": 1394,
+    "verifiedMenuIconCount": 0
+  },
   "features": {
     "liveEditing": true,
     "saveEditing": true,

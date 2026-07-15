@@ -94,6 +94,10 @@
     "maxLevel": 100,
     "maxBagQuantity": 999
   },
+  "dataVerification": {
+    "visibleSpeciesCount": 1268,
+    "verifiedMenuIconCount": 0
+  },
   "features": {
     "liveEditing": true,
     "saveEditing": true,

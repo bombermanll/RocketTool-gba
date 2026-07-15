@@ -1,7 +1,7 @@
 {
   "id": "pokemon-destiny-training-house-fix-cn",
   "displayName": "宝可梦命运（培训屋bug修复）",
-  "description": "宝可梦命运（培训屋bug修复）独立配置；已启用本 ROM 验证过的实时/存档队伍、箱子、背包读写及图鉴导入；训练家和实验功能仍关闭。",
+  "description": "宝可梦命运（培训屋bug修复）独立配置；已启用本 ROM 验证过的实时/存档队伍、箱子、背包、存档训练家读写及图鉴导入；实时训练家写入和实验功能仍关闭。",
   "romIdentity": {
     "fileName": "宝可梦命运（培训屋bug修复）.gba",
     "romSize": 33554432,
@@ -59,6 +59,21 @@
       "entrySize": 44,
       "count": 374
     },
+    "machineMoves": {
+      "offset": "0x45A80C",
+      "entrySize": 2,
+      "count": 58
+    },
+    "machineCompatibility": {
+      "offset": "0x1ADBDE0",
+      "entrySize": 8,
+      "count": 1200
+    },
+    "eggMoves": {
+      "offset": "0x964700",
+      "entrySize": 2,
+      "count": 2053
+    },
     "evolutions": {
       "offset": "0x1ADEC88",
       "entrySize": 8,
@@ -70,6 +85,11 @@
       "entrySize": 2,
       "count": 1200
     },
+    "wildEncounters": {
+      "offset": "0xCEECBC",
+      "entrySize": 20,
+      "count": 147
+    },
     "experience": {
       "offset": "0x253AE4",
       "entrySize": 404,
@@ -79,7 +99,9 @@
   "graphics": {
     "spritesVerified": true,
     "spriteAssetRoot": "Profiles/pokemon-destiny-training-house-fix-cn/Pokemon/front",
+    "iconAssetRoot": "Profiles/pokemon-destiny-training-house-fix-cn/Pokemon/icon",
     "frontSpriteTableOffset": "0x1A0F378",
+    "iconSpriteTableOffset": "0x1AD93A8",
     "normalPaletteTableOffset": "0x1A13E78",
     "spriteIndexAdjustment": 0,
     "paletteIndexAdjustment": 0,
@@ -93,8 +115,13 @@
     "maxLevel": 100,
     "maxBagQuantity": 999,
     "maxBagQuantityByPocket": {
+      "2": 1,
       "4": 1
     }
+  },
+  "dataVerification": {
+    "visibleSpeciesCount": 1092,
+    "verifiedMenuIconCount": 1092
   },
   "features": {
     "liveEditing": true,
@@ -105,8 +132,8 @@
     "saveBoxes": { "read": true, "write": true },
     "liveBag": { "read": true, "write": true },
     "saveBag": { "read": true, "write": true },
-    "liveTrainer": { "read": false, "write": false },
-    "saveTrainer": { "read": false, "write": false },
+    "liveTrainer": { "read": true, "write": false },
+    "saveTrainer": { "read": true, "write": true },
     "builtInDex": true,
     "moveDex": true,
     "importToParty": true,
@@ -138,8 +165,10 @@
     ],
     "saveBagPockets": [
       { "id": 1, "name": "道具", "isKeyItem": false, "batchCapacity": 166 },
+      { "id": 2, "name": "重要物品", "isKeyItem": true, "batchCapacity": 60 },
       { "id": 3, "name": "精灵球", "isKeyItem": false, "batchCapacity": 28 },
-      { "id": 4, "name": "招式机器", "isKeyItem": false, "batchCapacity": 128 }
+      { "id": 4, "name": "招式机器", "isKeyItem": false, "batchCapacity": 128 },
+      { "id": 5, "name": "树果", "isKeyItem": false, "batchCapacity": 75 }
     ],
     "itemPocketFallbackRanges": [],
     "itemPocketRemap": { "3": 3, "4": 4 },
@@ -161,7 +190,7 @@
     "experimentTeleport": false,
     "experimentNoEncounter": false,
     "experimentWalkThroughWalls": false,
-    "maxTrainerMoney": 99999999,
+    "maxTrainerMoney": 999999,
     "bagBatchQuantity": 240
   }
 }

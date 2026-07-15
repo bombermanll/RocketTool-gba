@@ -256,6 +256,28 @@ static void WriteMon(GameProfile profile, MgbaBridgeClient bridge, uint baseAddr
     bridge.WriteRangeVerified(addr, mon.Raw);
 }
 
+static (uint Address, byte Count) ReadLivePartyCount(GameProfile profile, MgbaBridgeClient bridge, uint baseAddr)
+{
+    var countAddress = (long)baseAddr + profile.Memory.PartyCountOffsetFromPartyBase;
+    var ewramEnd = (long)profile.Memory.EwramBase + profile.Memory.EwramSize;
+    if (countAddress < profile.Memory.EwramBase || countAddress >= ewramEnd)
+        throw new InvalidOperationException("Party count address is outside the current Profile EWRAM range.");
+    var count = bridge.Read((uint)countAddress, 1)[0];
+    if (count > Gen3Constants.PartySlots)
+        throw new InvalidOperationException($"Live party count {count} is outside 0..{Gen3Constants.PartySlots}.");
+    return ((uint)countAddress, count);
+}
+
+static void WriteLivePartyCount(MgbaBridgeClient bridge, uint address, int count)
+{
+    if (count is < 0 or > Gen3Constants.PartySlots)
+        throw new ArgumentOutOfRangeException(nameof(count), $"party count must be 0..{Gen3Constants.PartySlots}");
+    bridge.WriteRangeVerified(address, [(byte)count]);
+    var readback = bridge.Read(address, 1)[0];
+    if (readback != count)
+        throw new InvalidOperationException($"Party count readback mismatch: expected {count}, got {readback}.");
+}
+
 static void PrintMon(int slot, uint addr, PartyPokemon mon, ModifierDatabase db)
 {
     if (mon.IsEmpty)
@@ -970,7 +992,18 @@ static int ProfileDataVerify()
         if (actual != expected) errors.Add($"{table}: expected {expected}, got {actual}");
     }
 
-    RequireCount("species", profile.Limits.MaxSpecies);
+    var speciesRows = db.Table("species");
+    RequireCount("species", profile.DataVerification.VisibleSpeciesCount);
+    foreach (var id in speciesRows.Keys.Where(id => id < 1 || id > profile.Limits.MaxSpecies))
+        errors.Add($"species: id {id} is outside 1..{profile.Limits.MaxSpecies}");
+
+    var namedStatsIds = db.Table("species_stats").Where(row =>
+    {
+        var fields = row.Value.Split('\t');
+        return fields.Length >= 6 && fields.Take(6).Any(field => int.TryParse(field, out var value) && value > 0);
+    }).Select(row => row.Key);
+    foreach (var id in namedStatsIds.Where(id => !speciesRows.ContainsKey(id)))
+        errors.Add($"species: nonzero species_stats row {id} has no display name");
     RequireCount("moves", profile.Limits.MaxMove);
     RequireCount("items", profile.Limits.MaxItem + 1);
     RequireCount("abilities", profile.Limits.MaxAbility + 1);
@@ -982,6 +1015,51 @@ static int ProfileDataVerify()
     RequireCount("species_evolutions", profile.Limits.MaxSpecies);
     RequireCount("species_level_moves", profile.Limits.MaxSpecies);
     RequireCount("experience", profile.RomTables.Experience.Count);
+    if (profile.RomTables.MachineMoves is not null)
+        RequireCount("machine_moves", profile.RomTables.MachineMoves.Count);
+    if (profile.RomTables.MachineCompatibility is not null)
+    {
+        RequireCount("species_machine_moves", profile.Limits.MaxSpecies);
+        RequireCount("species_machine_compatibility", profile.Limits.MaxSpecies);
+    }
+    if (profile.RomTables.TutorMoves is not null)
+        RequireCount("tutor_moves", profile.RomTables.TutorMoves.Count);
+    if (profile.RomTables.TutorCompatibility is not null)
+    {
+        RequireCount("species_tutor_moves", profile.Limits.MaxSpecies);
+        RequireCount("species_tutor_compatibility", profile.Limits.MaxSpecies);
+    }
+    if (profile.RomTables.EggMoves is not null)
+        RequireCount("species_egg_moves", profile.Limits.MaxSpecies);
+    if (profile.RomTables.WildEncounters is not null)
+    {
+        RequireCount("species_encounters", profile.Limits.MaxSpecies);
+        var encounters = db.Table("wild_encounters").Count;
+        Console.WriteLine($"  {"wild_encounters",-28} {encounters,5} rows");
+        if (encounters == 0) errors.Add("wild_encounters: missing or empty");
+    }
+
+    if (profile.Id == "pokemon-radical-red-41-cn")
+    {
+        void RequireValue(string table, int id, string expected)
+        {
+            var actual = db.NameOf(table, id);
+            if (!string.Equals(actual, expected, StringComparison.Ordinal))
+                errors.Add($"{table}[{id}]: expected {expected}, got {actual}");
+        }
+        RequireValue("species_evolutions", 1, "4,16,2,0");
+        RequireValue("species_evolutions", 6, "254,534,870,0;254,535,871,0");
+        RequireValue("species_evolutions_raw", 869, "254,0,3,0");
+        RequireValue("species_level_moves", 1, "1:33;3:45;7:73;9:345;13:77;13:79;15:124;19:72;21:36;25:74;27:38;31:475;33:235;37:396");
+        RequireValue("species_forms", 869, "Mega");
+        RequireValue("species_forms", 1020, "阿罗拉形态");
+        RequireValue("species_forms", 1233, "超极巨化");
+        RequireValue("move_rom_names", 848, "Z招式");
+        RequireValue("moves", 848, "通用Z·一般（物理）");
+        RequireValue("moves", 594, "磨砺");
+        if (db.Table("moves").GroupBy(row => row.Value).Any(group => group.Count() > 1))
+            errors.Add("moves: semantic display names are not unique");
+    }
 
     foreach (var table in new[] { "species", "moves", "items", "abilities" })
     {
@@ -1008,13 +1086,18 @@ static int ProfileDataVerify()
         var icons = Directory.Exists(iconRoot) ? Directory.EnumerateFiles(iconRoot, "*.png").Count() : 0;
         Console.WriteLine($"  front sprites                {sprites,5}");
         Console.WriteLine($"  menu icons                   {icons,5}");
-        if (sprites == 0 || icons == 0) errors.Add("verified graphics asset directory is missing or empty");
+        if (sprites == 0) errors.Add("verified front sprite asset directory is missing or empty");
+        var numericIcons = Directory.Exists(iconRoot)
+            ? Directory.EnumerateFiles(iconRoot, "*.png").Count(path => int.TryParse(Path.GetFileNameWithoutExtension(path), out _))
+            : 0;
+        if (profile.DataVerification.VerifiedMenuIconCount > 0 && numericIcons != profile.DataVerification.VerifiedMenuIconCount)
+            errors.Add($"menu icons: expected {profile.DataVerification.VerifiedMenuIconCount} verified profile icons, got {numericIcons}");
         var egg = Path.Combine(assetRoot, $"{profile.Graphics.EggSpeciesId:0000}.png");
         if (!File.Exists(egg)) errors.Add($"egg front sprite missing: {profile.Graphics.EggSpeciesId}");
     }
 
     if (db.Table("map_sections").Values.Any(name => name.StartsWith("区域", StringComparison.Ordinal)))
-        warnings.Add("expanded map section names still use neutral ROM-derived region labels");
+        warnings.Add("current ROM has no active name pointers for expanded map ids; neutral region labels are expected");
 
     foreach (var warning in warnings) Console.WriteLine("WARN: " + warning);
     if (errors.Count > 0)
@@ -1170,6 +1253,128 @@ static int TrainerSetName(string[] args)
     var after = ReadLiveTrainer(bridge, profile);
     if (!after.NameBytes.AsSpan().SequenceEqual(encoded)) throw new InvalidOperationException("训练家名字写入回读不一致。");
     Console.WriteLine($"Verified trainer name write: {DecodeGameText(before.NameBytes, db)} -> {DecodeGameText(after.NameBytes, db)}");
+    return 0;
+}
+
+static int TrainerVerifyWrite(string[] args)
+{
+    var profile = CurrentProfile();
+    if (!string.Equals(profile.Id, "pokemon-radical-red-41-cn", StringComparison.Ordinal))
+        throw new InvalidOperationException("trainer-verify-write is currently scoped to the independently reversed Radical Red 4.1 CN Profile.");
+    CurrentRuntime().EnsureCanRead(GameDataSurface.Trainer, live: true);
+    if (!HasArg(args, "--yes"))
+        throw new InvalidOperationException("该命令会临时修改并恢复训练家名字和金钱；请先创建 mGBA 即时存档，确认后加 --yes。");
+
+    using var bridge = ConnectForProfile(profile, GetArg(args, "--host", "127.0.0.1"), GetIntArg(args, "--port", 8765));
+    var db = Db();
+    var before = ReadLiveTrainer(bridge, profile);
+    var originalName = before.NameBytes.ToArray();
+    var originalMoneyRaw = new byte[4];
+    BinaryPrimitives.WriteUInt32LittleEndian(originalMoneyRaw, before.EncryptedMoney);
+    var testName = EncodeGameText("CROSQ", profile.Memory.PlayerNameLength, db);
+    if (testName.AsSpan().SequenceEqual(originalName))
+        testName = EncodeGameText("CROSR", profile.Memory.PlayerNameLength, db);
+    var testMoney = before.Money == profile.Runtime.MaxTrainerMoney ? before.Money - 1 : before.Money + 1;
+    var testMoneyRaw = new byte[4];
+    BinaryPrimitives.WriteUInt32LittleEndian(testMoneyRaw, testMoney ^ before.MoneyKey);
+
+    Exception? failure = null;
+    try
+    {
+        bridge.WriteRangeVerified(before.SaveBlock2, testName);
+        bridge.WriteRangeVerified(before.SaveBlock1 + profile.Memory.SaveBlock1MoneyOffset, testMoneyRaw);
+        var changed = ReadLiveTrainer(bridge, profile);
+        if (!changed.NameBytes.AsSpan().SequenceEqual(testName) || changed.Money != testMoney)
+            throw new InvalidOperationException("Trainer verification write did not read back the intended name and money.");
+        Console.WriteLine($"Verified temporary trainer write: {DecodeGameText(originalName, db)}/{before.Money} -> {DecodeGameText(changed.NameBytes, db)}/{changed.Money}");
+    }
+    catch (Exception ex)
+    {
+        failure = ex;
+    }
+    finally
+    {
+        bridge.WriteRangeVerified(before.SaveBlock2, originalName);
+        bridge.WriteRangeVerified(before.SaveBlock1 + profile.Memory.SaveBlock1MoneyOffset, originalMoneyRaw);
+    }
+
+    var restored = ReadLiveTrainer(bridge, profile);
+    if (!restored.NameBytes.AsSpan().SequenceEqual(originalName) || restored.EncryptedMoney != before.EncryptedMoney || restored.Money != before.Money)
+        throw new InvalidOperationException("Trainer verification restore did not match the complete original name/money bytes.", failure);
+    if (failure is not null) throw new InvalidOperationException("Trainer verification failed; original fields were restored.", failure);
+    Console.WriteLine($"Verified trainer restore: {DecodeGameText(restored.NameBytes, db)} money={restored.Money}; original bytes match.");
+    return 0;
+}
+
+static int PartyVerifyCreate(string[] args)
+{
+    var profile = CurrentProfile();
+    if (!string.Equals(profile.Id, "pokemon-radical-red-41-cn", StringComparison.Ordinal))
+        throw new InvalidOperationException("party-verify-create is currently scoped to the independently reversed Radical Red 4.1 CN Profile.");
+    var runtime = CurrentRuntime();
+    runtime.EnsureCanWrite(GameDataSurface.Party, live: true);
+    if (!HasArg(args, "--yes"))
+        throw new InvalidOperationException("该命令会临时清出一个队伍槽、创建图鉴宝可梦并完整恢复；请先创建 mGBA 即时存档，确认后加 --yes。");
+    var species = GetIntArg(args, "--species", 1);
+
+    using var bridge = ConnectForProfile(profile, GetArg(args, "--host", "127.0.0.1"), GetIntArg(args, "--port", 8765));
+    var baseAddr = ResolveWritablePartyBase(args, bridge);
+    var (countAddress, originalCount) = ReadLivePartyCount(profile, bridge, baseAddr);
+    if (originalCount == 0)
+        throw new InvalidOperationException("当前队伍为空，无法用已有队伍定位证据执行安全创建测试。");
+    var targetSlot = originalCount == Gen3Constants.PartySlots ? Gen3Constants.PartySlots : originalCount + 1;
+    var targetAddress = SlotAddress(baseAddr, targetSlot);
+    var originalRecord = bridge.Read(targetAddress, Gen3Constants.PartyMonSize);
+    if (originalCount < Gen3Constants.PartySlots && originalRecord.Any(value => value != 0))
+        throw new InvalidOperationException($"队伍槽位 {targetSlot} 不为空，拒绝覆盖。");
+
+    var trainer = ReadLiveTrainer(bridge, profile);
+    var trainerInfo = new Gen3SaveTrainerInfo(trainer.NameBytes, trainer.OtId, trainer.Money);
+    var db = Db();
+    var stats = ReadSpeciesStatsFromDb(db, species);
+    var experience = new PokemonExperienceTable(db).ExperienceForLevel(5, stats.GrowthRate);
+    var (expectedMoves, expectedPp) = BuildDexImportMoves(db, species, 5);
+    var created = BuildDexImportParty(profile, db, trainerInfo, species);
+    var intended = created.Raw.ToArray();
+    Exception? failure = null;
+
+    try
+    {
+        if (originalCount == Gen3Constants.PartySlots)
+        {
+            WriteMon(profile, bridge, baseAddr, targetAddress, new PartyPokemon(new byte[Gen3Constants.PartyMonSize], runtime.PartyLayout));
+            WriteLivePartyCount(bridge, countAddress, originalCount - 1);
+        }
+        WriteMon(profile, bridge, baseAddr, targetAddress, created);
+        WriteLivePartyCount(bridge, countAddress, targetSlot);
+        var readback = bridge.Read(targetAddress, Gen3Constants.PartyMonSize);
+        if (!readback.AsSpan().SequenceEqual(intended))
+            throw new InvalidOperationException("Created live party record did not match the complete intended 100-byte record.");
+        var info = new PartyPokemon(readback, runtime.PartyLayout).GetInfo();
+        if (info.Species != species || info.Level != 5 || info.OtId != trainer.OtId ||
+            info.Exp != experience || info.Friendship != stats.Friendship || info.Item != 0 || info.Status != 0 ||
+            !info.Moves.SequenceEqual(expectedMoves) || !info.Pp.SequenceEqual(expectedPp) ||
+            info.Ivs.Where(pair => Gen3Constants.StatNames.Contains(pair.Key)).Any(pair => pair.Value != 31) ||
+            info.Ivs["ability"] != 0 || info.Evs.Any(value => value != 0) || info.MaxHp == 0)
+            throw new InvalidOperationException("Created live party record semantic readback did not match current-Profile defaults.");
+        Console.WriteLine($"Verified temporary live party import: slot={targetSlot} species={info.Species} level={info.Level} exp={info.Exp} moves={string.Join(',', info.Moves)} pp={string.Join(',', info.Pp)} hp={info.Hp}/{info.MaxHp}");
+    }
+    catch (Exception ex)
+    {
+        failure = ex;
+    }
+    finally
+    {
+        WriteMon(profile, bridge, baseAddr, targetAddress, new PartyPokemon(originalRecord, runtime.PartyLayout));
+        WriteLivePartyCount(bridge, countAddress, originalCount);
+    }
+
+    var restoredRecord = bridge.Read(targetAddress, Gen3Constants.PartyMonSize);
+    var restoredCount = bridge.Read(countAddress, 1)[0];
+    if (!restoredRecord.AsSpan().SequenceEqual(originalRecord) || restoredCount != originalCount)
+        throw new InvalidOperationException("Live party verification restore did not match the original record/count bytes.", failure);
+    if (failure is not null) throw new InvalidOperationException("Live party import verification failed; original record/count were restored.", failure);
+    Console.WriteLine($"Verified live party restore: slot={targetSlot} count={restoredCount}; original bytes match.");
     return 0;
 }
 
@@ -1628,6 +1833,8 @@ if (args.Length == 0)
     Console.WriteLine("  RocketTool.Cli trainer-probe");
     Console.WriteLine("  RocketTool.Cli trainer-set-money --money N [--yes]");
     Console.WriteLine("  RocketTool.Cli trainer-set-name --name NAME [--yes]");
+    Console.WriteLine("  RocketTool.Cli trainer-verify-write --yes");
+    Console.WriteLine("  RocketTool.Cli party-verify-create [--species N] --yes");
     Console.WriteLine("  RocketTool.Cli save-probe --save path/to/file.sav");
     Console.WriteLine("  RocketTool.Cli save-verify-write --save input.sav [--output output.sav | --in-place] --yes");
     Console.WriteLine("  RocketTool.Cli save-verify-import-box --save input.sav --output output.sav [--species N] --yes");
@@ -1659,6 +1866,8 @@ return args[0] switch
     "trainer-probe" => TrainerProbe(args[1..]),
     "trainer-set-money" => TrainerSetMoney(args[1..]),
     "trainer-set-name" => TrainerSetName(args[1..]),
+    "trainer-verify-write" => TrainerVerifyWrite(args[1..]),
+    "party-verify-create" => PartyVerifyCreate(args[1..]),
     "save-probe" => SaveProbe(args[1..]),
     "save-verify-write" => SaveVerifyWrite(args[1..]),
     "save-verify-import-box" => SaveVerifyImportBox(args[1..]),

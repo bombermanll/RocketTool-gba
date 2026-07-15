@@ -77,6 +77,7 @@ public sealed record DexLevelMoveRow(
     string OfficialAccuracy,
     IBrush AccuracyForeground,
     string Pp);
+public sealed record DexEncounterRow(string Map, string Method, string Level, string Rate, string Slot);
 public sealed record OfficialSpeciesStats(int Hp, int Attack, int Defense, int Speed, int SpAttack, int SpDefense)
 {
     public int Bst => Hp + Attack + Defense + Speed + SpAttack + SpDefense;
@@ -162,6 +163,8 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<DexInfoRow> _dexInfoRows = [];
     private readonly ObservableCollection<DexStatRow> _dexStatRows = [];
     private readonly ObservableCollection<DexLevelMoveRow> _dexLevelMoveRows = [];
+    private readonly ObservableCollection<DexLevelMoveRow> _dexOtherMoveRows = [];
+    private readonly ObservableCollection<DexEncounterRow> _dexEncounterRows = [];
     private readonly ObservableCollection<MoveDexRow> _moveDexRows = [];
     private readonly ObservableCollection<DexTypeBadge> _partyHeaderTypeBadges = [];
     private readonly ObservableCollection<DexTypeBadge> _boxHeaderTypeBadges = [];
@@ -307,6 +310,8 @@ public partial class MainWindow : Window
         DexInfoRowsView.ItemsSource = _dexInfoRows;
         DexStatRowsView.ItemsSource = _dexStatRows;
         DexLevelMoveRowsView.ItemsSource = _dexLevelMoveRows;
+        DexOtherMoveRowsView.ItemsSource = _dexOtherMoveRows;
+        DexEncounterRowsView.ItemsSource = _dexEncounterRows;
         PartyHeaderTypeBadgesView.ItemsSource = _partyHeaderTypeBadges;
         BoxHeaderTypeBadgesView.ItemsSource = _boxHeaderTypeBadges;
         DexHeaderTypeBadgesView.ItemsSource = _dexHeaderTypeBadges;
@@ -369,7 +374,16 @@ public partial class MainWindow : Window
 
     private void ValidateProfileDatabase()
     {
-        foreach (var table in new[] { "species", "moves", "items", "abilities", "species_stats", "move_data", "item_data", "experience" })
+        var requiredTables = new List<string> { "species", "moves", "items", "abilities", "species_stats", "move_data", "item_data", "experience" };
+        if (_profile.RomTables.MachineCompatibility is not null)
+            requiredTables.AddRange(["machine_moves", "species_machine_moves", "species_machine_compatibility"]);
+        if (_profile.RomTables.TutorCompatibility is not null)
+            requiredTables.AddRange(["tutor_moves", "species_tutor_moves", "species_tutor_compatibility"]);
+        if (_profile.RomTables.EggMoves is not null)
+            requiredTables.Add("species_egg_moves");
+        if (_profile.RomTables.WildEncounters is not null)
+            requiredTables.AddRange(["wild_encounters", "species_encounters"]);
+        foreach (var table in requiredTables)
         {
             if (_db.Table(table).Count == 0)
                 throw new InvalidOperationException($"版本 {_profile.DisplayName} 缺少数据表：db/{table}.tsv");
@@ -3490,6 +3504,8 @@ public partial class MainWindow : Window
             FillDexBaseInfo(row, stats);
             FillDexEvolutionInfo(row);
             FillDexLevelMoves(row.Id);
+            FillDexOtherMoves(row.Id);
+            FillDexEncounters(row.Id);
         }
         catch (Exception ex)
         {
@@ -3501,6 +3517,10 @@ public partial class MainWindow : Window
             SetDexEvolutionPlainText("错误：" + ex.Message);
             DexLevelMovesEmptyText.Text = "错误：" + ex.Message;
             DexLevelMovesEmptyText.IsVisible = true;
+            DexOtherMovesEmptyText.Text = "错误：" + ex.Message;
+            DexOtherMovesEmptyText.IsVisible = true;
+            DexEncountersEmptyText.Text = "错误：" + ex.Message;
+            DexEncountersEmptyText.IsVisible = true;
             Log("图鉴读取错误：" + ex.Message);
         }
     }
@@ -3510,12 +3530,18 @@ public partial class MainWindow : Window
         _dexInfoRows.Clear();
         _dexStatRows.Clear();
         _dexLevelMoveRows.Clear();
+        _dexOtherMoveRows.Clear();
+        _dexEncounterRows.Clear();
         ClearHeaderSpeciesInfo(_dexHeaderTypeBadges, DexHeaderBstText);
         DexSpriteImage.Source = null;
         DexSpriteImage.IsVisible = false;
         SetDexEvolutionPlainText("");
         DexLevelMovesEmptyText.Text = "";
         DexLevelMovesEmptyText.IsVisible = false;
+        DexOtherMovesEmptyText.Text = "";
+        DexOtherMovesEmptyText.IsVisible = false;
+        DexEncountersEmptyText.Text = "";
+        DexEncountersEmptyText.IsVisible = false;
     }
 
     private void SetDexSprite(Bitmap? sprite)
@@ -3603,7 +3629,7 @@ public partial class MainWindow : Window
     {
         if (!UsesVerifiedSpriteAssets) return null;
         if (_spriteCache.TryGetValue(speciesId, out var cached)) return cached;
-        var sprite = LoadSpriteBitmapCore(speciesId);
+        var sprite = LoadSpriteBitmapCore(speciesId) ?? LoadIconBitmapCore(speciesId);
         _spriteCache[speciesId] = sprite;
         return sprite;
     }
@@ -3617,6 +3643,21 @@ public partial class MainWindow : Window
 
     private Bitmap? LoadSpriteBitmapCore(int speciesId)
         => LoadSpriteBitmapCore($"{speciesId:0000}");
+
+    private Bitmap? LoadIconBitmapCore(int speciesId)
+    {
+        if (string.IsNullOrWhiteSpace(_profile.Graphics.IconAssetRoot)) return null;
+        try
+        {
+            var root = _profile.Graphics.IconAssetRoot.Trim().Trim('/').Replace('\\', '/');
+            var uri = new Uri($"avares://RocketTool.Avalonia/Assets/{root}/{speciesId:0000}.png");
+            return new Bitmap(AssetLoader.Open(uri));
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
     private Bitmap? LoadSpriteBitmapCore(string assetName)
     {
@@ -3917,42 +3958,84 @@ public partial class MainWindow : Window
         DexLevelMovesEmptyText.Text = "";
         DexLevelMovesEmptyText.IsVisible = false;
         foreach (var entry in moves)
+            AddDexMoveRow(_dexLevelMoveRows, $"Lv.{entry.Level:000}", entry.Move);
+    }
+
+    private void FillDexOtherMoves(int species)
+    {
+        _dexOtherMoveRows.Clear();
+        foreach (var (index, move) in ReadIndexedSpeciesMoves("species_machine_moves", species))
+            AddDexMoveRow(_dexOtherMoveRows, $"机器槽 {index:000}", move);
+        foreach (var (index, move) in ReadIndexedSpeciesMoves("species_tutor_moves", species))
+            AddDexMoveRow(_dexOtherMoveRows, $"教学 {index + 1:000}", move);
+        if (_db.Table("species_egg_moves").TryGetValue(species, out var rawEggMoves))
         {
-            try
+            foreach (var text in rawEggMoves.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
-                var data = ReadMoveData(entry.Move);
-                var power = MovePowerText(data.Power);
-                var accuracy = MoveAccuracyText(data.Accuracy);
-                var officialPower = string.Empty;
-                var officialAccuracy = string.Empty;
-                var powerForeground = ComparisonNeutralBrush;
-                var accuracyForeground = ComparisonNeutralBrush;
-                if (TryReadOfficialMoveData(entry.Move, out var official))
-                {
-                    officialPower = MovePowerText(official.Power);
-                    officialAccuracy = MoveAccuracyText(official.Accuracy);
-                    powerForeground = ModifiedValueForeground(data.Power, official.Power);
-                    accuracyForeground = ModifiedValueForeground(data.Accuracy, official.Accuracy);
-                }
-                _dexLevelMoveRows.Add(new DexLevelMoveRow(
-                    $"Lv.{entry.Level:000}",
-                    MoveName(entry.Move),
-                    MoveTypeNameZh(data.Type),
-                    MoveCategoryNameZh(data.Category),
-                    power,
-                    officialPower,
-                    powerForeground,
-                    accuracy,
-                    officialAccuracy,
-                    accuracyForeground,
-                    data.Pp.ToString()));
+                if (int.TryParse(text, out var move))
+                    AddDexMoveRow(_dexOtherMoveRows, "蛋招式", move);
             }
-            catch
+        }
+        DexOtherMovesEmptyText.Text = _dexOtherMoveRows.Count == 0 ? "无机器、教学或蛋招式数据。" : "";
+        DexOtherMovesEmptyText.IsVisible = _dexOtherMoveRows.Count == 0;
+    }
+
+    private void FillDexEncounters(int species)
+    {
+        _dexEncounterRows.Clear();
+        if (_db.Table("species_encounters").TryGetValue(species, out var raw))
+        {
+            foreach (var entry in raw.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
-                _dexLevelMoveRows.Add(new DexLevelMoveRow(
-                    $"Lv.{entry.Level:000}", MoveName(entry.Move), "", "", "", "",
-                    ComparisonNeutralBrush, "", "", ComparisonNeutralBrush, ""));
+                var parts = entry.Split(',');
+                if (parts.Length != 7 || !int.TryParse(parts[0], out var group) || !int.TryParse(parts[1], out var map))
+                    continue;
+                var mapInfo = _mapDatabase.Maps.FirstOrDefault(candidate => candidate.Group == group && candidate.Map == map);
+                var mapName = MapStatusName(group, map, mapInfo);
+                var level = parts[5] == parts[6] ? $"Lv.{parts[5]}" : $"Lv.{parts[5]}-{parts[6]}";
+                _dexEncounterRows.Add(new DexEncounterRow(mapName, parts[2], level, parts[3], (int.Parse(parts[4]) + 1).ToString()));
             }
+        }
+        DexEncountersEmptyText.Text = _dexEncounterRows.Count == 0 ? "当前 ROM 的野外遭遇表中没有记录。" : "";
+        DexEncountersEmptyText.IsVisible = _dexEncounterRows.Count == 0;
+    }
+
+    private IEnumerable<(int Index, int Move)> ReadIndexedSpeciesMoves(string table, int species)
+    {
+        if (!_db.Table(table).TryGetValue(species, out var raw)) yield break;
+        foreach (var entry in raw.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = entry.Split(':');
+            if (parts.Length == 2 && int.TryParse(parts[0], out var index) && int.TryParse(parts[1], out var move))
+                yield return (index, move);
+        }
+    }
+
+    private void AddDexMoveRow(ObservableCollection<DexLevelMoveRow> rows, string source, int move)
+    {
+        try
+        {
+            var data = ReadMoveData(move);
+            var officialPower = string.Empty;
+            var officialAccuracy = string.Empty;
+            var powerForeground = ComparisonNeutralBrush;
+            var accuracyForeground = ComparisonNeutralBrush;
+            if (TryReadOfficialMoveData(move, out var official))
+            {
+                officialPower = MovePowerText(official.Power);
+                officialAccuracy = MoveAccuracyText(official.Accuracy);
+                powerForeground = ModifiedValueForeground(data.Power, official.Power);
+                accuracyForeground = ModifiedValueForeground(data.Accuracy, official.Accuracy);
+            }
+            rows.Add(new DexLevelMoveRow(
+                source, MoveName(move), MoveTypeNameZh(data.Type), MoveCategoryNameZh(data.Category),
+                MovePowerText(data.Power), officialPower, powerForeground,
+                MoveAccuracyText(data.Accuracy), officialAccuracy, accuracyForeground, data.Pp.ToString()));
+        }
+        catch
+        {
+            rows.Add(new DexLevelMoveRow(source, MoveName(move), "", "", "", "",
+                ComparisonNeutralBrush, "", "", ComparisonNeutralBrush, ""));
         }
     }
 

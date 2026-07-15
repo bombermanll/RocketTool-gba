@@ -746,14 +746,17 @@ public static class Gen3SaveReader
         if (boxes.Count == 0)
             warnings.Add("命运存档标准 PC 区域当前没有非空宝可梦；仍可在已验证的安全槽位内从图鉴导入。");
 
-        var money = ReadU32(saveBlock1, DestinyMoneyOffset);
-        warnings.Add($"命运存档金钱线索：SaveBlock1+0x{DestinyMoneyOffset:X}= {money}（当前仅记录，不启用训练家页写回）。");
+        var moneyKey = ReadU32(saveBlock2, (int)profile.Memory.SaveBlock2EncryptionKeyOffset);
+        var money = ReadU32(saveBlock1, DestinyMoneyOffset) ^ moneyKey;
+        if (money > profile.Runtime.MaxTrainerMoney)
+            warnings.Add($"命运存档金钱 {money} 超过 ROM 已确认上限 {profile.Runtime.MaxTrainerMoney}，请勿写回训练家页。");
+        warnings.Add($"命运存档金钱：SaveBlock1+0x{DestinyMoneyOffset:X} XOR SaveBlock2+0x{profile.Memory.SaveBlock2EncryptionKeyOffset:X} = {money}。");
         warnings.Add("命运存档：道具/精灵球位于 section 13 扩展区，招式机盒位于 SaveBlock1+0x310；0x298 是电脑道具区域。");
 
         var trainerName = saveBlock2.AsSpan(0, profile.Memory.PlayerNameLength).ToArray();
         var trainerOtId = ReadU32(saveBlock2, profile.Memory.SaveBlock2PlayerOtIdOffset);
         var trainer = new Gen3SaveTrainerInfo(trainerName, trainerOtId, money);
-        warnings.Add($"命运存档导入身份：SaveBlock2+0x0 玩家名字，OT ID@+0x{profile.Memory.SaveBlock2PlayerOtIdOffset:X}；仅用于新建宝可梦的初训家字段。");
+        warnings.Add($"命运存档训练家：SaveBlock2+0x0 玩家名字，OT ID@+0x{profile.Memory.SaveBlock2PlayerOtIdOffset:X}；名字与加密金钱均支持副本写回校验。");
 
         var snapshot = new Gen3SaveReadResult(
             Path.GetFileName(path),
@@ -1037,6 +1040,30 @@ public static class Gen3SaveReader
         var section13Base = 8 * SectionDataSize;
         ReadDestinyPocket(
             pcStorage,
+            section13Base + DestinyFireRedSaveStrategy.BerryPocketExtensionOffset,
+            Gen3SaveDocument.DestinyExtensionOffsetMarker + DestinyFireRedSaveStrategy.BerryPocketExtensionOffset,
+            DestinyFireRedSaveStrategy.BerryPocketCapacity,
+            5,
+            "树果",
+            itemPockets,
+            maxItem,
+            maxQuantity,
+            entries,
+            warnings);
+        ReadDestinyPocket(
+            pcStorage,
+            section13Base + DestinyFireRedSaveStrategy.KeyItemPocketExtensionOffset,
+            Gen3SaveDocument.DestinyExtensionOffsetMarker + DestinyFireRedSaveStrategy.KeyItemPocketExtensionOffset,
+            DestinyFireRedSaveStrategy.KeyItemPocketCapacity,
+            2,
+            "重要物品",
+            itemPockets,
+            maxItem,
+            maxQuantity,
+            entries,
+            warnings);
+        ReadDestinyPocket(
+            pcStorage,
             section13Base + DestinyFireRedSaveStrategy.ItemPocketExtensionOffset,
             Gen3SaveDocument.DestinyExtensionOffsetMarker + DestinyFireRedSaveStrategy.ItemPocketExtensionOffset,
             DestinyFireRedSaveStrategy.ItemPocketCapacity,
@@ -1073,7 +1100,7 @@ public static class Gen3SaveReader
             warnings);
 
         if (entries.Count == 0)
-            warnings.Add("命运背包读取：三个已确认区域中没有识别到可显示道具。");
+            warnings.Add("命运背包读取：五个已确认区域中没有识别到可显示道具。");
         return entries;
     }
 

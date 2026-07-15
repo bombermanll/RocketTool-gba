@@ -117,6 +117,12 @@ internal sealed class PokemonDestinySaveScenario : IProfileSaveScenario
 
     public void ApplyVerificationChanges(Gen3SaveDocument document, PartyMonInfo? partyInfo)
     {
+        if (document.Snapshot.Trainer is { } trainer)
+        {
+            document.ReplaceTrainerName(trainer.NameBytes);
+            document.ReplaceTrainerMoney(trainer.Money == 999_999 ? trainer.Money - 1 : trainer.Money + 1);
+        }
+
         if (document.Snapshot.Bag.All(entry => entry.ItemId != 13)) document.AddBagItem(1, 13, 1);
         var replaceable = document.CurrentBag.FirstOrDefault(entry => entry.Pocket == 1 && entry.ItemId is 13 or 14);
         if (replaceable is not null)
@@ -126,7 +132,14 @@ internal sealed class PokemonDestinySaveScenario : IProfileSaveScenario
                 document.ReplaceBagEntry(replaceable.SaveOffset, replacement, replaceable.Quantity);
         }
 
-        foreach (var (pocket, item) in new[] { (1, (ushort)86), (3, (ushort)1), (4, (ushort)289) })
+        foreach (var (pocket, item) in new[]
+                 {
+                     (1, (ushort)86),
+                     (2, (ushort)352),
+                     (3, (ushort)1),
+                     (4, (ushort)289),
+                     (5, (ushort)133)
+                 })
             if (document.CurrentBag.All(entry => entry.ItemId != item)) document.AddBagItem(pocket, item, 1);
 
         if (document.Snapshot.Boxes.FirstOrDefault() is { } boxEntry)

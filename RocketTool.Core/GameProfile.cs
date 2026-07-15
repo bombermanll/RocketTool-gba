@@ -15,6 +15,7 @@ public sealed record GameProfile
     public required GameProfileRomTables RomTables { get; init; }
     public required GameProfileGraphics Graphics { get; init; }
     public required GameProfileLimits Limits { get; init; }
+    public required GameProfileDataVerification DataVerification { get; init; }
     public required GameProfileFeatures Features { get; init; }
     public required GameProfileRuntime Runtime { get; init; }
 
@@ -129,6 +130,12 @@ public sealed record GameProfileRomTables
     public required GameProfileRomTable Evolutions { get; init; }
     public required GameProfileRomTable LevelMoves { get; init; }
     public required GameProfileRomTable Experience { get; init; }
+    public GameProfileRomTable? MachineMoves { get; init; }
+    public GameProfileRomTable? TutorMoves { get; init; }
+    public GameProfileRomTable? MachineCompatibility { get; init; }
+    public GameProfileRomTable? TutorCompatibility { get; init; }
+    public GameProfileRomTable? EggMoves { get; init; }
+    public GameProfileRomTable? WildEncounters { get; init; }
 }
 
 public sealed record GameProfileRomTable
@@ -176,6 +183,12 @@ public sealed record GameProfileLimits
 
     public int MaxBagQuantityForPocket(int pocket)
         => MaxBagQuantityByPocket.TryGetValue(pocket, out var max) ? max : MaxBagQuantity;
+}
+
+public sealed record GameProfileDataVerification
+{
+    public int VisibleSpeciesCount { get; init; }
+    public int VerifiedMenuIconCount { get; init; }
 }
 
 public sealed record GameProfileFeatures
@@ -386,8 +399,12 @@ public static class GameProfileCatalog
             throw new InvalidOperationException("版本配置 ID 只能包含英文字母、数字、短横线和下划线。");
         if (string.IsNullOrWhiteSpace(profile.DisplayName))
             throw new InvalidOperationException($"版本配置 {profile.Id} 缺少 displayName。");
-        if (profile.RomIdentity is null || profile.Strategies is null || profile.Memory is null || profile.RomTables is null || profile.Graphics is null || profile.Limits is null || profile.Features is null || profile.Runtime is null)
+        if (profile.RomIdentity is null || profile.Strategies is null || profile.Memory is null || profile.RomTables is null || profile.Graphics is null || profile.Limits is null || profile.DataVerification is null || profile.Features is null || profile.Runtime is null)
             throw new InvalidOperationException($"版本配置 {profile.Id} 缺少必需的配置分组。");
+        if (profile.DataVerification.VisibleSpeciesCount <= 0 || profile.DataVerification.VisibleSpeciesCount > profile.Limits.MaxSpecies)
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的可见物种校验数量无效。");
+        if (profile.DataVerification.VerifiedMenuIconCount < 0 || profile.DataVerification.VerifiedMenuIconCount > profile.DataVerification.VisibleSpeciesCount)
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的菜单图标校验数量无效。");
         if (profile.RomIdentity.RomSize <= 0 ||
             profile.RomIdentity.Sha256.Length != 64 ||
             string.IsNullOrWhiteSpace(profile.RomIdentity.HeaderTitle) ||

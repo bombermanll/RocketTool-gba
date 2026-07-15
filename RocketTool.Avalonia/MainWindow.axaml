@@ -873,6 +873,72 @@
                                             </Border>
                                         </ScrollViewer>
                                     </TabItem>
+                                    <TabItem Header="机器/教学/蛋招式">
+                                        <ScrollViewer x:Name="DexOtherMovesScroll" Padding="0,14,20,56" HorizontalScrollBarVisibility="Disabled">
+                                            <Border Background="#FFF9EE" CornerRadius="14" Padding="14" Margin="0,0,0,96" MaxWidth="{Binding #DexOtherMovesScroll.Bounds.Width}">
+                                                <StackPanel Spacing="8">
+                                                    <Grid ColumnDefinitions="92,*,74,64,54,54,54,54,38" ColumnSpacing="8">
+                                                        <TextBlock Text="来源" Classes="label" />
+                                                        <TextBlock Grid.Column="1" Text="招式" Classes="label" />
+                                                        <TextBlock Grid.Column="2" Text="属性" Classes="label" />
+                                                        <TextBlock Grid.Column="3" Text="分类" Classes="label" />
+                                                        <TextBlock Grid.Column="4" Text="威力" Classes="label" HorizontalAlignment="Right" />
+                                                        <TextBlock Grid.Column="5" Text="原版" Classes="label" HorizontalAlignment="Right" />
+                                                        <TextBlock Grid.Column="6" Text="命中" Classes="label" HorizontalAlignment="Right" />
+                                                        <TextBlock Grid.Column="7" Text="原版" Classes="label" HorizontalAlignment="Right" />
+                                                        <TextBlock Grid.Column="8" Text="PP" Classes="label" HorizontalAlignment="Right" />
+                                                    </Grid>
+                                                    <ItemsControl x:Name="DexOtherMoveRowsView">
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate>
+                                                                <Grid ColumnDefinitions="92,*,74,64,54,54,54,54,38" ColumnSpacing="8" Margin="0,0,0,5">
+                                                                    <TextBlock Text="{Binding Level}" Foreground="#102E4A" />
+                                                                    <TextBlock Grid.Column="1" Text="{Binding Move}" Foreground="#102E4A" TextWrapping="Wrap" />
+                                                                    <TextBlock Grid.Column="2" Text="{Binding Type}" Foreground="#102E4A" />
+                                                                    <TextBlock Grid.Column="3" Text="{Binding Category}" Foreground="#102E4A" />
+                                                                    <TextBlock Grid.Column="4" Text="{Binding Power}" Foreground="{Binding PowerForeground}" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                                                    <TextBlock Grid.Column="5" Text="{Binding OfficialPower}" Foreground="#102E4A" HorizontalAlignment="Right" />
+                                                                    <TextBlock Grid.Column="6" Text="{Binding Accuracy}" Foreground="{Binding AccuracyForeground}" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                                                    <TextBlock Grid.Column="7" Text="{Binding OfficialAccuracy}" Foreground="#102E4A" HorizontalAlignment="Right" />
+                                                                    <TextBlock Grid.Column="8" Text="{Binding Pp}" Foreground="#102E4A" HorizontalAlignment="Right" />
+                                                                </Grid>
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+                                                    <TextBlock x:Name="DexOtherMovesEmptyText" Text="选择左侧列表后显示。" Foreground="#6C6255" TextWrapping="Wrap" IsVisible="True" />
+                                                </StackPanel>
+                                            </Border>
+                                        </ScrollViewer>
+                                    </TabItem>
+                                    <TabItem Header="栖息地">
+                                        <ScrollViewer x:Name="DexEncountersScroll" Padding="0,14,20,56" HorizontalScrollBarVisibility="Disabled">
+                                            <Border Background="#FFF9EE" CornerRadius="14" Padding="14" Margin="0,0,0,96" MaxWidth="{Binding #DexEncountersScroll.Bounds.Width}">
+                                                <StackPanel Spacing="8">
+                                                    <Grid ColumnDefinitions="*,80,100,72,52" ColumnSpacing="12">
+                                                        <TextBlock Text="地图" Classes="label" />
+                                                        <TextBlock Grid.Column="1" Text="方式" Classes="label" />
+                                                        <TextBlock Grid.Column="2" Text="等级" Classes="label" />
+                                                        <TextBlock Grid.Column="3" Text="遇敌率" Classes="label" HorizontalAlignment="Right" />
+                                                        <TextBlock Grid.Column="4" Text="槽位" Classes="label" HorizontalAlignment="Right" />
+                                                    </Grid>
+                                                    <ItemsControl x:Name="DexEncounterRowsView">
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate>
+                                                                <Grid ColumnDefinitions="*,80,100,72,52" ColumnSpacing="12" Margin="0,0,0,5">
+                                                                    <TextBlock Text="{Binding Map}" Foreground="#102E4A" TextWrapping="Wrap" />
+                                                                    <TextBlock Grid.Column="1" Text="{Binding Method}" Foreground="#102E4A" />
+                                                                    <TextBlock Grid.Column="2" Text="{Binding Level}" Foreground="#102E4A" />
+                                                                    <TextBlock Grid.Column="3" Text="{Binding Rate}" Foreground="#102E4A" HorizontalAlignment="Right" />
+                                                                    <TextBlock Grid.Column="4" Text="{Binding Slot}" Foreground="#102E4A" HorizontalAlignment="Right" />
+                                                                </Grid>
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+                                                    <TextBlock x:Name="DexEncountersEmptyText" Text="选择左侧列表后显示。" Foreground="#6C6255" TextWrapping="Wrap" IsVisible="True" />
+                                                </StackPanel>
+                                            </Border>
+                                        </ScrollViewer>
+                                    </TabItem>
                                 </TabControl>
                             </Grid>
                         </Grid>

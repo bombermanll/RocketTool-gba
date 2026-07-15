@@ -3,14 +3,22 @@
   "romTitle": "POKEMON FIRE",
   "gameCode": "BPRE",
   "romSha256": "687c93b8f723f21521dfddd995bbaab1eb5ff17bfd49a819804185816fc05aa9",
-  "notes": "Profile generated from this ROM's CFRU config pointers. Party, bag, pointer-based live boxes, safe save boxes, and profile-gated imports have ROM/sample evidence; trainer writes stay disabled.",
+  "notes": "Destiny-only ROM tables, text, menu icons, save layouts, and guarded writers are independently verified. Unsupported expanded map names and special front sprites remain explicitly identified instead of borrowing another Profile.",
   "rowCounts": {
     "species": 1092,
     "moves": 511,
     "items": 374,
     "decodedItemNames": 374,
     "abilities": 152,
-    "evolutionTargetNames": 293
+    "evolutionTargetNames": 293,
+    "moveDescriptions": 511,
+    "itemDescriptions": 374,
+    "moveEffects": 218,
+    "itemEffects": 77,
+    "machineCompatibility": 1199,
+    "eggMoveSpeciesRows": 1199,
+    "wildEncounterSlots": 2220,
+    "menuIcons": 1092
   },
   "dataStatus": {
     "romVerified": [
@@ -39,26 +47,28 @@
       "ability_description_bytes.tsv",
       "ability_descriptions.tsv decoded from those Destiny pointers/raw bytes",
       "maps.tsv/map_warps.tsv topology from map group table 0x3526A8 (43 groups)",
-      "experience.tsv levels 0..100 match ROM bytes at 0x253AE4"
+      "experience.tsv levels 0..100 match ROM bytes at 0x253AE4",
+      "move description pointer table 0x904000 (511 current-ROM pointers/raw texts)",
+      "item_descriptions.tsv decoded from each current-ROM item record +0x14 pointer",
+      "move_effects.tsv grouped by current-ROM move effect byte 0",
+      "item_effects.tsv grouped by current-ROM item hold-effect byte +0x12",
+      "species_national_dex.tsv from current-ROM table 0x1ADAB18",
+      "species machine compatibility from current-ROM bit-test function 0x08043C2C and 8-byte table 0x1ADBDE0",
+      "species egg moves from current-ROM marker stream 0x964700..0x96570A",
+      "wild encounters from 147 current-ROM headers at 0xCEECBC",
+      "map section names 0..108 from current-ROM pointer table 0x3F1CAC",
+      "1092 normal menu icons from current-ROM pointer table 0x1AD93A8, palette-index table 0x1ADA668, and palettes 0x3D3740"
     ],
     "displayHints": [
-      "species.tsv uses complete raw-name byte matches where available; zero-base-stat and raw unused slots are omitted",
-      "English engine form names are exposed as Chinese base names plus Chinese species_forms.tsv labels while raw bytes remain preserved",
-      "moves.tsv has 508 resolved display names from complete raw-byte matches or Destiny byte decoding; 3 names remain explicitly unresolved",
-      "abilities.tsv uses Destiny raw bytes and cross-checked ability candidates; all 152 rows have display names",
-      "items.tsv combines Destiny raw names and item-description evidence; all rows now have display names and raw bytes remain preserved",
-      "item_effects.tsv uses generic effect labels until hold-effect names are decoded",
-      "ability_descriptions.tsv is decoded from Destiny ROM pointers and raw text bytes",
-      "map_sections.tsv names are generated region labels until Destiny map section text is decoded",
-      "species_forms.tsv maps Unown, Riolu/Lucario, Mega, corrosion, Alolan, and other evolution-target forms"
+      "All visible species, move, item, and ability rows have resolved display names; raw ROM bytes remain preserved.",
+      "Descriptions and effect labels are decoded from current-ROM text; incomplete glyph coverage never changes structural data.",
+      "Expanded map ids above 108 are explicitly marked as lacking an active ROM name pointer.",
+      "Missing special 64x64 fronts use the same species' verified current-ROM 32x32 menu icon in the UI, never another Profile's image."
     ],
     "disabledOrPlaceholder": [
-      "3 custom move names remain unresolved",
-      "0 custom item names remain unresolved",
-      "0 ability names remain unresolved",
-      "0 ability descriptions remain unresolved",
-      "85 map-section display names remain generated labels",
-      "76 nonzero item-effect names remain generic labels"
+      "66 used expanded map ids are above the ROM name-table limit 108 and remain explicitly unnamed.",
+      "54 special-form 64x64 front sprites have no verified sprite/palette pair; the UI uses their current-ROM menu icons.",
+      "No independent centralized tutor-move/compatibility table was located; tutor rows remain absent rather than copied from another ROM."
     ]
   },
   "tables": {
@@ -79,6 +89,14 @@
     "normalPalettes": "0x1A13E78",
     "iconSpritePointerTable": "0x1AD93A8",
     "eggIconData": "0xE7BB88",
-    "eggIconPalette": "0x3D3760"
+    "eggIconPalette": "0x3D3760",
+    "moveDescriptions": "0x904000",
+    "nationalDex": "0x1ADAB18",
+    "machineCompatibility": "0x1ADBDE0",
+    "eggMoves": "0x964700..0x96570A",
+    "wildEncounters": "0xCEECBC (147 headers)",
+    "mapSectionNames": "0x3F1CAC (ids 0..108)",
+    "iconPaletteIndices": "0x1ADA668",
+    "iconPalettes": "0x3D3740"
   }
 }
