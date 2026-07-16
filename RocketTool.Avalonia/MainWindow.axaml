@@ -475,9 +475,10 @@
                                                                                     Height="44"
                                                                                     Padding="0"
                                                                                     Margin="2"
-                                                                                    Tag="{Binding Row}"
-                                                                                    IsEnabled="{Binding HasPokemon}"
+                                                                                    Tag="{Binding}"
+                                                                                    IsEnabled="{Binding CanInteract}"
                                                                                     Click="OnBoxGridSlotClicked"
+                                                                                    ContextRequested="OnBoxGridSlotContextRequested"
                                                                                     ToolTip.Tip="{Binding Title}">
                                                                                 <Grid>
                                                                                     <Image Source="{Binding Sprite}"
@@ -536,7 +537,7 @@
 
                                 <ScrollViewer Grid.Row="1" Padding="20,0,36,56" HorizontalScrollBarVisibility="Disabled">
                                 <StackPanel Spacing="14" Margin="0,0,0,96">
-                                    <TextBlock x:Name="BoxModeHintText" Text="先只定位并编辑非空箱子宝可梦。写入会重算校验并重新加密，建议先保存 mGBA 即时存档。" Foreground="#6C6255" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="BoxModeHintText" Text="可直接拖动宝可梦调整槽位，也可右键选择删除或移动到指定箱子。" Foreground="#6C6255" TextWrapping="Wrap" />
                                     <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
                                         <StackPanel Spacing="10">
                                             <TextBlock Text="基础信息" FontWeight="SemiBold" Foreground="#102E4A" />
@@ -733,7 +734,14 @@
                                     </StackPanel>
                                     <WrapPanel Grid.Column="2" VerticalAlignment="Top">
                                         <Button x:Name="DexImportPartyButton" Content="导入队伍" Margin="0,0,6,4" Click="OnDexImportPartyClicked" Classes="primary" />
-                                        <Button x:Name="DexImportBoxButton" Content="导入箱子" Margin="0,0,0,4" Click="OnDexImportBoxClicked" />
+                                        <StackPanel x:Name="DexImportBoxPanel" Orientation="Horizontal" Spacing="6" Margin="0,0,0,4">
+                                            <Button x:Name="DexImportBoxButton" Content="导入箱子" Click="OnDexImportBoxClicked" />
+                                            <TextBlock Text="箱号" VerticalAlignment="Center" Foreground="#6C6255" />
+                                            <ComboBox x:Name="DexImportBoxNumberBox"
+                                                      Width="72"
+                                                      VerticalAlignment="Center"
+                                                      SelectionChanged="OnDexImportBoxNumberChanged" />
+                                        </StackPanel>
                                     </WrapPanel>
                                 </Grid>
 
@@ -1119,5 +1127,34 @@
                            HorizontalAlignment="Center" />
             </StackPanel>
         </Border>
+        <Canvas x:Name="BoxDragPreviewLayer"
+                IsHitTestVisible="False"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch"
+                ZIndex="1000">
+            <Border x:Name="BoxDragPreviewBorder"
+                    IsVisible="False"
+                    Width="54"
+                    Height="54"
+                    Padding="4"
+                    CornerRadius="12"
+                    Background="#F2FFF9EE"
+                    BorderBrush="#D6B36F"
+                    BorderThickness="2"
+                    BoxShadow="0 8 18 #55000000">
+                <Grid>
+                    <TextBlock Text="宝"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               Foreground="#6C6255"
+                               FontWeight="Bold" />
+                    <Image x:Name="BoxDragPreviewImage"
+                           Width="44"
+                           Height="44"
+                           Stretch="Uniform"
+                           RenderOptions.BitmapInterpolationMode="None" />
+                </Grid>
+            </Border>
+        </Canvas>
     </Panel>
 </Window>

@@ -9,6 +9,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Controls.Primitives;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -43,7 +44,10 @@ public sealed record SaveBagEditableRow(
 }
 public sealed record BagCalibrationRequest(int Pocket, ushort ItemId, ushort Quantity);
 public sealed record BoxSlotRow(int Slot, uint Address, BoxPokemon Mon, BoxMonInfo Info, string Title, string Detail, Bitmap? Sprite);
-public sealed record BoxGridCell(int SlotInBox, BoxSlotRow? Row, Bitmap? Sprite, string Title, bool HasPokemon);
+public sealed record BoxGridCell(int GlobalSlot, int SlotInBox, BoxSlotRow? Row, Bitmap? Sprite, string Title, bool HasPokemon, bool IsWritable)
+{
+    public bool CanInteract => HasPokemon || IsWritable;
+}
 public sealed record BoxGridGroup(int BoxNumber, string Title, IReadOnlyList<BoxGridCell> Cells);
 public sealed record DexSpeciesRow(int Id, string Name, string DisplayName, string Title, Bitmap? Sprite)
 {
@@ -183,6 +187,7 @@ public partial class MainWindow : Window
     private ChoiceRow[] _bagPocketChoices;
     private readonly ChoiceRow[] _dexSortChoices;
     private readonly ChoiceRow[] _dexSortDirectionChoices;
+    private ChoiceRow[] _dexImportBoxChoices = [];
     private readonly ChoiceRow[] _moveDexTypeFilterChoices;
     private readonly ChoiceRow[] _moveDexCategoryFilterChoices;
     private readonly MapDatabase _mapDatabase;
@@ -204,6 +209,14 @@ public partial class MainWindow : Window
     private bool _suppressEditorEvents;
     private bool _suppressExperienceSync;
     private bool _suppressCheatEvents;
+    private bool _suppressDexImportBoxSelection;
+    private bool _dexImportBoxManuallySelected;
+    private Point? _boxDragStartPoint;
+    private int? _boxDragSourceSlot;
+    private Button? _boxDragSourceButton;
+    private Bitmap? _boxDragSourceSprite;
+    private bool _boxDragInProgress;
+    private bool _boxDropInProgress;
     private readonly Dictionary<SearchableChoiceBox, IReadOnlyList<ChoiceRow>> _searchableChoices = [];
     private readonly Dictionary<int, IReadOnlyList<SpeciesEvolution>> _evolutionCache = [];
     private readonly Dictionary<int, IReadOnlyList<SpeciesLevelMove>> _levelMoveCache = [];
@@ -305,6 +318,21 @@ public partial class MainWindow : Window
         SaveBagList.ItemsSource = _saveBagRows;
         BoxList.ItemsSource = _boxRows;
         BoxGridGroupsView.ItemsSource = _boxGridGroups;
+        BoxGridGroupsView.AddHandler(
+            InputElement.PointerPressedEvent,
+            OnBoxGridSlotPointerPressed,
+            RoutingStrategies.Tunnel,
+            handledEventsToo: true);
+        BoxGridGroupsView.AddHandler(
+            InputElement.PointerMovedEvent,
+            OnBoxGridSlotPointerMoved,
+            RoutingStrategies.Tunnel,
+            handledEventsToo: true);
+        BoxGridGroupsView.AddHandler(
+            InputElement.PointerReleasedEvent,
+            OnBoxGridSlotPointerReleased,
+            RoutingStrategies.Tunnel,
+            handledEventsToo: true);
         DexSpeciesList.ItemsSource = _dexRows;
         MoveDexList.ItemsSource = _moveDexRows;
         DexInfoRowsView.ItemsSource = _dexInfoRows;
@@ -477,11 +505,15 @@ public partial class MainWindow : Window
         DexImportPartyButton.IsVisible = live
             ? _profile.Features.ImportToParty && partyWrite
             : _profile.Features.ImportToSaveParty && partyWrite && _loadedSave?.CanWrite == true;
-        DexImportBoxButton.IsVisible = live
+        var dexImportBoxVisible = live
             ? _profile.Features.ImportToBoxes && boxWrite
             : _profile.Features.ImportToSaveBoxes && boxWrite && _loadedSave?.CanWrite == true;
+        DexImportBoxPanel.IsVisible = dexImportBoxVisible;
+        DexImportBoxButton.IsVisible = dexImportBoxVisible;
         DexImportPartyButton.IsEnabled = DexImportPartyButton.IsVisible;
-        DexImportBoxButton.IsEnabled = DexImportBoxButton.IsVisible;
+        DexImportBoxButton.IsEnabled = dexImportBoxVisible;
+        DexImportBoxNumberBox.IsEnabled = dexImportBoxVisible;
+        ConfigureDexImportBoxChoices(live);
         _bagPocketChoices = BuildBagPocketChoices(live);
         BagPocketTabs.ItemsSource = _bagPocketChoices;
         BagPocketTabs.SelectedIndex = 0;
@@ -492,11 +524,14 @@ public partial class MainWindow : Window
                 : _loadedSave.CanWrite
                 ? "背包修改只保存在待保存副本中；重要物品可能影响流程，请谨慎修改。"
                 : $"当前存档背包只读：{_loadedSave.WriteBlockReason}";
-        BoxModeHintText.Text = live
-            ? "先只定位并编辑非空箱子宝可梦。写入会重算校验并重新加密，建议先保存 mGBA 即时存档。"
-            : _loadedSave is null
-                ? "请先点击顶部“选择存档”读取 .sav 或 .srm 文件。"
-                : "修改字段后先点击“应用到待保存存档”，将当前箱子槽更新到内存副本；完成后使用顶部“保存修改并备份”，程序会保留原始 .bak。";
+        var boxDragEnabled = boxWrite && (live || _loadedSave?.CanWrite == true);
+        BoxModeHintText.Text = !live && _loadedSave is null
+            ? "请先点击顶部“选择存档”读取 .sav 或 .srm 文件。"
+            : !boxDragEnabled
+                ? "当前 Profile 或当前存档只开放箱子读取，不能拖动或写入槽位。"
+                : live
+                ? "可拖动宝可梦调整槽位，也可右键删除或移动到指定箱子；拖到已有宝可梦会立即交换。实时写入前建议先保存 mGBA 即时存档。"
+                : "可拖动宝可梦调整槽位，也可右键删除或移动到指定箱子；拖到已有宝可梦会立即交换。所有变化先进入待保存副本。";
 
         if (!live && MainTabs.SelectedItem == ExperimentTab)
             MainTabs.SelectedItem = PartyTab;
@@ -730,6 +765,7 @@ public partial class MainWindow : Window
 
     private void ClearDataSourceRows()
     {
+        ResetBoxDragState();
         _partyRows.Clear();
         _bagRows.Clear();
         _allBagRows.Clear();
@@ -2405,8 +2441,371 @@ public partial class MainWindow : Window
 
     private void OnBoxGridSlotClicked(object? sender, RoutedEventArgs e)
     {
-        if (sender is Button { Tag: BoxSlotRow row })
+        if (sender is Button { Tag: BoxGridCell { Row: { } row } })
             BoxList.SelectedItem = row;
+    }
+
+    private void OnBoxGridSlotContextRequested(object? sender, ContextRequestedEventArgs e)
+    {
+        if (sender is not Button { Tag: BoxGridCell { Row: { } row } } button) return;
+        BoxList.SelectedItem = row;
+        var live = _dataSourceMode == DataSourceMode.Live;
+        var canWrite = CanWriteBoxesInCurrentMode() && row.Slot <= WritableBoxSlotCount(live);
+
+        var deleteItem = new MenuItem
+        {
+            Header = "删除",
+            IsEnabled = canWrite
+        };
+        deleteItem.Click += async (_, _) => await DeleteBoxRowAsync(row);
+
+        var destinationItems = Enumerable.Range(1, WritableBoxCount(live))
+            .Select(boxNumber =>
+            {
+                var item = new MenuItem
+                {
+                    Header = boxNumber == (row.Slot - 1) / _profile.Memory.PcBoxSlots + 1
+                        ? $"箱{boxNumber:00}（当前）"
+                        : $"箱{boxNumber:00}",
+                    IsEnabled = canWrite
+                };
+                item.Click += async (_, _) => await MoveBoxSlotToBoxAsync(row.Slot, boxNumber);
+                return item;
+            })
+            .ToArray();
+        var moveItem = new MenuItem
+        {
+            Header = "移动到箱子",
+            IsEnabled = canWrite,
+            ItemsSource = destinationItems
+        };
+        var menu = new ContextMenu
+        {
+            ItemsSource = new object[] { deleteItem, moveItem }
+        };
+        button.ContextMenu = menu;
+        e.Handled = true;
+        menu.Open(button);
+    }
+
+    private async Task MoveBoxSlotToBoxAsync(int sourceSlot, int targetBox)
+    {
+        var live = _dataSourceMode == DataSourceMode.Live;
+        if (!CanWriteBoxesInCurrentMode() || targetBox < 1 || targetBox > WritableBoxCount(live))
+        {
+            ShowToast("目标箱子不在当前 Profile 的安全写入范围。", success: false);
+            return;
+        }
+
+        var targetSlot = 0;
+        var checkedSuccessfully = false;
+        await RunUiTask("检查目标箱子", () =>
+        {
+            IReadOnlyList<BoxImportSlot> slots;
+            if (live)
+            {
+                using var bridge = ConnectBridge();
+                slots = ReadLiveBoxImportSlots(bridge);
+            }
+            else
+            {
+                slots = BuildSaveBoxImportSlots();
+            }
+            targetSlot = slots
+                .Where(slot => slot.IsEmpty && BoxNumberForSlot(slot) == targetBox)
+                .Select(slot => slot.GlobalSlot)
+                .FirstOrDefault();
+            checkedSuccessfully = true;
+        });
+        if (!checkedSuccessfully) return;
+        if (targetSlot == 0)
+        {
+            ShowToast($"箱{targetBox:00}已满，无法移动。", success: false);
+            return;
+        }
+        await MoveOrSwapBoxSlotAsync(sourceSlot, targetSlot);
+    }
+
+    private void OnBoxGridSlotPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (_boxDragInProgress || _boxDropInProgress ||
+            FindBoxGridButton(e.Source) is not { Tag: BoxGridCell { Row: not null, IsWritable: true } cell } button)
+            return;
+        var point = e.GetCurrentPoint(BoxGridGroupsView);
+        if (!point.Properties.IsLeftButtonPressed) return;
+        _boxDragStartPoint = point.Position;
+        _boxDragSourceSlot = cell.GlobalSlot;
+        _boxDragSourceButton = button;
+        _boxDragSourceSprite = cell.Row?.Sprite;
+    }
+
+    private void OnBoxGridSlotPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_boxDropInProgress || _boxDragStartPoint is not { } start || _boxDragSourceSlot is null)
+            return;
+
+        var point = e.GetCurrentPoint(BoxGridGroupsView);
+        if (!point.Properties.IsLeftButtonPressed)
+        {
+            ResetBoxDragState();
+            return;
+        }
+        if (_boxDragInProgress)
+        {
+            UpdateBoxDragPreview(e.GetCurrentPoint(BoxDragPreviewLayer).Position);
+            e.Handled = true;
+            return;
+        }
+        var delta = point.Position - start;
+        if (Math.Abs(delta.X) < 5 && Math.Abs(delta.Y) < 5) return;
+
+        _boxDragInProgress = true;
+        if (_boxDragSourceButton is not null)
+            _boxDragSourceButton.Opacity = 0.55;
+        BoxDragPreviewImage.Source = _boxDragSourceSprite;
+        BoxDragPreviewBorder.IsVisible = true;
+        UpdateBoxDragPreview(e.GetCurrentPoint(BoxDragPreviewLayer).Position);
+        e.Handled = true;
+    }
+
+    private async void OnBoxGridSlotPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (!_boxDragInProgress || _boxDragSourceSlot is not { } sourceSlot)
+        {
+            ResetBoxDragState();
+            return;
+        }
+
+        var point = e.GetCurrentPoint(BoxGridGroupsView);
+        var targetButton = FindBoxGridButton(BoxGridGroupsView.InputHitTest(point.Position));
+        var targetSlot = targetButton?.Tag is BoxGridCell { IsWritable: true } target
+            ? target.GlobalSlot
+            : 0;
+        ResetBoxDragState();
+        e.Handled = true;
+        if (targetSlot != 0 && targetSlot != sourceSlot)
+            await MoveOrSwapBoxSlotAsync(sourceSlot, targetSlot);
+    }
+
+    private static Button? FindBoxGridButton(object? eventSource)
+    {
+        if (eventSource is Button button) return button;
+        return eventSource is Visual visual
+            ? visual.GetVisualAncestors().OfType<Button>().FirstOrDefault(candidate => candidate.Tag is BoxGridCell)
+            : null;
+    }
+
+    private void UpdateBoxDragPreview(Point pointerPosition)
+    {
+        Canvas.SetLeft(BoxDragPreviewBorder, pointerPosition.X + 12);
+        Canvas.SetTop(BoxDragPreviewBorder, pointerPosition.Y + 12);
+    }
+
+    private void ResetBoxDragState()
+    {
+        if (_boxDragSourceButton is not null)
+            _boxDragSourceButton.Opacity = 1;
+        _boxDragStartPoint = null;
+        _boxDragSourceSlot = null;
+        _boxDragSourceButton = null;
+        _boxDragSourceSprite = null;
+        BoxDragPreviewImage.Source = null;
+        BoxDragPreviewBorder.IsVisible = false;
+        _boxDragInProgress = false;
+    }
+
+    private async Task MoveOrSwapBoxSlotAsync(int sourceSlot, int targetSlot)
+    {
+        if (_boxDropInProgress) return;
+        var live = _dataSourceMode == DataSourceMode.Live;
+        if (!CanWriteBoxesInCurrentMode())
+        {
+            ShowToast("当前 Profile 或当前存档未开放箱子写入，不能拖动位置。", success: false);
+            return;
+        }
+        var writableSlots = WritableBoxSlotCount(live);
+        if (sourceSlot < 1 || sourceSlot > writableSlots || targetSlot < 1 || targetSlot > writableSlots)
+        {
+            ShowToast("源槽或目标槽不在当前 Profile 的安全写入范围。", success: false);
+            return;
+        }
+        if (_boxRows.FirstOrDefault(row => row.Slot == sourceSlot) is not { } sourceRow)
+        {
+            ShowToast("拖动源槽已经变空，请重新读取箱子。", success: false);
+            return;
+        }
+
+        _boxDropInProgress = true;
+        try
+        {
+            await RunUiTask("调整箱子位置", () =>
+            {
+                var targetRow = _boxRows.FirstOrDefault(row => row.Slot == targetSlot);
+                if (live)
+                    MoveOrSwapLiveBoxSlot(sourceRow, targetRow, targetSlot);
+                else
+                    MoveOrSwapSaveBoxSlot(sourceRow, targetRow, targetSlot);
+            });
+        }
+        finally
+        {
+            _boxDropInProgress = false;
+        }
+    }
+
+    private void MoveOrSwapSaveBoxSlot(BoxSlotRow sourceRow, BoxSlotRow? targetRow, int targetSlot)
+    {
+        var document = _loadedSave ?? throw new InvalidOperationException("当前没有已读取的存档。");
+        var sourceMon = CloneBoxPokemon(sourceRow.Mon);
+        var targetMon = targetRow is null ? null : CloneBoxPokemon(targetRow.Mon);
+        try
+        {
+            document.ReplaceBoxPokemon(targetSlot, sourceMon);
+            if (targetMon is null)
+                document.ClearBoxPokemon(sourceRow.Slot);
+            else
+                document.ReplaceBoxPokemon(sourceRow.Slot, targetMon);
+        }
+        catch (Exception writeError)
+        {
+            try
+            {
+                document.ReplaceBoxPokemon(sourceRow.Slot, sourceMon);
+                if (targetMon is null)
+                    document.ClearBoxPokemon(targetSlot);
+                else
+                    document.ReplaceBoxPokemon(targetSlot, targetMon);
+            }
+            catch (Exception rollbackError)
+            {
+                throw new InvalidOperationException(
+                    "存档箱子位置调整失败，且待保存副本回滚失败。请放弃当前副本并重新读取原存档。",
+                    new AggregateException(writeError, rollbackError));
+            }
+            throw new InvalidOperationException("存档箱子位置调整失败，已恢复原槽位。", writeError);
+        }
+
+        var targetAddress = targetRow?.Address ?? SaveBoxDisplayAddress(targetSlot);
+        ReplaceBoxRowsAfterMove(sourceRow, targetRow, targetSlot, targetAddress, sourceMon, targetMon, "存档待保存副本");
+        UpdateSaveButtons();
+        var action = targetMon is null ? "移动" : "交换";
+        SetWriteNotice($"已在待保存存档中{action}：{BoxSlotLabel(sourceRow.Slot)} → {BoxSlotLabel(targetSlot)}。完成后请使用“保存修改并备份”。");
+    }
+
+    private void MoveOrSwapLiveBoxSlot(BoxSlotRow sourceRow, BoxSlotRow? targetRow, int targetSlot)
+    {
+        using var bridge = ConnectBridge();
+        EnsureBoxStorageBaseFresh(bridge);
+        var sourceAddress = ResolveLiveBoxSlotAddress(bridge, sourceRow.Slot);
+        var targetAddress = ResolveLiveBoxSlotAddress(bridge, targetSlot);
+        if (sourceRow.Address != sourceAddress || targetRow is not null && targetRow.Address != targetAddress)
+        {
+            LoadBoxRows(bridge);
+            throw new InvalidOperationException("箱子槽地址已经变化，已刷新箱子列表，请重新拖动。");
+        }
+
+        var sourceRaw = bridge.Read(sourceAddress, ActiveBoxRecordSize);
+        var targetRaw = bridge.Read(targetAddress, ActiveBoxRecordSize);
+        if (!sourceRaw.AsSpan().SequenceEqual(sourceRow.Mon.Raw))
+        {
+            LoadBoxRows(bridge);
+            throw new InvalidOperationException("拖动源槽已经变化，已刷新箱子列表，请重新拖动。");
+        }
+        if (targetRow is null)
+        {
+            if (!IsAllZero(targetRaw))
+            {
+                LoadBoxRows(bridge);
+                throw new InvalidOperationException("目标空槽已经出现宝可梦，已刷新箱子列表，请重新拖动。");
+            }
+        }
+        else if (!targetRaw.AsSpan().SequenceEqual(targetRow.Mon.Raw))
+        {
+            LoadBoxRows(bridge);
+            throw new InvalidOperationException("拖动目标槽已经变化，已刷新箱子列表，请重新拖动。");
+        }
+
+        try
+        {
+            WriteLiveBoxRange(bridge, targetAddress, sourceRaw);
+            WriteLiveBoxRange(bridge, sourceAddress, targetRaw);
+            if (!bridge.Read(targetAddress, ActiveBoxRecordSize).AsSpan().SequenceEqual(sourceRaw) ||
+                !bridge.Read(sourceAddress, ActiveBoxRecordSize).AsSpan().SequenceEqual(targetRaw))
+                throw new InvalidOperationException("两个箱子槽的最终读回结果不一致。");
+        }
+        catch (Exception writeError)
+        {
+            var rollbackErrors = new List<Exception>();
+            try { WriteLiveBoxRange(bridge, sourceAddress, sourceRaw); }
+            catch (Exception ex) { rollbackErrors.Add(ex); }
+            try { WriteLiveBoxRange(bridge, targetAddress, targetRaw); }
+            catch (Exception ex) { rollbackErrors.Add(ex); }
+            if (rollbackErrors.Count > 0)
+                throw new InvalidOperationException(
+                    "实时箱子位置调整失败，且至少一个槽位回滚失败。请立即载入操作前的 mGBA 即时存档。",
+                    new AggregateException([writeError, .. rollbackErrors]));
+            throw new InvalidOperationException("实时箱子位置调整失败，两个槽位已恢复原数据。", writeError);
+        }
+
+        var action = targetRow is null ? "移动" : "交换";
+        LoadBoxRows(bridge);
+        BoxList.SelectedItem = _boxRows.FirstOrDefault(row => row.Slot == targetSlot) ?? BoxList.SelectedItem;
+        SetWriteNotice($"箱子精灵{action}成功：{BoxSlotLabel(sourceRow.Slot)} → {BoxSlotLabel(targetSlot)}。请回游戏确认后手动保存。");
+    }
+
+    private void ReplaceBoxRowsAfterMove(
+        BoxSlotRow sourceRow,
+        BoxSlotRow? targetRow,
+        int targetSlot,
+        uint targetAddress,
+        BoxPokemon sourceMon,
+        BoxPokemon? targetMon,
+        string detail)
+    {
+        foreach (var row in _boxRows.Where(row => row.Slot == sourceRow.Slot || row.Slot == targetSlot).ToArray())
+            _boxRows.Remove(row);
+        var movedSource = CreateBoxSlotRow(targetSlot, targetAddress, sourceMon, detail);
+        _boxRows.Add(movedSource);
+        if (targetMon is not null)
+            _boxRows.Add(CreateBoxSlotRow(sourceRow.Slot, sourceRow.Address, targetMon, detail));
+        RefreshBoxGridGroups();
+        BoxList.SelectedItem = movedSource;
+    }
+
+    private BoxSlotRow CreateBoxSlotRow(int globalSlot, uint address, BoxPokemon mon, string detail)
+    {
+        var copy = CloneBoxPokemon(mon);
+        var info = copy.GetInfo();
+        var boxNumber = (globalSlot - 1) / _profile.Memory.PcBoxSlots + 1;
+        var slotInBox = (globalSlot - 1) % _profile.Memory.PcBoxSlots + 1;
+        var title = BoxDisplayTitle(boxNumber, slotInBox, copy, info);
+        if (HasSummaryAllStatsIncreaseNatureCode(info.GameNatureCode)) title += " / 性格代码异常";
+        return new BoxSlotRow(globalSlot, address, copy, info, title, detail, BoxDisplaySprite(info));
+    }
+
+    private static BoxPokemon CloneBoxPokemon(BoxPokemon mon)
+        => new(mon.Raw, mon.Layout);
+
+    private uint SaveBoxDisplayAddress(int globalSlot)
+        => (uint)(_profile.Memory.PcBoxDataOffset + (globalSlot - 1) * ActiveBoxRecordSize);
+
+    private string BoxSlotLabel(int globalSlot)
+    {
+        var boxNumber = (globalSlot - 1) / _profile.Memory.PcBoxSlots + 1;
+        var slotInBox = (globalSlot - 1) % _profile.Memory.PcBoxSlots + 1;
+        return $"箱{boxNumber:00}-{slotInBox:00}";
+    }
+
+    private uint ResolveLiveBoxSlotAddress(MgbaBridgeClient bridge, int globalSlot)
+    {
+        if (globalSlot < 1 || globalSlot > WritableBoxSlotCount(live: true))
+            throw new ArgumentOutOfRangeException(nameof(globalSlot), "箱子槽不在当前 Profile 的实时可写范围内。");
+        if (_profile.Memory.PcBoxRegions.Count > 0)
+            return ProfileBoxAddress(globalSlot);
+        var recordsBase = _profile.Memory.PcBoxStoragePointerAddress != 0
+            ? ResolvePointerBoxRecordsBase(bridge)
+            : _boxBase ?? throw new InvalidOperationException("尚未定位当前箱子存储。");
+        return recordsBase + checked((uint)((globalSlot - 1) * ActiveBoxRecordSize));
     }
 
     private async void OnBoxApplyClicked(object? sender, RoutedEventArgs e)
@@ -2516,7 +2915,17 @@ public partial class MainWindow : Window
             ShowToast("请先选择一个箱子槽。", success: false);
             return;
         }
+        await DeleteBoxRowAsync(row);
+    }
 
+    private async Task DeleteBoxRowAsync(BoxSlotRow row)
+    {
+        var liveMode = _dataSourceMode == DataSourceMode.Live;
+        if (!CanWriteBoxesInCurrentMode() || row.Slot > WritableBoxSlotCount(liveMode))
+        {
+            ShowToast("当前 Profile 或当前存档未开放这个箱子槽的删除权限。", success: false);
+            return;
+        }
         if (!await ConfirmBoxDeleteAsync(row)) return;
 
         if (_dataSourceMode == DataSourceMode.SaveFile)
@@ -2620,27 +3029,28 @@ public partial class MainWindow : Window
             return;
         }
 
-        await RunUiTask("导入箱子", () =>
+        await RunUiTask("导入箱子", async () =>
         {
             if (saveMode)
             {
                 var document = _loadedSave ?? throw new InvalidOperationException("当前没有已读取的存档。");
-                var occupied = _boxRows.Select(candidate => candidate.Slot).ToHashSet();
-                var saveTargetSlot = Enumerable.Range(1, WritableBoxSlotCount(live: false))
-                    .FirstOrDefault(slot => !occupied.Contains(slot));
-                if (saveTargetSlot == 0)
-                    throw new InvalidOperationException("已验证的存档箱子槽位已满，无法导入。");
+                var saveTarget = ResolveDexImportBoxTarget(BuildSaveBoxImportSlots());
+                if (saveTarget.RequiresFallback)
+                {
+                    if (!await ConfirmDexImportFallbackBoxAsync(saveTarget.RequestedBox, saveTarget.TargetBox)) return;
+                    SetDexImportBoxNumber(saveTarget.TargetBox, manuallySelected: true);
+                }
 
                 var saveTrainer = ResolveSaveImportTrainerIdentity(document);
                 var saveMon = BuildDexBoxPokemon(row.Id, saveTrainer);
-                document.ReplaceBoxPokemon(saveTargetSlot, saveMon);
+                document.ReplaceBoxPokemon(saveTarget.Slot.GlobalSlot, saveMon);
                 var saveInfo = saveMon.GetInfo();
-                var saveBoxNumber = (saveTargetSlot - 1) / _profile.Memory.PcBoxSlots + 1;
-                var saveSlotInBox = (saveTargetSlot - 1) % _profile.Memory.PcBoxSlots + 1;
+                var saveBoxNumber = saveTarget.TargetBox;
+                var saveSlotInBox = (saveTarget.Slot.GlobalSlot - 1) % _profile.Memory.PcBoxSlots + 1;
                 var title = BoxDisplayTitle(saveBoxNumber, saveSlotInBox, saveMon, saveInfo);
                 var updated = new BoxSlotRow(
-                    saveTargetSlot,
-                    (uint)(_profile.Memory.PcBoxDataOffset + (saveTargetSlot - 1) * ActiveBoxRecordSize),
+                    saveTarget.Slot.GlobalSlot,
+                    (uint)(_profile.Memory.PcBoxDataOffset + (saveTarget.Slot.GlobalSlot - 1) * ActiveBoxRecordSize),
                     saveMon,
                     saveInfo,
                     title,
@@ -2655,72 +3065,112 @@ public partial class MainWindow : Window
             }
 
             using var bridge = ConnectBridge();
-            var ewram = PartyScanner.ReadEwram(bridge, _profile);
-            var targetSlot = 0;
-            uint targetAddress = 0;
-            if (_profile.Memory.PcBoxStoragePointerAddress != 0)
+            var liveTarget = ResolveDexImportBoxTarget(ReadLiveBoxImportSlots(bridge));
+            if (liveTarget.RequiresFallback)
             {
-                var recordsBase = ResolvePointerBoxRecordsBase(bridge);
-                foreach (var slot in Enumerable.Range(1, WritableBoxSlotCount(live: true)))
-                {
-                    var address = recordsBase + checked((uint)((slot - 1) * ActiveBoxRecordSize));
-                    var offset = checked((int)(address - _profile.Memory.EwramBase));
-                    if (!IsAllZero(ewram.AsSpan(offset, ActiveBoxRecordSize))) continue;
-                    targetSlot = slot;
-                    targetAddress = address;
-                    break;
-                }
+                if (!await ConfirmDexImportFallbackBoxAsync(liveTarget.RequestedBox, liveTarget.TargetBox)) return;
+                SetDexImportBoxNumber(liveTarget.TargetBox, manuallySelected: true);
             }
-            else if (_profile.Memory.PcBoxRegions.Count > 0)
-            {
-                foreach (var slot in Enumerable.Range(1, WritableBoxSlotCount(live: true)))
-                {
-                    var address = ProfileBoxAddress(slot);
-                    var offset = checked((int)(address - _profile.Memory.EwramBase));
-                    if (offset < 0 || offset + ActiveBoxRecordSize > ewram.Length) continue;
-                    if (!IsAllZero(ewram.AsSpan(offset, ActiveBoxRecordSize))) continue;
-                    targetSlot = slot;
-                    targetAddress = address;
-                    break;
-                }
-            }
-            else
-            {
-                var storage = BoxScanner.LocatePcStorage(
-                                  ewram,
-                                  _profile.Memory.EwramBase,
-                                  maxSpecies: _profile.Limits.MaxSpecies,
-                                  maxBoxes: _profile.Memory.PcBoxCount,
-                                  slotsPerBox: _profile.Memory.PcBoxSlots,
-                                  minScore: 12,
-                                  layout: ActiveBoxLayout)
-                              ?? throw new InvalidOperationException("没有定位到完整箱子存储。请先读取箱子，确认箱子列表正常后再导入。");
-                targetSlot = Enumerable.Range(1, _profile.Memory.PcBoxCount * _profile.Memory.PcBoxSlots)
-                    .FirstOrDefault(slot => !storage.CandidatesBySlot.ContainsKey(slot));
-                if (targetSlot != 0)
-                    targetAddress = storage.StartAddress + checked((uint)((targetSlot - 1) * ActiveBoxRecordSize));
-            }
-            if (targetSlot == 0)
-                throw new InvalidOperationException("箱子已满，无法从图鉴导入。");
-
-            var targetOffset = checked((int)(targetAddress - _profile.Memory.EwramBase));
-            if (targetOffset < 0 || targetOffset + ActiveBoxRecordSize > ewram.Length)
-                throw new InvalidOperationException("箱子追加地址超出 EWRAM 范围，无法安全写入。");
-            if (!IsAllZero(ewram.AsSpan(targetOffset, ActiveBoxRecordSize)))
-                throw new InvalidOperationException("箱子后方目标槽不是空槽，箱子可能已满或定位不可靠。请重新读取箱子后再试。");
 
             var trainer = ResolveImportTrainerIdentity(bridge);
             var mon = BuildDexBoxPokemon(row.Id, trainer);
-            if (!IsAllZero(bridge.Read(targetAddress, ActiveBoxRecordSize)))
+            if (!IsAllZero(bridge.Read(liveTarget.Slot.Address, ActiveBoxRecordSize)))
                 throw new InvalidOperationException("目标箱子槽在导入前已经发生变化，已拒绝覆盖。请重新读取箱子后再试。");
-            WriteLiveBoxRange(bridge, targetAddress, mon.Raw);
+            WriteLiveBoxRange(bridge, liveTarget.Slot.Address, mon.Raw);
             LoadBoxRows(bridge);
-            BoxList.SelectedItem = _boxRows.FirstOrDefault(r => r.Address == targetAddress) ?? BoxList.SelectedItem;
-            var boxNumber = (targetSlot - 1) / _profile.Memory.PcBoxSlots + 1;
-            var slotInBox = (targetSlot - 1) % _profile.Memory.PcBoxSlots + 1;
-            SetWriteNotice($"已从图鉴导入到箱{boxNumber:00}-{slotInBox:00}：{row.DisplayName}。请回游戏确认后手动保存。");
+            BoxList.SelectedItem = _boxRows.FirstOrDefault(r => r.Address == liveTarget.Slot.Address) ?? BoxList.SelectedItem;
+            var slotInBox = (liveTarget.Slot.GlobalSlot - 1) % _profile.Memory.PcBoxSlots + 1;
+            SetWriteNotice($"已从图鉴导入到箱{liveTarget.TargetBox:00}-{slotInBox:00}：{row.DisplayName}。请回游戏确认后手动保存。");
         });
     }
+
+    private sealed record BoxImportSlot(int GlobalSlot, uint Address, bool IsEmpty);
+    private sealed record DexImportBoxTarget(BoxImportSlot Slot, int RequestedBox, int TargetBox)
+    {
+        public bool RequiresFallback => RequestedBox != TargetBox;
+    }
+
+    private IReadOnlyList<BoxImportSlot> BuildSaveBoxImportSlots()
+    {
+        var occupied = _boxRows.Select(candidate => candidate.Slot).ToHashSet();
+        return Enumerable.Range(1, WritableBoxSlotCount(live: false))
+            .Select(slot => new BoxImportSlot(
+                slot,
+                (uint)(_profile.Memory.PcBoxDataOffset + (slot - 1) * ActiveBoxRecordSize),
+                !occupied.Contains(slot)))
+            .ToArray();
+    }
+
+    private IReadOnlyList<BoxImportSlot> ReadLiveBoxImportSlots(MgbaBridgeClient bridge)
+    {
+        var ewram = PartyScanner.ReadEwram(bridge, _profile);
+        var writableSlotCount = WritableBoxSlotCount(live: true);
+        uint? contiguousRecordsBase = null;
+        if (_profile.Memory.PcBoxStoragePointerAddress != 0)
+        {
+            contiguousRecordsBase = ResolvePointerBoxRecordsBase(bridge);
+        }
+        else if (_profile.Memory.PcBoxRegions.Count == 0)
+        {
+            var storage = BoxScanner.LocatePcStorage(
+                              ewram,
+                              _profile.Memory.EwramBase,
+                              maxSpecies: _profile.Limits.MaxSpecies,
+                              maxBoxes: _profile.Memory.PcBoxCount,
+                              slotsPerBox: _profile.Memory.PcBoxSlots,
+                              minScore: 12,
+                              layout: ActiveBoxLayout)
+                          ?? throw new InvalidOperationException("没有定位到完整箱子存储。请先读取箱子，确认箱子列表正常后再导入。");
+            contiguousRecordsBase = storage.StartAddress;
+        }
+
+        var slots = new List<BoxImportSlot>(writableSlotCount);
+        for (var globalSlot = 1; globalSlot <= writableSlotCount; globalSlot++)
+        {
+            var address = contiguousRecordsBase is { } recordsBase
+                ? recordsBase + checked((uint)((globalSlot - 1) * ActiveBoxRecordSize))
+                : ProfileBoxAddress(globalSlot);
+            var offset = checked((int)(address - _profile.Memory.EwramBase));
+            if (offset < 0 || offset + ActiveBoxRecordSize > ewram.Length)
+                throw new InvalidOperationException($"箱子槽 {globalSlot} 的地址超出 EWRAM 范围，无法安全导入。");
+            slots.Add(new BoxImportSlot(globalSlot, address, IsAllZero(ewram.AsSpan(offset, ActiveBoxRecordSize))));
+        }
+        return slots;
+    }
+
+    private DexImportBoxTarget ResolveDexImportBoxTarget(IReadOnlyList<BoxImportSlot> slots)
+    {
+        var availableBoxes = slots
+            .Where(slot => slot.IsEmpty)
+            .Select(BoxNumberForSlot)
+            .Distinct()
+            .OrderBy(box => box)
+            .ToArray();
+        if (availableBoxes.Length == 0)
+            throw new InvalidOperationException("所有已验证的可写箱子都已满，无法从图鉴导入。");
+
+        var selectedBox = SelectedChoiceId(DexImportBoxNumberBox) ?? availableBoxes[0];
+        if (!_dexImportBoxManuallySelected)
+        {
+            selectedBox = availableBoxes[0];
+            SetDexImportBoxNumber(selectedBox, manuallySelected: false);
+        }
+
+        var selectedTarget = slots.FirstOrDefault(slot => slot.IsEmpty && BoxNumberForSlot(slot) == selectedBox);
+        if (selectedTarget is not null)
+            return new DexImportBoxTarget(selectedTarget, selectedBox, selectedBox);
+
+        var availableSet = availableBoxes.ToHashSet();
+        var writableBoxCount = WritableBoxCount(_dataSourceMode == DataSourceMode.Live);
+        var fallbackBox = Enumerable.Range(1, writableBoxCount)
+            .Select(offset => (selectedBox - 1 + offset) % writableBoxCount + 1)
+            .First(box => availableSet.Contains(box));
+        var fallbackTarget = slots.First(slot => slot.IsEmpty && BoxNumberForSlot(slot) == fallbackBox);
+        return new DexImportBoxTarget(fallbackTarget, selectedBox, fallbackBox);
+    }
+
+    private int BoxNumberForSlot(BoxImportSlot slot)
+        => (slot.GlobalSlot - 1) / _profile.Memory.PcBoxSlots + 1;
 
     private PartyPokemon BuildDexPartyPokemon(int species, PlayerTrainerIdentity trainer)
     {
@@ -4552,6 +5002,56 @@ public partial class MainWindow : Window
         return confirmed;
     }
 
+    private async Task<bool> ConfirmDexImportFallbackBoxAsync(int selectedBox, int fallbackBox)
+    {
+        var dialog = new Window
+        {
+            Title = "当前箱子已满",
+            Width = 520,
+            Height = 220,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner
+        };
+        var root = new StackPanel { Margin = new Thickness(18), Spacing = 14 };
+        root.Children.Add(new TextBlock
+        {
+            Text = $"箱{selectedBox:00}已满，是否导入到箱{fallbackBox:00}？",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = new SolidColorBrush(Color.FromRgb(150, 43, 43)),
+            FontWeight = FontWeight.SemiBold
+        });
+        root.Children.Add(new TextBlock
+        {
+            Text = "程序会使用建议箱子中的第一个空槽，不会覆盖已有宝可梦。",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = new SolidColorBrush(Color.FromRgb(108, 98, 85))
+        });
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 10
+        };
+        var cancel = new Button { Content = "取消" };
+        var ok = new Button { Content = $"导入到箱{fallbackBox:00}", Classes = { "primary" } };
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(ok);
+        root.Children.Add(buttons);
+        dialog.Content = root;
+
+        var confirmed = false;
+        cancel.Click += (_, _) => dialog.Close();
+        ok.Click += (_, _) =>
+        {
+            confirmed = true;
+            dialog.Close();
+        };
+        await dialog.ShowDialog(this);
+        if (!confirmed)
+            ShowToast("已取消导入箱子。", success: false);
+        return confirmed;
+    }
+
     private async Task<bool> ConfirmBoxDeleteAsync(BoxSlotRow row)
     {
         var dialog = new Window
@@ -4672,6 +5172,36 @@ public partial class MainWindow : Window
                 label.Contains("添加", StringComparison.Ordinal) ||
                 label.Contains("获取", StringComparison.Ordinal) ||
                 label.Contains("恢复", StringComparison.Ordinal) ||
+                label.Contains("调整", StringComparison.Ordinal) ||
+                label.Contains("传送", StringComparison.Ordinal))
+            {
+                SetWriteNotice($"{label}失败：{ex.Message}", success: false);
+            }
+            Log("错误：" + ex.Message);
+        }
+    }
+
+    private async Task RunUiTask(string label, Func<Task> action)
+    {
+        try
+        {
+            SetBusy(label + "...");
+            await Dispatcher.UIThread.InvokeAsync(() => BusyBorder.UpdateLayout(), DispatcherPriority.Render);
+            await Task.Delay(80);
+            await action();
+            SetReady(label + "完成。");
+        }
+        catch (Exception ex)
+        {
+            SetReady(label + "失败。");
+            ShowToast($"{label}失败：{ex.Message}", success: false);
+            if (label.Contains("写入", StringComparison.Ordinal) ||
+                label.Contains("保存", StringComparison.Ordinal) ||
+                label.Contains("另存", StringComparison.Ordinal) ||
+                label.Contains("添加", StringComparison.Ordinal) ||
+                label.Contains("获取", StringComparison.Ordinal) ||
+                label.Contains("恢复", StringComparison.Ordinal) ||
+                label.Contains("调整", StringComparison.Ordinal) ||
                 label.Contains("传送", StringComparison.Ordinal))
             {
                 SetWriteNotice($"{label}失败：{ex.Message}", success: false);
@@ -5161,6 +5691,60 @@ public partial class MainWindow : Window
         return configured > 0 ? Math.Min(configured, total) : total;
     }
 
+    private int WritableBoxCount(bool live)
+        => (WritableBoxSlotCount(live) + _profile.Memory.PcBoxSlots - 1) / _profile.Memory.PcBoxSlots;
+
+    private void ConfigureDexImportBoxChoices(bool live)
+    {
+        _dexImportBoxManuallySelected = false;
+        _dexImportBoxChoices = Enumerable.Range(1, WritableBoxCount(live))
+            .Select(box => new ChoiceRow(box, box.ToString("00")))
+            .ToArray();
+        _suppressDexImportBoxSelection = true;
+        try
+        {
+            DexImportBoxNumberBox.ItemsSource = _dexImportBoxChoices;
+            DexImportBoxNumberBox.SelectedIndex = _dexImportBoxChoices.Length > 0 ? 0 : -1;
+        }
+        finally
+        {
+            _suppressDexImportBoxSelection = false;
+        }
+    }
+
+    private void SetDexImportBoxNumber(int boxNumber, bool manuallySelected)
+    {
+        var choice = _dexImportBoxChoices.FirstOrDefault(choice => choice.Id == boxNumber);
+        if (choice is null) return;
+        _suppressDexImportBoxSelection = true;
+        try
+        {
+            DexImportBoxNumberBox.SelectedItem = choice;
+        }
+        finally
+        {
+            _suppressDexImportBoxSelection = false;
+        }
+        _dexImportBoxManuallySelected = manuallySelected;
+    }
+
+    private void OnDexImportBoxNumberChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (!_suppressDexImportBoxSelection && DexImportBoxNumberBox.SelectedItem is ChoiceRow)
+            _dexImportBoxManuallySelected = true;
+    }
+
+    private void UpdateDexImportBoxDefaultFromKnownRows()
+    {
+        if (_dexImportBoxManuallySelected || _dexImportBoxChoices.Length == 0) return;
+        var occupied = _boxRows.Select(row => row.Slot).ToHashSet();
+        var firstEmptySlot = Enumerable.Range(1, WritableBoxSlotCount(_dataSourceMode == DataSourceMode.Live))
+            .FirstOrDefault(slot => !occupied.Contains(slot));
+        if (firstEmptySlot == 0) return;
+        var boxNumber = (firstEmptySlot - 1) / _profile.Memory.PcBoxSlots + 1;
+        SetDexImportBoxNumber(boxNumber, manuallySelected: false);
+    }
+
     private void LoadProfileBoxRows(ReadOnlySpan<byte> ewram)
     {
         _boxBase = _profile.Memory.PcBoxRegions.OrderBy(region => region.FirstBox).First().Address;
@@ -5241,6 +5825,7 @@ public partial class MainWindow : Window
     private void RefreshBoxGridGroups()
     {
         _boxGridGroups.Clear();
+        var canWriteBoxes = CanWriteBoxesInCurrentMode();
         var rowsByBox = _boxRows.GroupBy(row => (row.Slot - 1) / _profile.Memory.PcBoxSlots + 1)
             .ToDictionary(group => group.Key, group => group.ToArray());
         var boxNumbers = _boxGridShowAllBoxes
@@ -5254,15 +5839,31 @@ public partial class MainWindow : Window
             var cells = Enumerable.Range(1, _profile.Memory.PcBoxSlots)
                 .Select(slotInBox =>
                 {
-                    if (bySlot.TryGetValue(slotInBox, out var row))
-                        return new BoxGridCell(slotInBox, row, row.Sprite, row.Title, true);
                     var globalSlot = (boxNumber - 1) * _profile.Memory.PcBoxSlots + slotInBox;
-                    var writable = globalSlot <= WritableBoxSlotCount(_dataSourceMode == DataSourceMode.Live);
-                    return new BoxGridCell(slotInBox, null, null, writable ? "空槽，可从内置图鉴导入" : "该槽不在当前 Profile 的安全写入范围", false);
+                    var writable = canWriteBoxes &&
+                                   globalSlot <= WritableBoxSlotCount(_dataSourceMode == DataSourceMode.Live);
+                    if (bySlot.TryGetValue(slotInBox, out var row))
+                        return new BoxGridCell(globalSlot, slotInBox, row, row.Sprite, row.Title, true, writable);
+                    return new BoxGridCell(
+                        globalSlot,
+                        slotInBox,
+                        null,
+                        null,
+                        writable ? "空槽，可拖入宝可梦" : "该槽不在当前 Profile 的安全写入范围",
+                        false,
+                        writable);
                 })
                 .ToArray();
             _boxGridGroups.Add(new BoxGridGroup(boxNumber, $"箱{boxNumber:00}", cells));
         }
+        UpdateDexImportBoxDefaultFromKnownRows();
+    }
+
+    private bool CanWriteBoxesInCurrentMode()
+    {
+        var live = _dataSourceMode == DataSourceMode.Live;
+        return _runtime.CanWrite(GameDataSurface.Boxes, live) &&
+               (live || _loadedSave?.CanWrite == true);
     }
 
     private string BoxDisplayTitle(int boxNumber, int slotInBox, BoxPokemon mon, BoxMonInfo info)
