@@ -71,6 +71,13 @@ public sealed class MoveDataReader
             e.ToArray());
     }
 
+    public static sbyte ParsePriority(string value)
+    {
+        if (sbyte.TryParse(value, out var signed)) return signed;
+        if (byte.TryParse(value, out var raw)) return unchecked((sbyte)raw);
+        throw new FormatException($"Invalid move priority: {value}");
+    }
+
     public static string TypeName(int type) => type switch
     {
         0 => "Normal", 1 => "Fighting", 2 => "Flying", 3 => "Poison", 4 => "Ground", 5 => "Rock", 6 => "Bug", 7 => "Ghost",

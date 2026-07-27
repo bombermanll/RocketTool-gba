@@ -7073,7 +7073,7 @@ public partial class MainWindow : Window
         {
             ushort U(int index) => ushort.Parse(parts[index]);
             byte B(int index) => byte.Parse(parts[index]);
-            sbyte S(int index) => unchecked((sbyte)byte.Parse(parts[index]));
+            sbyte S(int index) => MoveDataReader.ParsePriority(parts[index]);
             var effect = parts.Length >= 11 ? B(10) : (byte)0;
             data = new MoveData(move, U(0), B(1), B(2), B(3), B(4), U(5), S(6), U(7), B(8), U(9), effect, []);
             return true;

@@ -173,7 +173,7 @@ static MoveData ReadMoveDataFromDb(ModifierDatabase db, int move)
 
     ushort U(int i) => ushort.Parse(parts[i]);
     byte B(int i) => byte.Parse(parts[i]);
-    sbyte S(int i) => unchecked((sbyte)byte.Parse(parts[i]));
+    sbyte S(int i) => MoveDataReader.ParsePriority(parts[i]);
     var effect = parts.Length >= 11 ? B(10) : (byte)0;
     return new MoveData(move, U(0), B(1), B(2), B(3), B(4), U(5), S(6), U(7), B(8), U(9), effect, []);
 }

@@ -4,6 +4,7 @@ public static class ProfileIsolationSelfTest
 {
     public static void Verify(GameProfile profile)
     {
+        VerifyMovePriorityParsing();
         var adapter = GameRuntimeAdapterCatalog.ForProfile(profile);
 
         var mixed = profile with
@@ -46,6 +47,15 @@ public static class ProfileIsolationSelfTest
             throw new InvalidOperationException("disabled 存档策略仍暴露了存档能力。");
 
         VerifyCaughtBallIsolation(profile, adapter);
+    }
+
+    private static void VerifyMovePriorityParsing()
+    {
+        if (MoveDataReader.ParsePriority("-6") != -6 ||
+            MoveDataReader.ParsePriority("250") != -6 ||
+            MoveDataReader.ParsePriority("0") != 0 ||
+            MoveDataReader.ParsePriority("7") != 7)
+            throw new InvalidOperationException("招式优先度有符号/原始字节解析回归失败。");
     }
 
     private static void VerifyCaughtBallIsolation(GameProfile profile, IGameRuntimeAdapter adapter)
