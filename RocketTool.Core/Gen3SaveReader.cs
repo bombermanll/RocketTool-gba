@@ -1011,7 +1011,7 @@ public static class Gen3SaveReader
         var result = new List<PartyPokemon>();
         for (var slot = 0; slot < count; slot++)
         {
-            var mon = new PartyPokemon(saveBlock1.Slice(DestinyPartyOffset + slot * PartyPokemon.Size, PartyPokemon.Size), PokemonDataLayout.UnboundCfruPlainParty);
+            var mon = new PartyPokemon(saveBlock1.Slice(DestinyPartyOffset + slot * PartyPokemon.Size, PartyPokemon.Size), PokemonDataLayout.DestinyCfruPlainParty);
             if (mon.IsEmpty)
             {
                 warnings.Add($"命运队伍槽 {slot + 1} 为空，已停止读取后续槽位。");

@@ -100,12 +100,16 @@
     "spritesVerified": true,
     "spriteAssetRoot": "Profiles/pokemon-destiny-training-house-fix-cn/Pokemon/front",
     "iconAssetRoot": "Profiles/pokemon-destiny-training-house-fix-cn/Pokemon/icon",
+    "itemIconsVerified": true,
+    "itemIconAssetRoot": "Profiles/pokemon-destiny-training-house-fix-cn/Items/icon",
     "frontSpriteTableOffset": "0x1A0F378",
     "iconSpriteTableOffset": "0x1AD93A8",
+    "itemIconTableOffset": "0x3D4294",
     "normalPaletteTableOffset": "0x1A13E78",
     "spriteIndexAdjustment": 0,
     "paletteIndexAdjustment": 0,
-    "eggSpeciesId": 412
+    "eggSpeciesId": 412,
+    "verifiedItemIconCount": 374
   },
   "limits": {
     "maxSpecies": 1199,
@@ -134,6 +138,28 @@
     "saveBag": { "read": true, "write": true },
     "liveTrainer": { "read": true, "write": false },
     "saveTrainer": { "read": true, "write": true },
+    "caughtBall": {
+      "liveParty": { "read": true, "write": true },
+      "saveParty": { "read": true, "write": true },
+      "liveBoxes": { "read": true, "write": true },
+      "saveBoxes": { "read": true, "write": true },
+      "choices": [
+        { "itemId": 1, "storedValue": 1 },
+        { "itemId": 2, "storedValue": 2 },
+        { "itemId": 3, "storedValue": 3 },
+        { "itemId": 4, "storedValue": 4 },
+        { "itemId": 5, "storedValue": 5 },
+        { "itemId": 6, "storedValue": 6 },
+        { "itemId": 7, "storedValue": 7 },
+        { "itemId": 8, "storedValue": 8 },
+        { "itemId": 9, "storedValue": 9 },
+        { "itemId": 10, "storedValue": 10 },
+        { "itemId": 11, "storedValue": 11 },
+        { "itemId": 12, "storedValue": 12 }
+      ],
+      "defaultItemId": 4,
+      "pocket": 3
+    },
     "builtInDex": true,
     "moveDex": true,
     "importToParty": true,

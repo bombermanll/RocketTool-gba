@@ -34,5 +34,13 @@
     "va": "0x471D10",
     "min_id": 0,
     "max_id": 66
+  },
+  "item_icons": {
+    "count": 921,
+    "table": "0xCF62E4",
+    "format": "8-byte tile/palette pointers; LZ77 0x120/0x20; 24x24 4bpp BGR555",
+    "missing_ids": [
+      348
+    ]
   }
 }

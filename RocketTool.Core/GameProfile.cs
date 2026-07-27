@@ -156,6 +156,8 @@ public sealed record GameProfileGraphics
     public bool SpritesVerified { get; init; }
     public required string SpriteAssetRoot { get; init; }
     public string IconAssetRoot { get; init; } = "";
+    public bool ItemIconsVerified { get; init; }
+    public string ItemIconAssetRoot { get; init; } = "";
 
     [JsonConverter(typeof(FlexibleInt32JsonConverter))]
     public int FrontSpriteTableOffset { get; init; }
@@ -164,11 +166,15 @@ public sealed record GameProfileGraphics
     public int IconSpriteTableOffset { get; init; }
 
     [JsonConverter(typeof(FlexibleInt32JsonConverter))]
+    public int ItemIconTableOffset { get; init; }
+
+    [JsonConverter(typeof(FlexibleInt32JsonConverter))]
     public int NormalPaletteTableOffset { get; init; }
 
     public int SpriteIndexAdjustment { get; init; }
     public int PaletteIndexAdjustment { get; init; }
     public int EggSpeciesId { get; init; }
+    public int VerifiedItemIconCount { get; init; }
 }
 
 public sealed record GameProfileLimits
@@ -203,6 +209,7 @@ public sealed record GameProfileFeatures
     public required GameProfileFeatureAccess SaveBag { get; init; }
     public required GameProfileFeatureAccess LiveTrainer { get; init; }
     public required GameProfileFeatureAccess SaveTrainer { get; init; }
+    public required GameProfileCaughtBallFeature CaughtBall { get; init; }
     public bool BuiltInDex { get; init; }
     public bool MoveDex { get; init; }
     public bool ImportToParty { get; init; }
@@ -228,6 +235,33 @@ public sealed record GameProfileFeatureAccess
 {
     public bool Read { get; init; }
     public bool Write { get; init; }
+}
+
+public sealed record GameProfileCaughtBallFeature
+{
+    public required GameProfileFeatureAccess LiveParty { get; init; }
+    public required GameProfileFeatureAccess SaveParty { get; init; }
+    public required GameProfileFeatureAccess LiveBoxes { get; init; }
+    public required GameProfileFeatureAccess SaveBoxes { get; init; }
+    public required IReadOnlyList<GameProfileCaughtBallChoice> Choices { get; init; }
+    public int DefaultItemId { get; init; }
+    public int Pocket { get; init; }
+
+    public int ItemIdForStoredValue(int storedValue)
+        => Choices.FirstOrDefault(choice => choice.StoredValue == storedValue)?.ItemId ?? 0;
+
+    public byte StoredValueForItemId(int itemId)
+    {
+        var choice = Choices.FirstOrDefault(candidate => candidate.ItemId == itemId)
+                     ?? throw new ArgumentOutOfRangeException(nameof(itemId), $"道具 {itemId} 不是当前版本已验证的球种。");
+        return checked((byte)choice.StoredValue);
+    }
+}
+
+public sealed record GameProfileCaughtBallChoice
+{
+    public int ItemId { get; init; }
+    public int StoredValue { get; init; }
 }
 
 public sealed record GameProfileRuntime
@@ -401,6 +435,8 @@ public static class GameProfileCatalog
             throw new InvalidOperationException($"版本配置 {profile.Id} 缺少 displayName。");
         if (profile.RomIdentity is null || profile.Strategies is null || profile.Memory is null || profile.RomTables is null || profile.Graphics is null || profile.Limits is null || profile.DataVerification is null || profile.Features is null || profile.Runtime is null)
             throw new InvalidOperationException($"版本配置 {profile.Id} 缺少必需的配置分组。");
+        if (profile.Features.CaughtBall is null)
+            throw new InvalidOperationException($"版本配置 {profile.Id} 缺少球种能力分组。");
         if (profile.DataVerification.VisibleSpeciesCount <= 0 || profile.DataVerification.VisibleSpeciesCount > profile.Limits.MaxSpecies)
             throw new InvalidOperationException($"版本配置 {profile.Id} 的可见物种校验数量无效。");
         if (profile.DataVerification.VerifiedMenuIconCount < 0 || profile.DataVerification.VerifiedMenuIconCount > profile.DataVerification.VisibleSpeciesCount)
@@ -470,6 +506,42 @@ public static class GameProfileCatalog
             if (access is null || access.Write && !access.Read)
                 throw new InvalidOperationException($"版本配置 {profile.Id} 的功能能力 {name} 无效：写入必须建立在已验证读取上。");
         }
+        foreach (var (name, access, parent) in new[]
+                 {
+                     ("caughtBall.liveParty", profile.Features.CaughtBall.LiveParty, profile.Features.LiveParty),
+                     ("caughtBall.saveParty", profile.Features.CaughtBall.SaveParty, profile.Features.SaveParty),
+                     ("caughtBall.liveBoxes", profile.Features.CaughtBall.LiveBoxes, profile.Features.LiveBoxes),
+                     ("caughtBall.saveBoxes", profile.Features.CaughtBall.SaveBoxes, profile.Features.SaveBoxes)
+                 })
+        {
+            if (access is null || access.Write && !access.Read)
+                throw new InvalidOperationException($"版本配置 {profile.Id} 的功能能力 {name} 无效：写入必须建立在已验证读取上。");
+            if (access.Read && !parent.Read || access.Write && !parent.Write)
+                throw new InvalidOperationException($"版本配置 {profile.Id} 的功能能力 {name} 超出了对应队伍/箱子能力。");
+        }
+        var caughtBallEnabled = new[]
+        {
+            profile.Features.CaughtBall.LiveParty,
+            profile.Features.CaughtBall.SaveParty,
+            profile.Features.CaughtBall.LiveBoxes,
+            profile.Features.CaughtBall.SaveBoxes
+        }.Any(access => access.Read || access.Write);
+        if (caughtBallEnabled)
+        {
+            var caughtBall = profile.Features.CaughtBall;
+            if (caughtBall.Pocket <= 0 ||
+                caughtBall.Choices.Count == 0 ||
+                caughtBall.DefaultItemId <= 0 ||
+                caughtBall.Choices.Any(choice =>
+                    choice.ItemId < 1 ||
+                    choice.ItemId > profile.Limits.MaxItem ||
+                    choice.StoredValue < 0 ||
+                    choice.StoredValue > byte.MaxValue) ||
+                caughtBall.Choices.Select(choice => choice.ItemId).Distinct().Count() != caughtBall.Choices.Count ||
+                caughtBall.Choices.Select(choice => choice.StoredValue).Distinct().Count() != caughtBall.Choices.Count ||
+                caughtBall.Choices.All(choice => choice.ItemId != caughtBall.DefaultItemId))
+                throw new InvalidOperationException($"版本配置 {profile.Id} 的球种映射、默认球或口袋无效。");
+        }
         if (!profile.Features.LiveEditing &&
             new[] { profile.Features.LiveParty, profile.Features.LiveBoxes, profile.Features.LiveBag, profile.Features.LiveTrainer }.Any(access => access.Read || access.Write))
             throw new InvalidOperationException($"版本配置 {profile.Id} 已关闭实时模式，但仍启用了实时能力。");
@@ -500,6 +572,17 @@ public static class GameProfileCatalog
              profile.Graphics.FrontSpriteTableOffset <= 0 ||
              profile.Graphics.NormalPaletteTableOffset <= 0))
             throw new InvalidOperationException($"版本配置 {profile.Id} 的精灵图片配置无效。");
+        if (profile.Graphics.ItemIconsVerified &&
+            (string.IsNullOrWhiteSpace(profile.Graphics.ItemIconAssetRoot) ||
+             profile.Graphics.ItemIconTableOffset <= 0 ||
+             profile.Graphics.VerifiedItemIconCount <= 0))
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的道具图片配置无效。");
+        if (profile.Graphics.ItemIconsVerified)
+        {
+            var itemRoot = profile.Graphics.ItemIconAssetRoot.Replace('\\', '/').Trim('/');
+            if (!itemRoot.StartsWith($"Profiles/{profile.Id}/", StringComparison.Ordinal))
+                throw new InvalidOperationException($"版本配置 {profile.Id} 的道具图片目录没有按 Profile 隔离。");
+        }
         foreach (var (name, value) in new[]
                  {
                      ("runtime", profile.Strategies.Runtime),

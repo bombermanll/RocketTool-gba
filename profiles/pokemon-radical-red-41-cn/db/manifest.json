@@ -44,7 +44,8 @@
     "frontSpritesExtracted": 1375,
     "frontSpriteFailures": 1,
     "iconSpritesExtracted": 1375,
-    "iconSpriteFailures": 1
+    "iconSpriteFailures": 1,
+    "itemIconsExtracted": 750
   },
   "dataStatus": {
     "romVerified": [
@@ -70,6 +71,7 @@
       "wild encounter header table at 0x72C984, 142 20-byte headers terminated by FF FF; extracted 2338 current-ROM land/water/rock/fishing slots for 419 species",
       "front sprites extracted from table 0x17FA1C4 and palettes from 0x1811208; visual samples verified species 1/4/7/25/456/666",
       "pokemon icons extracted from table 0x17FE6CC; 0x420-byte records contain two 32x32 4bpp frames plus a 32-byte palette; visual samples verified species 1/25/456/666",
+      "750 item icons extracted from table 0x13C8100; entries are LZ77 24x24 4bpp tiles and BGR555 palettes; visual samples verified items 4/13/243",
       "egg resources verified at species slot 412: zero base stats, a 64x64 egg front sprite, and a matching 32x32 egg menu icon from the current ROM tables",
       "live box base table at 0x1148930 contains 25 EWRAM addresses; current-ROM accessors use 30 slots of 58 bytes per box; live edit and delete round trips are documented separately",
       "save section descriptor table at 0x1148BF0 proves SaveBlock2/SaveBlock1/PC offsets and lengths; current-ROM save code at 0x090B8B80 maps the 0x2EA4-byte CFRU extension through sections 0/4/13 and sectors 30/31",
@@ -127,6 +129,7 @@
     "experience": "0x253AE4",
     "frontSprites": "0x17FA1C4",
     "iconSprites": "0x17FE6CC",
+    "itemIcons": "0x13C8100",
     "normalPalettes": "0x1811208",
     "mapGroups": "0x3526A8",
     "mapSectionNames": "0x3F1CAC",

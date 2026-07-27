@@ -6,8 +6,9 @@ public sealed class PokemonDestinyRuntimeAdapter : GameRuntimeAdapterBase
 
     public PokemonDestinyRuntimeAdapter(GameProfile profile) : base(profile) { }
 
-    public override PokemonDataLayout PartyLayout => PokemonDataLayout.UnboundCfruPlainParty;
+    public override PokemonDataLayout PartyLayout => PokemonDataLayout.DestinyCfruPlainParty;
     public override PokemonDataLayout LiveBoxLayout => PokemonDataLayout.DestinyCfruPlainBox;
+    protected override bool SupportsCaughtBall => true;
     public override IReadOnlyList<int> MoveTypeIds { get; } = [.. Enumerable.Range(0, 18), 23];
     protected override string ExpectedProfileId => "pokemon-destiny-training-house-fix-cn";
     protected override string ExpectedRuntimeStrategy => StrategyId;

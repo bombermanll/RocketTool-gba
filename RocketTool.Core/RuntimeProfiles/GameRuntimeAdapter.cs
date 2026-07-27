@@ -25,6 +25,8 @@ public interface IGameRuntimeAdapter
     void ValidateLiveRom(MgbaBridgeClient bridge);
     bool CanRead(GameDataSurface surface, bool live);
     bool CanWrite(GameDataSurface surface, bool live);
+    bool CanReadCaughtBall(GameDataSurface surface, bool live);
+    bool CanWriteCaughtBall(GameDataSurface surface, bool live);
     void EnsureCanRead(GameDataSurface surface, bool live);
     void EnsureCanWrite(GameDataSurface surface, bool live);
     IReadOnlyList<GameProfileBagPocket> BagPockets(bool live);
@@ -57,6 +59,7 @@ public abstract class GameRuntimeAdapterBase : IGameRuntimeAdapter
     protected abstract string ExpectedBoxStrategy { get; }
     protected abstract string ExpectedBagStrategy { get; }
     protected abstract string ExpectedSaveStrategy { get; }
+    protected virtual bool SupportsCaughtBall => false;
 
     public bool UsesFixedLiveBag => Profile.Runtime.LiveBag.Mode == "fixed";
     public bool UsesScannedLiveBag => Profile.Runtime.LiveBag.Mode == "scanned";
@@ -82,6 +85,12 @@ public abstract class GameRuntimeAdapterBase : IGameRuntimeAdapter
     public bool CanRead(GameDataSurface surface, bool live) => Access(surface, live).Read;
 
     public bool CanWrite(GameDataSurface surface, bool live) => Access(surface, live).Write;
+
+    public bool CanReadCaughtBall(GameDataSurface surface, bool live)
+        => SupportsCaughtBall && CaughtBallAccess(surface, live).Read;
+
+    public bool CanWriteCaughtBall(GameDataSurface surface, bool live)
+        => SupportsCaughtBall && CaughtBallAccess(surface, live).Write;
 
     public void EnsureCanRead(GameDataSurface surface, bool live)
     {
@@ -145,6 +154,16 @@ public abstract class GameRuntimeAdapterBase : IGameRuntimeAdapter
             _ => throw new ArgumentOutOfRangeException(nameof(surface))
         };
 
+    private GameProfileFeatureAccess CaughtBallAccess(GameDataSurface surface, bool live)
+        => (surface, live) switch
+        {
+            (GameDataSurface.Party, true) => Profile.Features.CaughtBall.LiveParty,
+            (GameDataSurface.Party, false) => Profile.Features.CaughtBall.SaveParty,
+            (GameDataSurface.Boxes, true) => Profile.Features.CaughtBall.LiveBoxes,
+            (GameDataSurface.Boxes, false) => Profile.Features.CaughtBall.SaveBoxes,
+            _ => new GameProfileFeatureAccess()
+        };
+
     private void ValidateIsolation(GameProfile profile)
     {
         var actual = new[]
@@ -174,6 +193,15 @@ public abstract class GameRuntimeAdapterBase : IGameRuntimeAdapter
             : BoxPokemon.Size;
         if (profile.Memory.PcBoxRecordSize != expectedBoxSize)
             throw new InvalidOperationException($"版本 {profile.Id} 的箱子记录大小与其专属适配器布局不一致，已拒绝加载。");
+        var caughtBallConfigured = new[]
+        {
+            profile.Features.CaughtBall.LiveParty,
+            profile.Features.CaughtBall.SaveParty,
+            profile.Features.CaughtBall.LiveBoxes,
+            profile.Features.CaughtBall.SaveBoxes
+        }.Any(access => access.Read || access.Write);
+        if (caughtBallConfigured && !SupportsCaughtBall)
+            throw new InvalidOperationException($"版本 {profile.Id} 的专属适配器没有验证球种字段，已拒绝启用。");
     }
 
     private static string SurfaceName(GameDataSurface surface) => surface switch

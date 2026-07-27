@@ -28,6 +28,7 @@ public sealed class SearchableChoiceBox : UserControl
             (box, value) => box.SelectedItem = value);
 
     private readonly Button _toggleButton;
+    private readonly Image _displayIcon;
     private readonly TextBlock _displayText;
     private readonly TextBlock _arrowText;
     private readonly Popup _popup;
@@ -45,6 +46,15 @@ public sealed class SearchableChoiceBox : UserControl
     {
         HorizontalAlignment = HorizontalAlignment.Stretch;
 
+        _displayIcon = new Image
+        {
+            Width = 24,
+            Height = 24,
+            Margin = new Thickness(0, 0, 7, 0),
+            Stretch = Stretch.Uniform,
+            VerticalAlignment = VerticalAlignment.Center,
+            IsVisible = false
+        };
         _displayText = new TextBlock
         {
             VerticalAlignment = VerticalAlignment.Center,
@@ -59,11 +69,13 @@ public sealed class SearchableChoiceBox : UserControl
         };
         var buttonContent = new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+            ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"),
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
+        buttonContent.Children.Add(_displayIcon);
+        Grid.SetColumn(_displayText, 1);
         buttonContent.Children.Add(_displayText);
-        Grid.SetColumn(_arrowText, 1);
+        Grid.SetColumn(_arrowText, 2);
         buttonContent.Children.Add(_arrowText);
 
         _toggleButton = new Button
@@ -88,12 +100,7 @@ public sealed class SearchableChoiceBox : UserControl
         {
             MaxHeight = 320,
             MinWidth = 160,
-            ItemTemplate = new FuncDataTemplate<ChoiceRow>((row, _) => new TextBlock
-            {
-                Text = row?.ToString() ?? string.Empty,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                Margin = new Thickness(6, 4)
-            })
+            ItemTemplate = new FuncDataTemplate<ChoiceRow>((row, _) => ChoiceContent(row))
         };
         _emptyText = new TextBlock
         {
@@ -322,6 +329,8 @@ public sealed class SearchableChoiceBox : UserControl
             ? new SolidColorBrush(Color.FromRgb(108, 98, 85))
             : new SolidColorBrush(Color.FromRgb(43, 32, 22));
         _displayText.Text = string.IsNullOrWhiteSpace(text) ? PlaceholderDisplay() : text;
+        _displayIcon.Source = _selected?.Icon;
+        _displayIcon.IsVisible = _selected?.Icon is not null;
         _displayText.Foreground = brush;
         _arrowText.Foreground = brush;
         _toggleButton.Foreground = brush;
@@ -331,6 +340,35 @@ public sealed class SearchableChoiceBox : UserControl
 
     private string PlaceholderDisplay()
         => string.IsNullOrWhiteSpace(PlaceholderText) ? "请选择" : PlaceholderText;
+
+    private static Control ChoiceContent(ChoiceRow? row)
+    {
+        var icon = new Image
+        {
+            Source = row?.Icon,
+            Width = 24,
+            Height = 24,
+            Stretch = Stretch.Uniform,
+            VerticalAlignment = VerticalAlignment.Center,
+            IsVisible = row?.Icon is not null
+        };
+        var text = new TextBlock
+        {
+            Text = row?.ToString() ?? string.Empty,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var content = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("Auto,*"),
+            ColumnSpacing = 7,
+            Margin = new Thickness(6, 3)
+        };
+        content.Children.Add(icon);
+        Grid.SetColumn(text, 1);
+        content.Children.Add(text);
+        return content;
+    }
 
     private void SyncDropDownWidth()
     {

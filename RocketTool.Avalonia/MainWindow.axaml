@@ -155,6 +155,13 @@
                                                 <ComboBox x:Name="GenderBox" Grid.Row="9" />
                                                 <CheckBox x:Name="ShinyBox" Grid.Row="9" Grid.Column="1" Grid.ColumnSpan="2" Content="闪光宝可梦" />
                                             </Grid>
+                                            <Grid x:Name="PartyCaughtBallPanel" ColumnDefinitions="*,2*" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="6" IsVisible="False">
+                                                <TextBlock Text="捕获球种" Classes="label" />
+                                                <local:SearchableChoiceBox x:Name="PartyCaughtBallBox" Grid.Row="1" PlaceholderText="选择或搜索精灵球" />
+                                                <TextBlock Grid.Row="1" Grid.Column="1"
+                                                           Text="修改后会更新宝可梦记录中的球种；请在写入前创建 mGBA 即时存档。"
+                                                           Foreground="#6C6255" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                            </Grid>
                                             <Grid ColumnDefinitions="*,Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="6">
                                                 <TextBlock Text="初训家名字" Classes="label" />
                                                 <TextBlock Text="初训家 ID" Classes="label" Grid.Column="2" />
@@ -340,7 +347,10 @@
                                             <ListBox.ItemTemplate>
                                                 <DataTemplate>
                                                     <Border Padding="6,2" Margin="0" CornerRadius="7" Background="#FFF9EE">
-                                                        <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold" Foreground="#102E4A" />
+                                                        <Grid ColumnDefinitions="28,*" ColumnSpacing="6">
+                                                            <Image Source="{Binding Icon}" Width="24" Height="24" Stretch="Uniform" />
+                                                            <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="12" FontWeight="SemiBold" Foreground="#102E4A" VerticalAlignment="Center" />
+                                                        </Grid>
                                                     </Border>
                                                 </DataTemplate>
                                             </ListBox.ItemTemplate>
@@ -563,6 +573,13 @@
                                                 <CheckBox x:Name="BoxShinyBox" Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="2" Content="闪光宝可梦" />
                                                 <TextBlock Text="箱子槽地址（只读）" Classes="label" Grid.Row="8" IsVisible="False" />
                                                 <TextBlock x:Name="BoxAddressText" Grid.Row="8" Grid.ColumnSpan="3" Text="未选择" Foreground="#6C6255" IsVisible="False" />
+                                            </Grid>
+                                            <Grid x:Name="BoxCaughtBallPanel" ColumnDefinitions="*,2*" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="6" IsVisible="False">
+                                                <TextBlock Text="捕获球种" Classes="label" />
+                                                <local:SearchableChoiceBox x:Name="BoxCaughtBallBox" Grid.Row="1" PlaceholderText="选择或搜索精灵球" />
+                                                <TextBlock Grid.Row="1" Grid.Column="1"
+                                                           Text="修改后会更新箱子宝可梦记录中的球种；请在写入前创建 mGBA 即时存档。"
+                                                           Foreground="#6C6255" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" />
                                             </Grid>
                                             <Grid ColumnDefinitions="*,Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="6">
                                                 <TextBlock Text="初训家名字" Classes="label" />

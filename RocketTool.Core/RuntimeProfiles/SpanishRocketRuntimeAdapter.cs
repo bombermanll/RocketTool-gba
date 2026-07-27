@@ -62,4 +62,5 @@ public sealed class SpanishRocketRuntimeAdapter : GameRuntimeAdapterBase
     protected override string ExpectedBoxStrategy => "spanish-rocket-box-v1";
     protected override string ExpectedBagStrategy => "spanish-rocket-bag-v1";
     protected override string ExpectedSaveStrategy => SpanishRocketSaveStrategy.StrategyId;
+    protected override bool SupportsCaughtBall => true;
 }

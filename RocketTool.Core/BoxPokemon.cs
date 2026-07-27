@@ -10,6 +10,7 @@ public sealed record BoxMonInfo(
     uint Exp,
     byte PpBonuses,
     byte Friendship,
+    byte CaughtBallCode,
     ushort[] Moves,
     byte[] Pp,
     byte[] Evs,
@@ -28,6 +29,8 @@ public sealed class BoxPokemon
     public const int OtNameLength = 7;
     private const int GrowthPpBonusesOffset = 7;
     private const int GrowthFriendshipOffset = 8;
+    private const int GrowthCaughtBallOffset = 9;
+    private const byte GrowthCaughtBallMask = 0x1F;
     private const int GrowthNatureOverrideWordOffset = 8;
     private const int GrowthNatureOverrideShift = 13;
     private const uint GrowthNatureOverrideMask = 0x1Fu << GrowthNatureOverrideShift;
@@ -122,6 +125,7 @@ public sealed class BoxPokemon
                 ReadU32(_raw, DestinyGrowthOffset + 4),
                 _raw[DestinyGrowthOffset + 8],
                 _raw[DestinyGrowthOffset + 9],
+                (byte)((_raw[DestinyMiscOffset + 3] >> 3) & 0x0F),
                 [ReadU16(_raw, DestinyAttacksOffset), ReadU16(_raw, DestinyAttacksOffset + 2), ReadU16(_raw, DestinyAttacksOffset + 4), ReadU16(_raw, DestinyAttacksOffset + 6)],
                 _raw.AsSpan(DestinyAttacksOffset + 8, 4).ToArray(),
                 _raw.AsSpan(DestinyEvsOffset, 6).ToArray(),
@@ -145,6 +149,7 @@ public sealed class BoxPokemon
                 ReadU32(_raw, 32),
                 _raw[36],
                 _raw[37],
+                _raw[38],
                 ReadCompressedMoves(),
                 [0, 0, 0, 0],
                 _raw.AsSpan(44, 6).ToArray(),
@@ -174,6 +179,9 @@ public sealed class BoxPokemon
             _layout == PokemonDataLayout.UnboundCfruPlainParty ? ReadU32(growth, 4) : ReadExp(growth),
             growth[_layout == PokemonDataLayout.UnboundCfruPlainParty ? 8 : GrowthPpBonusesOffset],
             growth[_layout == PokemonDataLayout.UnboundCfruPlainParty ? 9 : GrowthFriendshipOffset],
+            _layout == PokemonDataLayout.SpanishRocketEncrypted
+                ? (byte)(growth[GrowthCaughtBallOffset] & GrowthCaughtBallMask)
+                : (byte)0,
             [ReadU16(attacks, 0), ReadU16(attacks, 2), ReadU16(attacks, 4), ReadU16(attacks, 6)],
             [attacks[8], attacks[9], attacks[10], attacks[11]],
             evs[..6].ToArray(),
@@ -235,6 +243,37 @@ public sealed class BoxPokemon
         var dec = Decrypted();
         var block = Subblock(dec, 0);
         SetGameNatureCode(block, code);
+        ReplaceSubblock(dec, 0, block);
+        SetDecrypted(dec);
+    }
+
+    public void SetCaughtBallCode(byte storedValue)
+    {
+        if (_layout == PokemonDataLayout.UnboundCfruPlainParty)
+        {
+            _raw[38] = storedValue;
+            return;
+        }
+        if (_layout == PokemonDataLayout.DestinyCfruPlainBox)
+        {
+            if (storedValue > 0x0F)
+                throw new ArgumentOutOfRangeException(nameof(storedValue), "命运版球种存储值必须在 0..15 之间。");
+            _raw[DestinyMiscOffset + 3] =
+                (byte)((_raw[DestinyMiscOffset + 3] & 0x87) | (storedValue << 3));
+            return;
+        }
+        if (storedValue == 0)
+            throw new ArgumentOutOfRangeException(nameof(storedValue), "当前加密布局的球种存储码必须大于 0。");
+        if (_layout != PokemonDataLayout.SpanishRocketEncrypted)
+            throw new InvalidOperationException("当前箱子宝可梦布局没有已实现的球种字段。");
+        if (storedValue > GrowthCaughtBallMask)
+            throw new ArgumentOutOfRangeException(nameof(storedValue), $"当前加密布局的球种存储码必须在 1..{GrowthCaughtBallMask} 之间。");
+
+        var dec = Decrypted();
+        var block = Subblock(dec, 0);
+        block[GrowthCaughtBallOffset] =
+            (byte)((block[GrowthCaughtBallOffset] & ~GrowthCaughtBallMask) |
+                   (storedValue & GrowthCaughtBallMask));
         ReplaceSubblock(dec, 0, block);
         SetDecrypted(dec);
     }

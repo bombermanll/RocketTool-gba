@@ -110,6 +110,21 @@ static IGameRuntimeAdapter CurrentRuntime()
 static PokemonDataLayout CurrentPokemonLayout()
     => CurrentRuntime().PartyLayout;
 
+static int CaughtBallItemId(GameProfile profile, byte storedValue)
+    => profile.Features.CaughtBall.ItemIdForStoredValue(storedValue);
+
+static string CaughtBallLabel(GameProfile profile, ModifierDatabase db, byte storedValue)
+{
+    var itemId = CaughtBallItemId(profile, storedValue);
+    return itemId == 0 ? "未记录" : $"{itemId}({db.NameOf("items", itemId)})";
+}
+
+static void SetDefaultPartyCaughtBall(GameProfile profile, PartyPokemon mon)
+    => mon.SetCaughtBallCode(profile.Features.CaughtBall.StoredValueForItemId(profile.Features.CaughtBall.DefaultItemId));
+
+static void SetDefaultBoxCaughtBall(GameProfile profile, BoxPokemon mon)
+    => mon.SetCaughtBallCode(profile.Features.CaughtBall.StoredValueForItemId(profile.Features.CaughtBall.DefaultItemId));
+
 static MgbaBridgeClient ConnectForProfile(GameProfile profile, string host, int port)
 {
     var bridge = MgbaBridgeClient.Connect(host, port);
@@ -278,7 +293,7 @@ static void WriteLivePartyCount(MgbaBridgeClient bridge, uint address, int count
         throw new InvalidOperationException($"Party count readback mismatch: expected {count}, got {readback}.");
 }
 
-static void PrintMon(int slot, uint addr, PartyPokemon mon, ModifierDatabase db)
+static void PrintMon(int slot, uint addr, PartyPokemon mon, GameProfile profile, ModifierDatabase db)
 {
     if (mon.IsEmpty)
     {
@@ -294,6 +309,8 @@ static void PrintMon(int slot, uint addr, PartyPokemon mon, ModifierDatabase db)
     var ok = info.Checksum == info.CalculatedChecksum ? "OK" : "BAD";
     Console.WriteLine($"slot {slot} @ 0x{addr:X8}: {info.Species}({speciesName}) Lv{info.Level} HP {info.Hp}/{info.MaxHp} checksum {ok} 0x{info.Checksum:X4}/0x{info.CalculatedChecksum:X4}");
     Console.WriteLine($"  item {info.Item}({itemName}) exp {info.Exp} friendship {info.Friendship} pp_bonuses=0x{info.PpBonuses:X2} status 0x{info.Status:X8}");
+    if (profile.Features.CaughtBall.ItemIdForStoredValue(info.CaughtBallCode) != 0)
+        Console.WriteLine($"  caught_ball {CaughtBallLabel(profile, db, info.CaughtBallCode)}");
     Console.WriteLine($"  nature_pid={info.Nature} game_nature_code={info.GameNatureCode}");
     Console.WriteLine($"  moves: {moves} pp=[{string.Join(", ", info.Pp)}]");
     Console.WriteLine($"  evs=[{evs}] ev_sum={info.Evs.Sum(x => x)} ivs=[{ivs}] abilitySlot={info.Ivs["ability"]} egg={info.Ivs["egg"]}");
@@ -317,7 +334,7 @@ static int PartyDump(string[] args)
     {
         if (s is < 1 or > 6) throw new ArgumentOutOfRangeException("--slot", "slot must be 1..6");
         var addr = SlotAddress(baseAddr, s);
-        PrintMon(s, addr, new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize), layout), db);
+        PrintMon(s, addr, new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize), layout), profile, db);
     }
     return 0;
 }
@@ -565,6 +582,8 @@ static PartyPokemon BuildDexImportParty(
     mon.SetOtName(trainer.NameBytes);
     mon.SetNicknameFromSpeciesNameEntry(nickname);
     mon.SetGrowth((ushort)species, item: 0, exp: experience, friendship: stats.Friendship, ppBonuses: 0);
+    if (runtime.CanWriteCaughtBall(GameDataSurface.Party, live: false))
+        SetDefaultPartyCaughtBall(profile, mon);
     mon.SetGameNatureCode(26);
     mon.SetMoves(moves.Select(move => (ushort?)move).ToArray(), pp.Select(value => (byte?)value).ToArray());
     mon.SetIvs(new Dictionary<string, int>
@@ -641,6 +660,8 @@ static int BoxVerifyCreate(string[] args)
     mon.SetOtName(trainer.NameBytes);
     mon.SetNicknameFromSpeciesNameEntry(nickname);
     mon.SetGrowth((ushort)species, item: 0, exp: experience, friendship: stats.Friendship, ppBonuses: 0);
+    if (runtime.CanWriteCaughtBall(GameDataSurface.Boxes, live: true))
+        SetDefaultBoxCaughtBall(profile, mon);
     mon.SetGameNatureCode(26);
     mon.SetMoves(moves.Select(move => (ushort?)move).ToArray(), [null, null, null, null]);
     mon.SetIvs(new Dictionary<string, int>
@@ -691,7 +712,8 @@ static int BoxVerifyCreate(string[] args)
 static int PartySetBasic(string[] args)
 {
     var profile = CurrentProfile();
-    GameRuntimeAdapterCatalog.ForProfile(profile).EnsureCanWrite(GameDataSurface.Party, live: true);
+    var runtime = GameRuntimeAdapterCatalog.ForProfile(profile);
+    runtime.EnsureCanWrite(GameDataSurface.Party, live: true);
     var db = Db();
     var slot = ValidateSlot(args);
     var host = GetArg(args, "--host", "127.0.0.1");
@@ -703,11 +725,18 @@ static int PartySetBasic(string[] args)
     var hpArg = GetArg(args, "--hp", "");
     ushort? hp = hpArg == "" ? null : (hpArg.Equals("max", StringComparison.OrdinalIgnoreCase) ? before.MaxHp : (ushort)ParseInt(hpArg));
     mon.SetGrowth(GetUShortArg(args, "--species"), GetUShortArg(args, "--item"), GetUInt32Arg(args, "--exp"), GetByteArg(args, "--friendship"), GetByteArg(args, "--pp-bonuses"));
+    if (HasArg(args, "--caught-ball"))
+    {
+        if (!runtime.CanWriteCaughtBall(GameDataSurface.Party, live: true))
+            throw new InvalidOperationException($"版本 {profile.DisplayName} 未验证实时队伍球种写入。");
+        var caughtBallItemId = RequiredIntArg(args, "--caught-ball");
+        mon.SetCaughtBallCode(profile.Features.CaughtBall.StoredValueForItemId(caughtBallItemId));
+    }
     mon.SetUnencrypted(hp, GetUShortArg(args, "--max-hp"), GetUInt32Arg(args, "--status"), GetByteArg(args, "--level"));
     var after = mon.GetInfo();
     var summary = $"Will write slot {slot} basic fields at 0x{addr:X8}\n" +
-                  $"  before species/item/exp/friendship/hp={before.Species}({db.NameOf("species", before.Species)})/{before.Item}/{before.Exp}/{before.Friendship}/{before.Hp}\n" +
-                  $"  after  species/item/exp/friendship/hp={after.Species}({db.NameOf("species", after.Species)})/{after.Item}/{after.Exp}/{after.Friendship}/{after.Hp}";
+                  $"  before species/item/exp/friendship/ball/hp={before.Species}({db.NameOf("species", before.Species)})/{before.Item}/{before.Exp}/{before.Friendship}/{CaughtBallLabel(profile, db, before.CaughtBallCode)}/{before.Hp}\n" +
+                  $"  after  species/item/exp/friendship/ball/hp={after.Species}({db.NameOf("species", after.Species)})/{after.Item}/{after.Exp}/{after.Friendship}/{CaughtBallLabel(profile, db, after.CaughtBallCode)}/{after.Hp}";
     if (Confirm(args, summary))
     {
         WriteMon(profile, bridge, baseAddr, addr, mon);
@@ -1094,6 +1123,23 @@ static int ProfileDataVerify()
             errors.Add($"menu icons: expected {profile.DataVerification.VerifiedMenuIconCount} verified profile icons, got {numericIcons}");
         var egg = Path.Combine(assetRoot, $"{profile.Graphics.EggSpeciesId:0000}.png");
         if (!File.Exists(egg)) errors.Add($"egg front sprite missing: {profile.Graphics.EggSpeciesId}");
+    }
+    if (profile.Graphics.ItemIconsVerified)
+    {
+        var itemIconRoot = Path.Combine(
+            RootDir(),
+            "RocketTool.Avalonia",
+            "Assets",
+            profile.Graphics.ItemIconAssetRoot.Replace('/', Path.DirectorySeparatorChar));
+        var itemIcons = Directory.Exists(itemIconRoot)
+            ? Directory.EnumerateFiles(itemIconRoot, "*.png")
+                .Count(path => int.TryParse(Path.GetFileNameWithoutExtension(path), out _))
+            : 0;
+        Console.WriteLine($"  item icons                   {itemIcons,5}");
+        if (itemIcons != profile.Graphics.VerifiedItemIconCount)
+            errors.Add(
+                $"item icons: expected {profile.Graphics.VerifiedItemIconCount} "
+                + $"verified profile icons, got {itemIcons}");
     }
 
     if (db.Table("map_sections").Values.Any(name => name.StartsWith("区域", StringComparison.Ordinal)))
@@ -1616,6 +1662,8 @@ static int SaveProbe(string[] args)
     {
         var info = result.Party[i].GetInfo();
         Console.WriteLine($"  {i + 1}. {info.Species}({db.NameOf("species", info.Species)}) Lv{info.Level} item={info.Item}({(info.Item == 0 ? "无" : db.NameOf("items", info.Item))})");
+        if (runtime.CanReadCaughtBall(GameDataSurface.Party, live: false))
+            Console.WriteLine($"     caughtBall={CaughtBallLabel(profile, db, info.CaughtBallCode)}");
         Console.WriteLine("     moves=" + string.Join(", ", info.Moves.Where(move => move != 0).Select(move => $"{move}({db.NameOf("moves", move)})")));
     }
 
@@ -1638,7 +1686,10 @@ static int SaveProbe(string[] args)
     foreach (var entry in result.Boxes)
     {
         var info = entry.Mon.GetInfo();
-        Console.WriteLine($"  box{entry.BoxNumber:00}-{entry.SlotInBox:00} off=0x{entry.SaveOffset:X} {info.Species}({db.NameOf("species", info.Species)}) item={info.Item}({(info.Item == 0 ? "无" : db.NameOf("items", info.Item))})");
+        var caughtBall = runtime.CanReadCaughtBall(GameDataSurface.Boxes, live: false)
+            ? $" ball={CaughtBallLabel(profile, db, info.CaughtBallCode)}"
+            : "";
+        Console.WriteLine($"  box{entry.BoxNumber:00}-{entry.SlotInBox:00} off=0x{entry.SaveOffset:X} {info.Species}({db.NameOf("species", info.Species)}) item={info.Item}({(info.Item == 0 ? "无" : db.NameOf("items", info.Item))}){caughtBall}");
     }
 
     return 0;
@@ -1657,14 +1708,30 @@ static int SaveVerifyWrite(string[] args)
     var profile = CurrentProfile();
     if (!profile.Features.SaveEditing)
         throw new InvalidOperationException($"版本 {profile.DisplayName} 未启用存档读写。");
+    var runtime = GameRuntimeAdapterCatalog.ForProfile(profile);
     var document = Gen3SaveReader.Open(path, profile);
     PartyMonInfo? info = null;
+    byte? expectedPartyBall = null;
+    byte? expectedBoxBall = null;
+    int? expectedBoxSlot = null;
+    byte NextCaughtBall(byte current)
+    {
+        var choices = profile.Features.CaughtBall.Choices;
+        var currentIndex = choices.ToList().FindIndex(choice => choice.StoredValue == current);
+        var nextIndex = currentIndex >= 0 && choices.Count > 1 ? (currentIndex + 1) % choices.Count : 0;
+        return checked((byte)choices[nextIndex].StoredValue);
+    }
     if (document.Snapshot.Party.Count > 0)
     {
         var source = document.Snapshot.Party[0];
         var clone = new PartyPokemon(source.Raw, source.Layout);
         info = clone.GetInfo();
         clone.SetGrowth(friendship: (byte)(info.Friendship == 255 ? 254 : info.Friendship + 1));
+        if (runtime.CanWriteCaughtBall(GameDataSurface.Party, live: false))
+        {
+            expectedPartyBall = NextCaughtBall(info.CaughtBallCode);
+            clone.SetCaughtBallCode(expectedPartyBall.Value);
+        }
         document.ReplacePartyPokemon(1, clone);
     }
 
@@ -1678,18 +1745,44 @@ static int SaveVerifyWrite(string[] args)
 
     ProfileSaveScenarioCatalog.ForProfile(profile).ApplyVerificationChanges(document, info);
 
+    // Profile scenarios may deliberately replace or clear their first test box.
+    // Apply the caught-ball probe last so its exact record is the one verified.
+    if (runtime.CanWriteCaughtBall(GameDataSurface.Boxes, live: false) &&
+        document.Snapshot.Boxes.FirstOrDefault() is { } boxEntry)
+    {
+        var clone = new BoxPokemon(boxEntry.Mon.Raw, boxEntry.Mon.Layout);
+        expectedBoxBall = NextCaughtBall(clone.GetInfo().CaughtBallCode);
+        expectedBoxSlot = boxEntry.GlobalSlot;
+        clone.SetCaughtBallCode(expectedBoxBall.Value);
+        document.ReplaceBoxPokemon(boxEntry.GlobalSlot, clone);
+    }
+
     if (!document.HasChanges)
         throw new InvalidOperationException("测试存档没有可验证的队伍、背包、箱子或训练家字段。");
+
+    void VerifyCaughtBallRoundTrip(Gen3SaveReadResult result)
+    {
+        if (expectedPartyBall is { } partyBall &&
+            (result.Party.Count == 0 || result.Party[0].GetInfo().CaughtBallCode != partyBall))
+            throw new InvalidOperationException("存档队伍球种 round-trip 读回不一致。");
+        if (expectedBoxBall is { } boxBall &&
+            result.Boxes.FirstOrDefault(entry => entry.GlobalSlot == expectedBoxSlot)?.Mon.GetInfo().CaughtBallCode != boxBall)
+            throw new InvalidOperationException("存档箱子球种 round-trip 读回不一致。");
+        if (expectedPartyBall is not null || expectedBoxBall is not null)
+            Console.WriteLine($"Caught-ball round-trip OK: party={expectedPartyBall?.ToString() ?? "n/a"} box={expectedBoxBall?.ToString() ?? "n/a"}");
+    }
 
     if (inPlace)
     {
         var writeResult = document.SaveInPlaceWithBackup();
         var result = writeResult.Snapshot;
+        VerifyCaughtBallRoundTrip(result);
         Console.WriteLine($"Verified in-place write: {result.FileName} backup={writeResult.BackupPath} created={writeResult.BackupCreated} sections={result.ValidSectionCount}/14 party={result.Party.Count} bag={result.Bag.Count} boxes={result.Boxes.Count} trainer={(result.Trainer is null ? "n/a" : "ok")}");
     }
     else
     {
         var result = document.SaveAs(output);
+        VerifyCaughtBallRoundTrip(result);
         Console.WriteLine($"Verified write: {result.FileName} sections={result.ValidSectionCount}/14 party={result.Party.Count} bag={result.Bag.Count} boxes={result.Boxes.Count} trainer={(result.Trainer is null ? "n/a" : "ok")}");
     }
     return 0;
@@ -1728,6 +1821,8 @@ static int SaveVerifyImportBox(string[] args)
     mon.SetOtName(trainer.NameBytes);
     mon.SetNicknameFromSpeciesNameEntry(nickname);
     mon.SetGrowth((ushort)species, item: 0, exp: 125, friendship: 70, ppBonuses: 0);
+    if (runtime.CanWriteCaughtBall(GameDataSurface.Boxes, live: false))
+        SetDefaultBoxCaughtBall(profile, mon);
     mon.SetGameNatureCode(26);
     mon.SetMoves([(ushort?)33, null, null, null], [(byte?)35, null, null, null]);
     mon.SetIvs(new Dictionary<string, int>
@@ -1821,7 +1916,7 @@ if (args.Length == 0)
     Console.WriteLine("  RocketTool.Cli party-dump [--base 0x02025170] [--slot 1]");
     Console.WriteLine("  RocketTool.Cli box-scan [--limit 30 --min-score 12]");
     Console.WriteLine("  RocketTool.Cli box-verify-create [--box 1 --slot 2 --species 1] [--yes]");
-    Console.WriteLine("  RocketTool.Cli party-set-basic --slot 1 [--species N --item N --exp N --friendship N --pp-bonuses N --level N --hp N|max --max-hp N --status N] [--yes]");
+    Console.WriteLine("  RocketTool.Cli party-set-basic --slot 1 [--species N --item N --exp N --friendship N --caught-ball ITEM_ID --pp-bonuses N --level N --hp N|max --max-hp N --status N] [--yes]");
     Console.WriteLine("  RocketTool.Cli party-set-moves --slot 1 [--moves a b c d] [--pp a b c d] [--yes]");
     Console.WriteLine("  RocketTool.Cli party-set-evs --slot 1 [--hp N --atk N --def N --spe N --spa N --spd N] [--force] [--yes]");
     Console.WriteLine("  RocketTool.Cli party-set-ivs --slot 1 [--hp N --atk N --def N --spe N --spa N --spd N --ability 0|1|2 --egg 0|1] [--yes]");

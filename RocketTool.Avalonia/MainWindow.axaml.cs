@@ -32,7 +32,8 @@ public sealed record BagSlotRow(
     ushort QuantityKey,
     bool QuantityXor,
     string Title,
-    string Detail);
+    string Detail,
+    Bitmap? Icon);
 public sealed record SaveBagEditableRow(
     BagSlotRow Row,
     IReadOnlyList<ChoiceRow> ItemChoices,
@@ -109,7 +110,7 @@ public sealed record MapLocationChoice(string Name, int X, int Y)
 {
     public override string ToString() => Name;
 }
-public sealed record ChoiceRow(int Id, string Name, string? Display = null)
+public sealed record ChoiceRow(int Id, string Name, string? Display = null, Bitmap? Icon = null)
 {
     public override string ToString() => Display ?? Name;
 }
@@ -179,6 +180,7 @@ public partial class MainWindow : Window
     private readonly List<BagSlotRow> _allBagRows = [];
     private readonly ChoiceRow[] _speciesChoices;
     private readonly ChoiceRow[] _itemChoices;
+    private readonly ChoiceRow[] _caughtBallChoices;
     private readonly ChoiceRow[] _moveChoices;
     private readonly ChoiceRow[] _natureChoices;
     private readonly ChoiceRow[] _genderChoices;
@@ -221,6 +223,7 @@ public partial class MainWindow : Window
     private readonly Dictionary<int, IReadOnlyList<SpeciesEvolution>> _evolutionCache = [];
     private readonly Dictionary<int, IReadOnlyList<SpeciesLevelMove>> _levelMoveCache = [];
     private readonly Dictionary<int, Bitmap?> _spriteCache = [];
+    private readonly Dictionary<int, Bitmap?> _itemIconCache = [];
     private Bitmap? _eggSpriteCache;
     private int ProfileMaxPokemonLevel => Math.Clamp(_profile.Limits.MaxLevel, 1, MaxPokemonLevel);
     private bool UsesVerifiedSpriteAssets => _profile.Graphics.SpritesVerified;
@@ -258,6 +261,21 @@ public partial class MainWindow : Window
             .ToArray();
         _speciesChoices = SpeciesChoiceRows();
         _itemChoices = [new ChoiceRow(0, "无"), .. ItemChoiceRows()];
+        _caughtBallChoices =
+        [
+            new ChoiceRow(0, "未记录 / 保持原值"),
+            .. profile.Features.CaughtBall.Choices
+                .OrderBy(choice => choice.StoredValue)
+                .Select(choice =>
+                {
+                    var name = _db.NameOf("items", choice.ItemId);
+                    return new ChoiceRow(
+                        choice.ItemId,
+                        $"{name} {choice.ItemId}",
+                        name,
+                        LoadItemIconBitmap(choice.ItemId));
+                })
+        ];
         _bagItemChoices = _itemChoices;
         _moveChoices = [new ChoiceRow(0, "无"), .. ChoiceRows("moves")];
         _natureChoices = NatureDisplays.Select((name, id) => new ChoiceRow(id, name, name)).ToArray();
@@ -353,6 +371,7 @@ public partial class MainWindow : Window
         SetChoice(MoveDexCategoryFilterBox, _moveDexCategoryFilterChoices, -1);
         ConfigureSearchableCombo(SpeciesBox, _speciesChoices, UpdateNameHintsFromBoxes);
         ConfigureSearchableCombo(ItemBox, _itemChoices, UpdateNameHintsFromBoxes);
+        ConfigureSearchableCombo(PartyCaughtBallBox, _caughtBallChoices, UpdateNameHintsFromBoxes);
         ConfigureSearchableCombo(Move1Box, _moveChoices, UpdateNameHintsFromBoxes);
         ConfigureSearchableCombo(Move2Box, _moveChoices, UpdateNameHintsFromBoxes);
         ConfigureSearchableCombo(Move3Box, _moveChoices, UpdateNameHintsFromBoxes);
@@ -361,6 +380,7 @@ public partial class MainWindow : Window
         ConfigureSearchableCombo(BagItemBox, _bagItemChoices, UpdateBagNameText);
         ConfigureSearchableCombo(BoxSpeciesBox, _speciesChoices, UpdateBoxNameText);
         ConfigureSearchableCombo(BoxItemBox, _itemChoices, UpdateBoxNameText);
+        ConfigureSearchableCombo(BoxCaughtBallBox, _caughtBallChoices, UpdateBoxNameText);
         ConfigureSearchableCombo(BoxMove1Box, _moveChoices, UpdateBoxNameText);
         ConfigureSearchableCombo(BoxMove2Box, _moveChoices, UpdateBoxNameText);
         ConfigureSearchableCombo(BoxMove3Box, _moveChoices, UpdateBoxNameText);
@@ -484,6 +504,14 @@ public partial class MainWindow : Window
         BoxApplyButton.Content = live ? "写入当前箱子精灵" : "应用到待保存存档";
         PartyOtSyncButton.IsVisible = live && partyWrite;
         BoxOtSyncButton.IsVisible = live && boxWrite;
+        var partyCaughtBallRead = _runtime.CanReadCaughtBall(GameDataSurface.Party, live);
+        var boxCaughtBallRead = _runtime.CanReadCaughtBall(GameDataSurface.Boxes, live);
+        PartyCaughtBallPanel.IsVisible = partyCaughtBallRead;
+        PartyCaughtBallBox.IsEnabled = partyCaughtBallRead &&
+                                       _runtime.CanWriteCaughtBall(GameDataSurface.Party, live);
+        BoxCaughtBallPanel.IsVisible = boxCaughtBallRead;
+        BoxCaughtBallBox.IsEnabled = boxCaughtBallRead &&
+                                     _runtime.CanWriteCaughtBall(GameDataSurface.Boxes, live);
         TrainerReadButton.IsVisible = live && trainerRead;
         TrainerApplyNameButton.IsVisible = trainerWrite && (live || _loadedSave?.CanWrite == true);
         TrainerApplyNameButton.Content = live ? "写入名字" : "应用名字到待保存存档";
@@ -1325,6 +1353,9 @@ public partial class MainWindow : Window
             if (abilitySlot is not null)
                 mon.SetAbilitySlot(abilitySlot.Value, ReadSpeciesStats(species ?? before.Species).GenderRatio);
             mon.SetGrowth(species, ParseItemOrNull(ItemBox), experience.Exp, ParsePartyFriendshipOrHatchCounter(before), null);
+            if (_runtime.CanWriteCaughtBall(GameDataSurface.Party, live: true) &&
+                ParseCaughtBallOrNull(PartyCaughtBallBox) is { } caughtBall)
+                mon.SetCaughtBallCode(caughtBall);
             var level = experience.Level;
             var maxHp = ParseUShortOrNull(MaxHpBox.Text);
             mon.SetUnencrypted(null, null, SelectedStatus(), experience.Level);
@@ -1412,6 +1443,11 @@ public partial class MainWindow : Window
             experience.Exp,
             ParsePartyFriendshipOrHatchCounter(before),
             BuildPpBonuses(PpUp1Box, PpUp2Box, PpUp3Box, PpUp4Box));
+        if (_runtime.CanWriteCaughtBall(
+                GameDataSurface.Party,
+                live: _dataSourceMode == DataSourceMode.Live) &&
+            ParseCaughtBallOrNull(PartyCaughtBallBox) is { } caughtBall)
+            mon.SetCaughtBallCode(caughtBall);
         mon.SetUnencrypted(null, ParseUShortOrNull(MaxHpBox.Text), SelectedStatus(), experience.Level);
         mon.SetMoves(
             [ParseMoveOrNull(Move1Box), ParseMoveOrNull(Move2Box), ParseMoveOrNull(Move3Box), ParseMoveOrNull(Move4Box)],
@@ -2407,6 +2443,11 @@ public partial class MainWindow : Window
         BoxAddressText.Text = $"0x{row.Address:X8}";
         SetChoice(BoxSpeciesBox, _speciesChoices, info.Species);
         SetChoice(BoxItemBox, _itemChoices, info.Item);
+        if (BoxCaughtBallPanel.IsVisible)
+            SetChoice(
+                BoxCaughtBallBox,
+                _caughtBallChoices,
+                _profile.Features.CaughtBall.ItemIdForStoredValue(info.CaughtBallCode));
         SetChoice(BoxNatureBox, _natureChoices, info.Nature);
         SetChoice(BoxGenderBox, _genderChoices, GenderChoiceId(info.Species, info.Pid));
         BoxShinyBox.IsChecked = row.Mon.IsShiny;
@@ -2878,6 +2919,11 @@ public partial class MainWindow : Window
             exp: experience,
             friendship: ParseBoxFriendshipOrHatchCounter(before),
             ppBonuses: BuildPpBonuses(BoxPpUp1Box, BoxPpUp2Box, BoxPpUp3Box, BoxPpUp4Box));
+        if (_runtime.CanWriteCaughtBall(
+                GameDataSurface.Boxes,
+                live: _dataSourceMode == DataSourceMode.Live) &&
+            ParseCaughtBallOrNull(BoxCaughtBallBox) is { } caughtBall)
+            mon.SetCaughtBallCode(caughtBall);
         if (SelectedChoiceId(BoxNatureBox) is { } nature)
             mon.SetNature(nature);
         mon.SetShiny(BoxShinyBox.IsChecked == true);
@@ -3197,6 +3243,8 @@ public partial class MainWindow : Window
         var (moves, pp) = DexImportMoves(species);
         mon.SetNicknameFromSpeciesNameEntry(SpeciesNameEntryBytes(species));
         mon.SetGrowth((ushort)species, item: 0, ExperienceForLevel(DexImportLevel, stats.GrowthRate), stats.Friendship, ppBonuses: 0);
+        if (_runtime.CanWriteCaughtBall(GameDataSurface.Party, _dataSourceMode == DataSourceMode.Live))
+            mon.SetCaughtBallCode(_profile.Features.CaughtBall.StoredValueForItemId(_profile.Features.CaughtBall.DefaultItemId));
         mon.SetGameNatureCode(NatureCodeUsePid);
         mon.SetMoves(moves.Select(m => (ushort?)m).ToArray(), pp.Select(x => (byte?)x).ToArray());
         mon.SetIvs(DefaultImportIvs());
@@ -3208,6 +3256,8 @@ public partial class MainWindow : Window
         var (moves, pp) = DexImportMoves(species);
         mon.SetNicknameFromSpeciesNameEntry(SpeciesNameEntryBytes(species));
         mon.SetGrowth((ushort)species, item: 0, ExperienceForLevel(DexImportLevel, stats.GrowthRate), stats.Friendship, ppBonuses: 0);
+        if (_runtime.CanWriteCaughtBall(GameDataSurface.Boxes, _dataSourceMode == DataSourceMode.Live))
+            mon.SetCaughtBallCode(_profile.Features.CaughtBall.StoredValueForItemId(_profile.Features.CaughtBall.DefaultItemId));
         mon.SetGameNatureCode(NatureCodeUsePid);
         mon.SetMoves(moves.Select(m => (ushort?)m).ToArray(), pp.Select(x => (byte?)x).ToArray());
         mon.SetIvs(DefaultImportIvs());
@@ -4121,6 +4171,25 @@ public partial class MainWindow : Window
         {
             return null;
         }
+    }
+
+    private Bitmap? LoadItemIconBitmap(int itemId)
+    {
+        if (!_profile.Graphics.ItemIconsVerified || itemId < 0) return null;
+        if (_itemIconCache.TryGetValue(itemId, out var cached)) return cached;
+        Bitmap? icon;
+        try
+        {
+            var root = _profile.Graphics.ItemIconAssetRoot.Trim().Trim('/').Replace('\\', '/');
+            var uri = new Uri($"avares://RocketTool.Avalonia/Assets/{root}/{itemId:0000}.png");
+            icon = new Bitmap(AssetLoader.Open(uri));
+        }
+        catch
+        {
+            icon = null;
+        }
+        _itemIconCache[itemId] = icon;
+        return icon;
     }
 
     private void FillDexBaseInfo(DexSpeciesRow row, SpeciesStats s)
@@ -5279,6 +5348,11 @@ public partial class MainWindow : Window
         {
             SetChoice(SpeciesBox, _speciesChoices, info.Species);
             SetChoice(ItemBox, _itemChoices, info.Item);
+            if (PartyCaughtBallPanel.IsVisible)
+                SetChoice(
+                    PartyCaughtBallBox,
+                    _caughtBallChoices,
+                    _profile.Features.CaughtBall.ItemIdForStoredValue(info.CaughtBallCode));
             SetChoice(NatureBox, _natureChoices, info.Nature);
             SetChoice(GenderBox, _genderChoices, GenderChoiceId(info.Species, info.Pid));
             RefreshAbilityChoices(info.Species, info.Ivs["ability"]);
@@ -5331,6 +5405,8 @@ public partial class MainWindow : Window
             SpeciesBox.SelectedItem = null;
             ItemBox.Text = string.Empty;
             ItemBox.SelectedItem = null;
+            PartyCaughtBallBox.Text = string.Empty;
+            PartyCaughtBallBox.SelectedItem = null;
             Move1Box.Text = string.Empty;
             Move1Box.SelectedItem = null;
             Move2Box.Text = string.Empty;
@@ -5430,7 +5506,17 @@ public partial class MainWindow : Window
                 ? $"{prefix}{name}"
                 : $"{prefix}{name} x{quantity}";
         var detail = $"{pocketName}  地址 0x{address:X8}  {note}";
-        return new BagSlotRow(address, itemId, quantity, pocket, slotNumber ?? 0, definition?.QuantityKey ?? 0, definition?.QuantityXor == true, title, detail);
+        return new BagSlotRow(
+            address,
+            itemId,
+            quantity,
+            pocket,
+            slotNumber ?? 0,
+            definition?.QuantityKey ?? 0,
+            definition?.QuantityXor == true,
+            title,
+            detail,
+            LoadItemIconBitmap(itemId));
     }
 
     private void LoadBagRows(MgbaBridgeClient bridge)
@@ -6253,7 +6339,7 @@ public partial class MainWindow : Window
             {
                 var machineName = MachineMoveName(kv.Key);
                 var display = machineName ?? kv.Value;
-                return new ChoiceRow(kv.Key, kv.Value, display);
+                return new ChoiceRow(kv.Key, kv.Value, display, LoadItemIconBitmap(kv.Key));
             })
             .ToArray();
 
@@ -6376,6 +6462,17 @@ public partial class MainWindow : Window
 
     private ushort ParseBoundedChoiceRequired(SearchableChoiceBox box, IReadOnlyList<ChoiceRow> choices, int maxValue, string label)
         => ParseBoundedChoiceOrNull(box, choices, maxValue, label) ?? throw new InvalidOperationException($"缺少 {label}。");
+
+    private byte? ParseCaughtBallOrNull(SearchableChoiceBox box)
+    {
+        var value = ParseChoiceUShortOrNull(box, _caughtBallChoices);
+        if (value is null) return null;
+        if (value.Value == 0) return null;
+        var feature = _profile.Features.CaughtBall;
+        if (feature.Choices.All(choice => choice.ItemId != value.Value))
+            throw new InvalidOperationException("球种必须选择当前版本已验证的精灵球。");
+        return feature.StoredValueForItemId(value.Value);
+    }
 
     private ushort? ParseSpeciesOrNull(SearchableChoiceBox box)
         => ParseBoundedChoiceOrNull(box, _speciesChoices, MaxSpeciesId(), "宝可梦");

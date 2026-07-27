@@ -18,7 +18,8 @@
     "machineCompatibility": 1199,
     "eggMoveSpeciesRows": 1199,
     "wildEncounterSlots": 2220,
-    "menuIcons": 1092
+    "menuIcons": 1092,
+    "itemIcons": 374
   },
   "dataStatus": {
     "romVerified": [
@@ -57,7 +58,8 @@
       "species egg moves from current-ROM marker stream 0x964700..0x96570A",
       "wild encounters from 147 current-ROM headers at 0xCEECBC",
       "map section names 0..108 from current-ROM pointer table 0x3F1CAC",
-      "1092 normal menu icons from current-ROM pointer table 0x1AD93A8, palette-index table 0x1ADA668, and palettes 0x3D3740"
+      "1092 normal menu icons from current-ROM pointer table 0x1AD93A8, palette-index table 0x1ADA668, and palettes 0x3D3740",
+      "374 item icons from current-ROM table 0x3D4294; entries are LZ77 24x24 4bpp tiles and BGR555 palettes"
     ],
     "displayHints": [
       "All visible species, move, item, and ability rows have resolved display names; raw ROM bytes remain preserved.",
@@ -97,6 +99,7 @@
     "wildEncounters": "0xCEECBC (147 headers)",
     "mapSectionNames": "0x3F1CAC (ids 0..108)",
     "iconPaletteIndices": "0x1ADA668",
-    "iconPalettes": "0x3D3740"
+    "iconPalettes": "0x3D3740",
+    "itemIcons": "0x3D4294"
   }
 }

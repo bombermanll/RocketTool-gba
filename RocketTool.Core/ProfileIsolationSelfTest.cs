@@ -44,6 +44,53 @@ public static class ProfileIsolationSelfTest
              adapter.CanRead(GameDataSurface.Bag, false) ||
              adapter.CanRead(GameDataSurface.Trainer, false)))
             throw new InvalidOperationException("disabled 存档策略仍暴露了存档能力。");
+
+        VerifyCaughtBallIsolation(profile, adapter);
+    }
+
+    private static void VerifyCaughtBallIsolation(GameProfile profile, IGameRuntimeAdapter adapter)
+    {
+        var configured = new[]
+        {
+            profile.Features.CaughtBall.LiveParty,
+            profile.Features.CaughtBall.SaveParty,
+            profile.Features.CaughtBall.LiveBoxes,
+            profile.Features.CaughtBall.SaveBoxes
+        }.Any(access => access.Read || access.Write);
+        if (!configured)
+        {
+            if (adapter.CanReadCaughtBall(GameDataSurface.Party, true) ||
+                adapter.CanReadCaughtBall(GameDataSurface.Party, false) ||
+                adapter.CanReadCaughtBall(GameDataSurface.Boxes, true) ||
+                adapter.CanReadCaughtBall(GameDataSurface.Boxes, false))
+                throw new InvalidOperationException("未配置球种能力的 Profile 仍暴露了球种读取。");
+            return;
+        }
+
+        const uint pid = 0x12345679;
+        const uint otId = 0x10203040;
+        var choices = profile.Features.CaughtBall.Choices;
+        var partyCode = checked((byte)choices[^1].StoredValue);
+        var boxCode = checked((byte)choices[0].StoredValue);
+        var party = PartyPokemon.Create(pid, otId, adapter.PartyLayout);
+        if (adapter.PartyLayout == PokemonDataLayout.SpanishRocketEncrypted)
+            party.SetGameNatureCode(31);
+        party.SetCaughtBallCode(partyCode);
+        var partyInfo = party.GetInfo();
+        if (partyInfo.CaughtBallCode != partyCode ||
+            adapter.PartyLayout == PokemonDataLayout.SpanishRocketEncrypted &&
+            (partyInfo.GameNatureCode != 31 || partyInfo.Checksum != partyInfo.CalculatedChecksum))
+            throw new InvalidOperationException("队伍球种位域没有保留相邻性格位或没有刷新校验。");
+
+        var box = BoxPokemon.Create(pid, otId, adapter.LiveBoxLayout);
+        if (adapter.LiveBoxLayout == PokemonDataLayout.SpanishRocketEncrypted)
+            box.SetGameNatureCode(31);
+        box.SetCaughtBallCode(boxCode);
+        var boxInfo = box.GetInfo();
+        if (boxInfo.CaughtBallCode != boxCode ||
+            adapter.LiveBoxLayout == PokemonDataLayout.SpanishRocketEncrypted &&
+            (boxInfo.GameNatureCode != 31 || boxInfo.Checksum != boxInfo.CalculatedChecksum))
+            throw new InvalidOperationException("箱子球种位域没有保留相邻性格位或没有刷新校验。");
     }
 }
 
