@@ -1,0 +1,447 @@
+{
+  "id": "pokemon-ultimate-emerald-55-cn",
+  "displayName": "究极绿宝石5.5",
+  "description": "究极绿宝石5.5独立配置；已启用当前 ROM 的图鉴、图片、升级/机器/教学/蛋招式、名称与说明，以及实时/存档队伍、箱子、背包、玩家资料和金钱读写。",
+  "romIdentity": {
+    "fileName": "究极绿宝石 V-5.gba",
+    "romSize": 33554432,
+    "sha256": "54fcca2edaeb359867d7bd3fc5bd88687e84ea069488be1b0a011bb3eefae6cc",
+    "headerTitle": "POKEMON EMER",
+    "gameCode": "BPEE",
+    "liveFingerprints": [
+      {
+        "offset": "0x1000000",
+        "hex": "000F0001000009090202FFFFFFFFFFFF"
+      }
+    ]
+  },
+  "strategies": {
+    "runtime": "pokemon-ultimate-emerald-55-runtime-v1",
+    "pokemon": "pokemon-ultimate-emerald-55-pokemon-v1",
+    "partyScanner": "pokemon-ultimate-emerald-55-party-v1",
+    "boxScanner": "pokemon-ultimate-emerald-55-box-v1",
+    "bag": "pokemon-ultimate-emerald-55-bag-v1",
+    "save": "pokemon-ultimate-emerald-55-save-v1"
+  },
+  "memory": {
+    "ewramBase": "0x02000000",
+    "ewramSize": "0x40000",
+    "defaultPartyBase": "0x020244EC",
+    "partyCountOffsetFromPartyBase": -3,
+    "saveBlock1PointerAddress": "0x03005D8C",
+    "saveBlock2PointerAddress": "0x03005D90",
+    "saveBlock1MoneyOffset": "0x490",
+    "saveBlock2EncryptionKeyOffset": "0xAC",
+    "saveBlock2PlayerOtIdOffset": 10,
+    "saveBlock2HeaderLength": 14,
+    "playerNameLength": 8,
+    "pokemonOtNameOffset": 20,
+    "pokemonOtNameLength": 7,
+    "pcBoxCount": 14,
+    "pcBoxSlots": 30,
+    "pcBoxRecordSize": 80,
+    "pcBoxStoragePointerAddress": "0x03005D94",
+    "pcBoxDataOffset": 4,
+    "livePcBoxWritableSlotCount": 420,
+    "savePcBoxWritableSlotCount": 420,
+    "pcBoxRegions": []
+  },
+  "romTables": {
+    "baseStats": {
+      "offset": "0xF186E0",
+      "entrySize": 28,
+      "count": 1200
+    },
+    "speciesAbilities": {
+      "offset": "0x17A0000",
+      "entrySize": 6,
+      "count": 1200
+    },
+    "moves": {
+      "offset": "0x1D863B9",
+      "entrySize": 12,
+      "count": 1025
+    },
+    "items": {
+      "offset": "0xFC2C7C",
+      "entrySize": 44,
+      "count": 800
+    },
+    "evolutions": {
+      "offset": "0xF387C0",
+      "entrySize": 8,
+      "count": 1200,
+      "entriesPerRecord": 5
+    },
+    "levelMoves": {
+      "offset": "0x1D89518",
+      "entrySize": 3,
+      "count": 1200
+    },
+    "machineMoves": {
+      "offset": "0x1E0FE80",
+      "entrySize": 2,
+      "count": 128
+    },
+    "tutorMoves": {
+      "offset": "0xFD80B8",
+      "entrySize": 2,
+      "count": 127
+    },
+    "machineCompatibility": {
+      "offset": "0xFCD8F4",
+      "entrySize": 16,
+      "count": 1200
+    },
+    "tutorCompatibility": {
+      "offset": "0x1750000",
+      "entrySize": 16,
+      "count": 1200
+    },
+    "eggMoves": {
+      "offset": "0x32ADD8",
+      "entrySize": 2,
+      "count": 1139
+    },
+    "experience": {
+      "offset": "0x31F72C",
+      "entrySize": 404,
+      "count": 6
+    }
+  },
+  "graphics": {
+    "spritesVerified": true,
+    "spriteAssetRoot": "Profiles/pokemon-ultimate-emerald-55-cn/Pokemon/front",
+    "iconAssetRoot": "Profiles/pokemon-ultimate-emerald-55-cn/Pokemon/icon",
+    "itemIconsVerified": true,
+    "itemIconAssetRoot": "Profiles/pokemon-ultimate-emerald-55-cn/Items/icon",
+    "frontSpriteTableOffset": "0xF20A20",
+    "iconSpriteTableOffset": "0xF2A020",
+    "itemIconTableOffset": "0xFCBFF4",
+    "normalPaletteTableOffset": "0xF25520",
+    "spriteIndexAdjustment": 0,
+    "paletteIndexAdjustment": 0,
+    "eggSpeciesId": 412,
+    "verifiedItemIconCount": 800
+  },
+  "limits": {
+    "maxSpecies": 1198,
+    "maxMove": 1024,
+    "maxItem": 799,
+    "maxAbility": 341,
+    "maxLevel": 100,
+    "maxBagQuantity": 999,
+    "maxBagQuantityByPocket": {
+      "5": 1
+    }
+  },
+  "dataVerification": {
+    "visibleSpeciesCount": 1197,
+    "verifiedMenuIconCount": 1197
+  },
+  "features": {
+    "liveEditing": true,
+    "saveEditing": true,
+    "liveParty": {
+      "read": true,
+      "write": true
+    },
+    "saveParty": {
+      "read": true,
+      "write": true
+    },
+    "liveBoxes": {
+      "read": true,
+      "write": true
+    },
+    "saveBoxes": {
+      "read": true,
+      "write": true
+    },
+    "liveBag": {
+      "read": true,
+      "write": true
+    },
+    "saveBag": {
+      "read": true,
+      "write": true
+    },
+    "liveTrainer": {
+      "read": true,
+      "write": true
+    },
+    "saveTrainer": {
+      "read": true,
+      "write": true
+    },
+    "caughtBall": {
+      "liveParty": {
+        "read": true,
+        "write": true
+      },
+      "saveParty": {
+        "read": true,
+        "write": true
+      },
+      "liveBoxes": {
+        "read": true,
+        "write": true
+      },
+      "saveBoxes": {
+        "read": true,
+        "write": true
+      },
+      "choices": [
+        {
+          "itemId": 4,
+          "storedValue": 0
+        },
+        {
+          "itemId": 3,
+          "storedValue": 1
+        },
+        {
+          "itemId": 5,
+          "storedValue": 2
+        },
+        {
+          "itemId": 2,
+          "storedValue": 3
+        },
+        {
+          "itemId": 1,
+          "storedValue": 4
+        },
+        {
+          "itemId": 6,
+          "storedValue": 5
+        },
+        {
+          "itemId": 7,
+          "storedValue": 6
+        },
+        {
+          "itemId": 8,
+          "storedValue": 7
+        },
+        {
+          "itemId": 9,
+          "storedValue": 8
+        },
+        {
+          "itemId": 10,
+          "storedValue": 9
+        },
+        {
+          "itemId": 11,
+          "storedValue": 10
+        },
+        {
+          "itemId": 12,
+          "storedValue": 11
+        },
+        {
+          "itemId": 289,
+          "storedValue": 12
+        },
+        {
+          "itemId": 290,
+          "storedValue": 13
+        },
+        {
+          "itemId": 291,
+          "storedValue": 14
+        },
+        {
+          "itemId": 292,
+          "storedValue": 15
+        },
+        {
+          "itemId": 293,
+          "storedValue": 16
+        },
+        {
+          "itemId": 294,
+          "storedValue": 17
+        },
+        {
+          "itemId": 295,
+          "storedValue": 18
+        },
+        {
+          "itemId": 296,
+          "storedValue": 19
+        },
+        {
+          "itemId": 297,
+          "storedValue": 20
+        },
+        {
+          "itemId": 298,
+          "storedValue": 21
+        },
+        {
+          "itemId": 299,
+          "storedValue": 22
+        },
+        {
+          "itemId": 300,
+          "storedValue": 23
+        },
+        {
+          "itemId": 301,
+          "storedValue": 24
+        },
+        {
+          "itemId": 302,
+          "storedValue": 25
+        },
+        {
+          "itemId": 303,
+          "storedValue": 26
+        }
+      ],
+      "defaultItemId": 4,
+      "pocket": 2
+    },
+    "builtInDex": true,
+    "moveDex": true,
+    "importToParty": true,
+    "importToBoxes": true,
+    "importToSaveParty": true,
+    "importToSaveBoxes": true,
+    "experiments": false
+  },
+  "runtime": {
+    "liveBag": {
+      "mode": "fixed",
+      "baseAddress": "0x0203D030",
+      "quantityKeyMode": "save-block2-key-low16",
+      "areas": [
+        {
+          "pocket": 1,
+          "name": "道具",
+          "address": "0x0203D030",
+          "capacity": 100
+        },
+        {
+          "pocket": 2,
+          "name": "精灵球",
+          "address": "0x0203D288",
+          "capacity": 32
+        },
+        {
+          "pocket": 3,
+          "name": "招式机器",
+          "address": "0x0203D308",
+          "capacity": 130
+        },
+        {
+          "pocket": 4,
+          "name": "树果",
+          "address": "0x0203D510",
+          "capacity": 50
+        },
+        {
+          "pocket": 5,
+          "name": "重要物品",
+          "address": "0x0203D1C0",
+          "capacity": 50
+        }
+      ],
+      "scannedAreas": []
+    },
+    "liveBagPockets": [
+      {
+        "id": 1,
+        "name": "道具",
+        "isKeyItem": false,
+        "batchCapacity": 100
+      },
+      {
+        "id": 2,
+        "name": "精灵球",
+        "isKeyItem": false,
+        "batchCapacity": 32
+      },
+      {
+        "id": 3,
+        "name": "招式机器",
+        "isKeyItem": false,
+        "batchCapacity": 130
+      },
+      {
+        "id": 4,
+        "name": "树果",
+        "isKeyItem": false,
+        "batchCapacity": 50
+      },
+      {
+        "id": 5,
+        "name": "重要物品",
+        "isKeyItem": true,
+        "batchCapacity": 50
+      }
+    ],
+    "saveBagPockets": [
+      {
+        "id": 1,
+        "name": "道具",
+        "isKeyItem": false,
+        "batchCapacity": 100
+      },
+      {
+        "id": 2,
+        "name": "精灵球",
+        "isKeyItem": false,
+        "batchCapacity": 32
+      },
+      {
+        "id": 3,
+        "name": "招式机器",
+        "isKeyItem": false,
+        "batchCapacity": 130
+      },
+      {
+        "id": 4,
+        "name": "树果",
+        "isKeyItem": false,
+        "batchCapacity": 50
+      },
+      {
+        "id": 5,
+        "name": "重要物品",
+        "isKeyItem": true,
+        "batchCapacity": 50
+      }
+    ],
+    "itemPocketFallbackRanges": [],
+    "itemPocketRemap": {},
+    "defaultItemPocket": -1,
+    "machines": {
+      "pocket": 3,
+      "mode": "fixed-ranges",
+      "tmStartItem": 378,
+      "tmCount": 120,
+      "hmStartItem": 498,
+      "hmCount": 8,
+      "hmMoveStartIndex": 120,
+      "fallbackMoveIds": []
+    },
+    "shopProbe": {
+      "enabled": false,
+      "shopPriceAddress": "0x0",
+      "shopFirstItemAddress": "0x0",
+      "sellPricePrimaryAddress": "0x0",
+      "sellPriceFallbackAddress": "0x0"
+    },
+    "bridgeExperimentProfile": "disabled",
+    "experimentNeedsSaveBaseForNoEncounter": false,
+    "experimentBattleAssist": false,
+    "experimentTeleport": false,
+    "experimentNoEncounter": false,
+    "experimentWalkThroughWalls": false,
+    "maxTrainerMoney": 999999,
+    "bagBatchQuantity": 240
+  }
+}

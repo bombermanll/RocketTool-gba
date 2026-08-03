@@ -42,8 +42,20 @@ public sealed class BoxPokemon
     private const int DestinyAttacksOffset = 0x2C;
     private const int DestinyEvsOffset = 0x38;
     private const int DestinyMiscOffset = 0x44;
+    private const int UltimateEmerald55CaughtBallOffset = DestinyMiscOffset + 3;
+    private const byte UltimateEmerald55CaughtBallMask = 0x7C;
+    private const int UltimateEmerald55CaughtBallShift = 2;
+    private const int UltimateEmerald55HiddenAbilityOffset = DestinyEvsOffset + 4;
+    private const byte UltimateEmerald55HiddenAbilityMask = 0x01;
+    private const int UltimateEmerald55NormalAbilityOffset = DestinyMiscOffset + 7;
+    private const byte UltimateEmerald55NormalAbilityMask = 0x40;
     private readonly byte[] _raw;
     private readonly PokemonDataLayout _layout;
+    private bool IsCfruPlain80 => IsCfruPlain80Layout(_layout);
+
+    private static bool IsCfruPlain80Layout(PokemonDataLayout layout)
+        => layout is PokemonDataLayout.DestinyCfruPlainBox
+            or PokemonDataLayout.UltimateEmerald55CfruPlainBox;
 
     public BoxPokemon(ReadOnlySpan<byte> raw, PokemonDataLayout layout)
     {
@@ -58,20 +70,21 @@ public sealed class BoxPokemon
     public uint Pid => ReadU32(_raw, 0);
     public uint OtId => ReadU32(_raw, 4);
     public uint Key => Pid ^ OtId;
-    public ushort Checksum => _layout is PokemonDataLayout.UnboundCfruPlainParty or PokemonDataLayout.DestinyCfruPlainBox
+    public ushort Checksum => _layout == PokemonDataLayout.UnboundCfruPlainParty || IsCfruPlain80
         ? (ushort)0
         : ReadU16(_raw, 0x1C);
     public bool IsEmpty => _layout switch
     {
         PokemonDataLayout.UnboundCfruPlainParty => ReadU16(_raw, 28) == 0,
         PokemonDataLayout.DestinyCfruPlainBox => ReadU16(_raw, DestinyGrowthOffset) == 0,
+        PokemonDataLayout.UltimateEmerald55CfruPlainBox => ReadU16(_raw, DestinyGrowthOffset) == 0,
         _ => Pid == 0 && OtId == 0
     };
     public bool IsShiny => PartyPokemon.IsShinyPid(Pid, OtId);
 
     public bool HasValidHeader(int maxSpecies)
     {
-        if (_layout == PokemonDataLayout.DestinyCfruPlainBox)
+        if (IsCfruPlain80)
         {
             var destinySpecies = ReadU16(_raw, DestinyGrowthOffset);
             return destinySpecies is >= 1 && destinySpecies <= maxSpecies;
@@ -92,7 +105,7 @@ public sealed class BoxPokemon
         var raw = new byte[layout == PokemonDataLayout.UnboundCfruPlainParty ? UnboundCompressedSize : Size];
         WriteU32(raw, 0x00, pid);
         WriteU32(raw, 0x04, otId);
-        if (layout is PokemonDataLayout.UnboundCfruPlainParty or PokemonDataLayout.DestinyCfruPlainBox)
+        if (layout == PokemonDataLayout.UnboundCfruPlainParty || IsCfruPlain80Layout(layout))
         {
             raw[0x12] = 2;
             raw[0x13] = 2;
@@ -110,11 +123,13 @@ public sealed class BoxPokemon
 
     public BoxMonInfo GetInfo()
     {
-        if (_layout == PokemonDataLayout.DestinyCfruPlainBox)
+        if (IsCfruPlain80)
         {
             var destinyIvWord = ReadU32(_raw, DestinyMiscOffset + 4);
             var destinyIvs = PartyPokemon.IvWordToDictionary(destinyIvWord);
-            destinyIvs["ability"] = _raw[DestinyMiscOffset + MiscAbilitySlotOffset] & MiscAbilitySlotMask;
+            destinyIvs["ability"] = _layout == PokemonDataLayout.UltimateEmerald55CfruPlainBox
+                ? UltimateEmerald55AbilitySlot()
+                : _raw[DestinyMiscOffset + MiscAbilitySlotOffset] & MiscAbilitySlotMask;
             return new BoxMonInfo(
                 Pid,
                 OtId,
@@ -125,7 +140,11 @@ public sealed class BoxPokemon
                 ReadU32(_raw, DestinyGrowthOffset + 4),
                 _raw[DestinyGrowthOffset + 8],
                 _raw[DestinyGrowthOffset + 9],
-                (byte)((_raw[DestinyMiscOffset + 3] >> 3) & 0x0F),
+                _layout == PokemonDataLayout.UltimateEmerald55CfruPlainBox
+                    ? (byte)((_raw[UltimateEmerald55CaughtBallOffset] &
+                              UltimateEmerald55CaughtBallMask) >>
+                             UltimateEmerald55CaughtBallShift)
+                    : (byte)((_raw[DestinyMiscOffset + 3] >> 3) & 0x0F),
                 [ReadU16(_raw, DestinyAttacksOffset), ReadU16(_raw, DestinyAttacksOffset + 2), ReadU16(_raw, DestinyAttacksOffset + 4), ReadU16(_raw, DestinyAttacksOffset + 6)],
                 _raw.AsSpan(DestinyAttacksOffset + 8, 4).ToArray(),
                 _raw.AsSpan(DestinyEvsOffset, 6).ToArray(),
@@ -193,7 +212,7 @@ public sealed class BoxPokemon
 
     public void SetGrowth(ushort? species = null, ushort? item = null, uint? exp = null, byte? friendship = null, byte? ppBonuses = null)
     {
-        if (_layout == PokemonDataLayout.DestinyCfruPlainBox)
+        if (IsCfruPlain80)
         {
             if (species is not null) WriteU16(_raw, DestinyGrowthOffset, species.Value);
             if (item is not null) WriteU16(_raw, DestinyGrowthOffset + 2, item.Value);
@@ -233,10 +252,10 @@ public sealed class BoxPokemon
 
     public void SetGameNatureCode(int code)
     {
-        if (_layout is PokemonDataLayout.UnboundCfruPlainParty or PokemonDataLayout.DestinyCfruPlainBox)
+        if (_layout == PokemonDataLayout.UnboundCfruPlainParty || IsCfruPlain80)
         {
             if (code != NatureOverrideUsePid)
-                throw new InvalidOperationException("宝可梦解放的性格由 PID 决定，不支持旧版性格覆盖字段。");
+                throw new InvalidOperationException("当前 CFRU 明文布局的性格由 PID 决定，不支持旧版性格覆盖字段。");
             return;
         }
         if (code is < 0 or > 0x1F) throw new ArgumentOutOfRangeException(nameof(code), "game nature code must be 0..31");
@@ -252,6 +271,17 @@ public sealed class BoxPokemon
         if (_layout == PokemonDataLayout.UnboundCfruPlainParty)
         {
             _raw[38] = storedValue;
+            return;
+        }
+        if (_layout == PokemonDataLayout.UltimateEmerald55CfruPlainBox)
+        {
+            if (storedValue > 0x1F)
+                throw new ArgumentOutOfRangeException(nameof(storedValue), "究极绿宝石 5.5 球种存储值必须在 0..31 之间。");
+            _raw[UltimateEmerald55CaughtBallOffset] =
+                (byte)((_raw[UltimateEmerald55CaughtBallOffset] &
+                        ~UltimateEmerald55CaughtBallMask) |
+                       ((storedValue << UltimateEmerald55CaughtBallShift) &
+                        UltimateEmerald55CaughtBallMask));
             return;
         }
         if (_layout == PokemonDataLayout.DestinyCfruPlainBox)
@@ -278,18 +308,34 @@ public sealed class BoxPokemon
         SetDecrypted(dec);
     }
 
+    public void SetUltimateEmerald55OriginInfo(byte metLevel, byte trainerGender)
+    {
+        if (_layout != PokemonDataLayout.UltimateEmerald55CfruPlainBox)
+            throw new InvalidOperationException("当前箱子记录不是究极绿宝石 5.5 明文结构。");
+        if (metLevel is < 1 or > 100)
+            throw new ArgumentOutOfRangeException(nameof(metLevel), "相遇等级必须在 1..100 之间。");
+        if (trainerGender > 1)
+            throw new ArgumentOutOfRangeException(nameof(trainerGender), "初训家性别必须为 0 或 1。");
+
+        _raw[DestinyMiscOffset + 2] = metLevel;
+        _raw[DestinyMiscOffset + 3] =
+            (byte)((_raw[DestinyMiscOffset + 3] & UltimateEmerald55CaughtBallMask) |
+                   0x03 |
+                   (trainerGender << 7));
+    }
+
     public void SetNicknameFromSpeciesNameEntry(ReadOnlySpan<byte> speciesNameEntry)
     {
         if (speciesNameEntry.Length < NicknameLength)
             throw new ArgumentException($"Species name entry must contain at least {NicknameLength} bytes.", nameof(speciesNameEntry));
         speciesNameEntry[..NicknameLength].CopyTo(_raw.AsSpan(NicknameOffset, NicknameLength));
         if (_layout == PokemonDataLayout.UnboundCfruPlainParty) _raw[0x12] = 2;
-        else if (_layout != PokemonDataLayout.DestinyCfruPlainBox) _raw[0x12] = 0x12;
+        else if (!IsCfruPlain80) _raw[0x12] = 0x12;
     }
 
     public void SetMoves(IReadOnlyList<ushort?> moves, IReadOnlyList<byte?> pp)
     {
-        if (_layout == PokemonDataLayout.DestinyCfruPlainBox)
+        if (IsCfruPlain80)
         {
             for (var i = 0; i < Math.Min(4, moves.Count); i++)
                 if (moves[i] is ushort move) WriteU16(_raw, DestinyAttacksOffset + i * 2, move);
@@ -322,10 +368,18 @@ public sealed class BoxPokemon
 
     public void SetEvs(Dictionary<string, byte> values)
     {
-        if (_layout == PokemonDataLayout.DestinyCfruPlainBox)
+        if (IsCfruPlain80)
         {
+            var ultimateHiddenAbility = _layout == PokemonDataLayout.UltimateEmerald55CfruPlainBox &&
+                                        (_raw[UltimateEmerald55HiddenAbilityOffset] & UltimateEmerald55HiddenAbilityMask) != 0;
             for (var i = 0; i < Gen3Constants.StatNames.Length; i++)
                 if (values.TryGetValue(Gen3Constants.StatNames[i], out var value)) _raw[DestinyEvsOffset + i] = value;
+            if (_layout == PokemonDataLayout.UltimateEmerald55CfruPlainBox)
+            {
+                _raw[UltimateEmerald55HiddenAbilityOffset] = ultimateHiddenAbility
+                    ? (byte)(_raw[UltimateEmerald55HiddenAbilityOffset] | UltimateEmerald55HiddenAbilityMask)
+                    : (byte)(_raw[UltimateEmerald55HiddenAbilityOffset] & ~UltimateEmerald55HiddenAbilityMask);
+            }
             return;
         }
         if (_layout == PokemonDataLayout.UnboundCfruPlainParty)
@@ -345,7 +399,7 @@ public sealed class BoxPokemon
 
     public void SetIvs(Dictionary<string, int> values)
     {
-        if (_layout == PokemonDataLayout.DestinyCfruPlainBox)
+        if (IsCfruPlain80)
         {
             WriteU32(_raw, DestinyMiscOffset + 4, SetIvWord(ReadU32(_raw, DestinyMiscOffset + 4), values));
             if (values.TryGetValue("ability", out var destinyAbilitySlot)) SetAbilitySlot(destinyAbilitySlot);
@@ -372,7 +426,7 @@ public sealed class BoxPokemon
     public void SetNature(int nature)
     {
         if (nature is < 0 or > 24) throw new ArgumentOutOfRangeException(nameof(nature), "nature must be 0..24");
-        if (_layout is PokemonDataLayout.UnboundCfruPlainParty or PokemonDataLayout.DestinyCfruPlainBox)
+        if (_layout == PokemonDataLayout.UnboundCfruPlainParty || IsCfruPlain80)
         {
             WriteU32(_raw, 0, FindPidWithNatureAndShinyState(Pid, OtId, nature, IsShiny));
             return;
@@ -391,7 +445,7 @@ public sealed class BoxPokemon
     public void SetShiny(bool shiny)
     {
         if (IsShiny == shiny) return;
-        if (_layout is PokemonDataLayout.UnboundCfruPlainParty or PokemonDataLayout.DestinyCfruPlainBox)
+        if (_layout == PokemonDataLayout.UnboundCfruPlainParty || IsCfruPlain80)
         {
             WriteU32(_raw, 0, FindPidWithShinyState(Pid, OtId, shiny));
             return;
@@ -405,7 +459,7 @@ public sealed class BoxPokemon
     {
         if (PartyPokemon.GenderFromPid(Pid, genderRatio) == gender) return;
         ValidateGenderTarget(genderRatio, gender);
-        if (_layout is PokemonDataLayout.UnboundCfruPlainParty or PokemonDataLayout.DestinyCfruPlainBox)
+        if (_layout == PokemonDataLayout.UnboundCfruPlainParty || IsCfruPlain80)
         {
             WriteU32(_raw, 0, FindPidWithNatureShinyGenderState(Pid, OtId, NatureFromPid(Pid), IsShiny, genderRatio, gender));
             return;
@@ -418,7 +472,7 @@ public sealed class BoxPokemon
     public void SetOtId(uint otId)
     {
         if (OtId == otId) return;
-        if (_layout is PokemonDataLayout.UnboundCfruPlainParty or PokemonDataLayout.DestinyCfruPlainBox)
+        if (_layout == PokemonDataLayout.UnboundCfruPlainParty || IsCfruPlain80)
         {
             WriteU32(_raw, 4, otId);
             return;
@@ -430,7 +484,7 @@ public sealed class BoxPokemon
 
     public void SetOtName(ReadOnlySpan<byte> otName)
     {
-        var target = _raw.AsSpan(_layout is PokemonDataLayout.UnboundCfruPlainParty or PokemonDataLayout.DestinyCfruPlainBox ? 0x14 : OtNameOffset, OtNameLength);
+        var target = _raw.AsSpan(_layout == PokemonDataLayout.UnboundCfruPlainParty || IsCfruPlain80 ? 0x14 : OtNameOffset, OtNameLength);
         target.Fill(0xFF);
         otName[..Math.Min(otName.Length, OtNameLength)].CopyTo(target);
     }
@@ -479,8 +533,23 @@ public sealed class BoxPokemon
     public void SetAbilitySlot(int abilitySlot, byte? genderRatio = null)
     {
         if (abilitySlot is not (0 or 1 or 2)) throw new ArgumentOutOfRangeException(nameof(abilitySlot), "ability slot must be 0..2");
-        if (_layout == PokemonDataLayout.DestinyCfruPlainBox)
+        if (IsCfruPlain80)
         {
+            if (_layout == PokemonDataLayout.UltimateEmerald55CfruPlainBox)
+            {
+                if (abilitySlot == 2)
+                {
+                    _raw[UltimateEmerald55HiddenAbilityOffset] |= UltimateEmerald55HiddenAbilityMask;
+                    return;
+                }
+
+                _raw[UltimateEmerald55HiddenAbilityOffset] &= unchecked((byte)~UltimateEmerald55HiddenAbilityMask);
+                _raw[UltimateEmerald55NormalAbilityOffset] = abilitySlot == 1
+                    ? (byte)(_raw[UltimateEmerald55NormalAbilityOffset] | UltimateEmerald55NormalAbilityMask)
+                    : (byte)(_raw[UltimateEmerald55NormalAbilityOffset] & ~UltimateEmerald55NormalAbilityMask);
+                return;
+            }
+
             var offset = DestinyMiscOffset + MiscAbilitySlotOffset;
             _raw[offset] = (byte)((_raw[offset] & ~MiscAbilitySlotMask) | (abilitySlot & MiscAbilitySlotMask));
             return;
@@ -529,6 +598,11 @@ public sealed class BoxPokemon
         }
         throw new InvalidOperationException("无法生成保持性格、闪光和性别的特性 PID。");
     }
+
+    private int UltimateEmerald55AbilitySlot()
+        => (_raw[UltimateEmerald55HiddenAbilityOffset] & UltimateEmerald55HiddenAbilityMask) != 0
+            ? 2
+            : (_raw[UltimateEmerald55NormalAbilityOffset] & UltimateEmerald55NormalAbilityMask) != 0 ? 1 : 0;
 
     private ushort[] ReadCompressedMoves()
     {

@@ -1,0 +1,342 @@
+0	无特性	complete-current-ROM
+1	攻击时，有10%几率使对手 害怕。	complete-current-ROM
+2	出场时，使天气变为雨天。 持续5回合。	complete-current-ROM
+3	每回合结束时，自己的速度 提升一个等级。	complete-current-ROM
+4	自己不会被任何招式 命中要害。	complete-current-ROM
+5	免疫一击必杀招式，满HP时 受到致命伤害能保留1HP。	complete-current-ROM
+6	全场宝可梦的引爆特性失效 也不能使用爆炸类招式。	complete-current-ROM
+7	自己不会陷入麻痹状态。	complete-current-ROM
+8	在沙暴天气下，闪避率提升 20%且免疫沙暴伤害。	complete-current-ROM
+9	受到接触攻击时，有30% 几率使对手麻痹。	complete-current-ROM
+10	受到电属性招式攻击时， 免疫该招式并回复1-4HP。	complete-current-ROM
+11	受到水属性招式攻击时， 免疫该招式并回复1-4HP。	complete-current-ROM
+12	自己免疫着迷和挑衅状态， 也不受威吓特性影响。	complete-current-ROM
+13	在场时，场上的天气状态 效果无效化。	complete-current-ROM
+14	自己的招式命中率提升30% 对一击必杀招式无效。	complete-current-ROM
+15	自己不会陷入睡眠状态。	complete-current-ROM
+16	受到招式伤害时，自己的 属性变为该招式的属性。	complete-current-ROM
+17	自己不会陷入中毒状态。	complete-current-ROM
+18	受到火属性招式攻击时， 免疫并提升自己火属性伤害	complete-current-ROM
+19	自己免疫对手招式对自己的 追加效果影响。	complete-current-ROM
+20	自己不会陷入混乱状态。 也不受威吓特性影响。	complete-current-ROM
+21	自己不会被对手的招式或 道具效果强制替换下场。	complete-current-ROM
+22	出场时，对手全场宝可梦 的物攻下降一个等级。	complete-current-ROM
+23	在场时，对手场上宝可梦 不能主动逃跑或替换下场。	complete-current-ROM
+24	每次受到接触攻击时， 对手损失最大HP的1-8。	complete-current-ROM
+25	自己免疫不克制自身属性的 攻击招式伤害。	complete-current-ROM
+26	自己视为不在地上的宝可梦 因此不受地面系招式的影响	complete-current-ROM
+27	受到接触攻击时有30%几率 使对手陷入麻痹中毒或睡眠	complete-current-ROM
+28	对手使自己麻痹中毒烧伤时 使对手也陷入相同的状态。	complete-current-ROM
+29	自己不会因对手的招式或 特性而下降能力等级。	complete-current-ROM
+30	在战斗中替换下场时， 解除自己的异常状态。	complete-current-ROM
+31	吸引电系招式，受到电系招 式攻击时免疫并提升特攻。	complete-current-ROM
+32	自己使出的所有招式的 追加效果触发几率翻倍。	complete-current-ROM
+33	下雨天气下，自己的速度 翻倍。	complete-current-ROM
+34	晴天天气下，自己的速度 翻倍。	complete-current-ROM
+35	位于队伍首位时，在野外 能更容易遇到野生宝可梦。	complete-current-ROM
+36	出场时，复制对方场上 1只宝可梦的特性并发动。	complete-current-ROM
+37	自己的物攻翻倍。	complete-current-ROM
+38	受到接触攻击时，有30% 几率使对手中毒。	complete-current-ROM
+39	自己不会陷入害怕状态。 也不受威吓特性影响。	complete-current-ROM
+40	自己不会陷入冰冻状态。	complete-current-ROM
+41	自己不会陷入烧伤状态。	complete-current-ROM
+42	在场时，对方场上的钢属性 宝可梦不能替换下场。	complete-current-ROM
+43	自己不受声音类招式的影响	complete-current-ROM
+44	下雨天气时，每回合回复 最大HP的1-16。	complete-current-ROM
+45	出场时，天气变为沙暴。 持续5回合。	complete-current-ROM
+46	在场时，对手使出招式的 PP消耗翻倍。	complete-current-ROM
+47	自己受到的火和冰属性 的招式伤害减半。	complete-current-ROM
+48	自己陷入睡眠状态时 持续的回合数减半。	complete-current-ROM
+49	受到接触攻击时，有30% 几率使对手烧伤。	complete-current-ROM
+50	和野生宝可梦战斗时， 一定能从战斗中逃走。	complete-current-ROM
+51	自己的命中率不会被降低， 攻击时无视对方闪避率提升	complete-current-ROM
+52	自己的物攻不会被对方降低	complete-current-ROM
+53	未携带道具时，可以捡起 别人这回合消耗掉的道具	complete-current-ROM
+54	每次使出招式后， 下个回合自己不能行动。	complete-current-ROM
+55	自己的物攻提升50%， 物理招式的命中率降低20%	complete-current-ROM
+56	受到异性的接触攻击时， 有30%几率使对手着迷。	complete-current-ROM
+57	队友是正电或负电特性时， 自己的特攻提升50%	complete-current-ROM
+58	队友是正电或负电特性时， 自己的特攻提升50%	complete-current-ROM
+59	天气是晴天雨天冰雹时， 自己变为相应的形态。	complete-current-ROM
+60	自己携带的道具不会被 对手夺走、交换或拍落。	complete-current-ROM
+61	每回合结束时有30%几率 解除自己的异常状态。	complete-current-ROM
+62	在异常状态时物攻提升50% 并免受烧伤的物攻降低。	complete-current-ROM
+63	处于异常状态时，自己的 物防提升50%	complete-current-ROM
+64	被对手吸取HP时， 使对手变为失去相应HP。	complete-current-ROM
+65	自己HP低于1-3时， 草属性招式的威力提升50%	complete-current-ROM
+66	自己HP低于1-3时， 火属性招式的威力提升50%	complete-current-ROM
+67	自己HP低于1-3时， 水属性招式的威力提升50%	complete-current-ROM
+68	自己HP低于1-3时， 虫属性招式的威力提升50%	complete-current-ROM
+69	使用有反作用力伤害的招式 时，免受反作用伤害。	complete-current-ROM
+70	出场时，使天气变为晴天。 持续5回合。	complete-current-ROM
+71	使对方站在地上的宝可梦 不能替换下场或逃走。	complete-current-ROM
+72	自己不会陷入睡眠状态。	complete-current-ROM
+73	出场时，自己的物防提高 一个等级。	complete-current-ROM
+74	出场时，会布下薄雾场地。 持续5回合。	complete-current-ROM
+75	出场时，会布下青草场地。 持续5回合。	complete-current-ROM
+76	出场时，会布下精神场地。 持续5回合。	complete-current-ROM
+77	受到效果绝佳的招式攻击时 伤害降低1-4。	complete-current-ROM
+78	每次击倒其他宝可梦时， 自己的物攻提高一个等级。	complete-current-ROM
+79	切割类招式的威力提高50%	complete-current-ROM
+80	自己每次使出招式时， 会变成和招式相同的属性。	complete-current-ROM
+81	受到接触攻击时，使对手的 速度下降一级。	complete-current-ROM
+82	战斗中HP低于一半时， 会逃回队伍中。	complete-current-ROM
+83	双打队友被击倒时， 自己获得它的特性效果。	complete-current-ROM
+84	攻击时，不受吸引招式目标 的状态或特性影响。	complete-current-ROM
+85	自己受到的火属性招式伤害 和烧伤状态的伤害减半。	complete-current-ROM
+86	自己的能力等级的变化效果 变成两倍。	complete-current-ROM
+87	雨天或受水系攻击时回复HP 晴天损失HP，受到火伤增加	complete-current-ROM
+88	出场时比较对手防御和特防 根据较低项提升物攻或特攻	complete-current-ROM
+89	拳击类招式的威力提高20%	complete-current-ROM
+90	自己在中毒状态下不损失HP 反而会每回合回复HP。	complete-current-ROM
+91	招式和自己的属性相同时， 威力加成从1.5倍变为2倍。	complete-current-ROM
+92	使出连续攻击类招式时， 一定能攻击满最高次数。	complete-current-ROM
+93	雨天天气下，每回合结束时 自动解除自己的异常状态。	complete-current-ROM
+94	晴天天气下，特攻提升50%， 但每回合损失最大HP的1-8	complete-current-ROM
+95	在异常状态时速度提升50% 并免受麻痹的速度降低。	complete-current-ROM
+96	自己使出的所有招式都变成 一般属性且威力提升20%	complete-current-ROM
+97	自己的攻击命中要害时， 伤害进一步提高50%	complete-current-ROM
+98	自己不会受到天气、状态等 一切非攻击伤害。	complete-current-ROM
+99	自己使出的和攻击自己的 所有招式都一定会命中。	complete-current-ROM
+100	自己使出的招式一定 比其他宝可梦慢。	complete-current-ROM
+101	使出威力不超过60的招式时 威力提高50%	complete-current-ROM
+102	晴天天气下，自己免疫 异常状态。	complete-current-ROM
+103	自己携带的道具效果无效。	complete-current-ROM
+104	攻击时，无视一些防守特性 的效果。	complete-current-ROM
+105	自己更容易命中要害。	complete-current-ROM
+106	自己被接触招式击倒时， 使对方损失最大HP的1-4。	complete-current-ROM
+107	出场时，如果对方有克制 自己的招式就会发出警告。	complete-current-ROM
+108	出场时，读取对手威力 最高的招式。	complete-current-ROM
+109	攻击时无视防守能力变化， 受攻击时无视攻击能力变化	complete-current-ROM
+110	使用属性效果不佳的招式 攻击时，威力翻倍。	complete-current-ROM
+111	处于混乱状态时，自己的 闪避提升50%	complete-current-ROM
+112	出场后的五回合内，自己的 物攻和速度变为一半。	complete-current-ROM
+113	自己的一般和格斗属性招式 能攻击到幽灵系，免疫威吓	complete-current-ROM
+114	吸引水系招式，受到水系招 式攻击时免疫并提升特攻。	complete-current-ROM
+115	冰雹天气时不受天气伤害， 每回合回复最大HP的1-16	complete-current-ROM
+116	出场时，自己的物攻提高 一个等级。	complete-current-ROM
+117	出场时，天气变为冰雹。 持续5回合。	complete-current-ROM
+118	每次战斗结束后有可能 会采到随机一种花蜜。	complete-current-ROM
+119	出场时，察觉出对手宝可梦 携带的道具名称。	complete-current-ROM
+120	使用有反作用力伤害的招式 时，威力提升20%	complete-current-ROM
+121	自己的属性会根据携带 的石板种类而改变。	complete-current-ROM
+122	晴天天气下，形态会改变， 我方的物攻和特防提高50%	complete-current-ROM
+123	在场时，睡眠状态的宝可梦 每回合损失最大HP的1-8。	complete-current-ROM
+124	未携带道具时，受到接触攻 击会偷走对方携带的道具。	complete-current-ROM
+125	使用有追加效果的招式时， 放弃追加效果提高30%威力	complete-current-ROM
+126	自己的能力等级反向变化。 上升变下降，下降变上升。	complete-current-ROM
+127	在场时，对手的宝可梦 不能食用树果。	complete-current-ROM
+128	自己被对手降低能力等级时 物攻会大幅提高。	complete-current-ROM
+129	自己的HP低于一半时， 物攻和特攻变为一半。	complete-current-ROM
+130	受到招式攻击时，有30% 几率禁用该招式数回合。	complete-current-ROM
+131	每回合结束时，有30%几率 解除队友的异常状态	complete-current-ROM
+132	双打对战中，队友受到的 伤害降低25%	complete-current-ROM
+133	每次受到物理攻击时， 防御降低，速度大幅提高。	complete-current-ROM
+134	自己的体重增加一倍	complete-current-ROM
+135	自己的体重减少一半	complete-current-ROM
+136	满HP时，受到的攻击伤害 变为一半。	complete-current-ROM
+137	处于中毒状态时， 物攻提高50%	complete-current-ROM
+138	处于烧伤状态时， 特攻提高50%	complete-current-ROM
+139	回合结束时有50%几率获得 用掉的树果，晴天必定获得	complete-current-ROM
+140	自己免受队友招式的伤害	complete-current-ROM
+141	回合结束时，随机降低一项 能力并大幅提高另一项能力	complete-current-ROM
+142	自己不受粉尘类招式的影响 以及沙暴冰雹天气的伤害。	complete-current-ROM
+143	使出接触招式攻击时， 有30%几率使对手中毒。	complete-current-ROM
+144	在战斗中替换下场时， 自己回复最大HP的1-3。	complete-current-ROM
+145	自己的物防不会被对方降低	complete-current-ROM
+146	沙暴天气下，自己的速度 翻倍。	complete-current-ROM
+147	以自己为目标的变化类招式 的命中率减半。	complete-current-ROM
+148	自己是这回合最后一个行动 时，使出招式威力提高30%	complete-current-ROM
+149	自己的形象变成队伍里 最末位的宝可梦样子。	complete-current-ROM
+150	出场时，变身成对手的样子	complete-current-ROM
+151	自己的攻击可以穿透对手的 墙壁类状态和替身。	complete-current-ROM
+152	受到接触攻击时，使对手的 特性也变成木乃伊特性。	complete-current-ROM
+153	受到电属性招式攻击时， 免疫该招式并提升一级速度	complete-current-ROM
+154	每次受到恶属性招式攻击时 自己的物攻提高一个等级。	complete-current-ROM
+155	受到恶、鬼、虫属性招式 攻击时，速度提高一级。	complete-current-ROM
+156	对方向自己使出变化类招式 时，免疫并反弹该招式。	complete-current-ROM
+157	受到草属性招式攻击时， 免疫该招式并提升一级物攻	complete-current-ROM
+158	自己的变化招式优先度+1 但对恶属性的对手无效。	complete-current-ROM
+159	沙暴天气下免受天气伤害且 地岩钢属性的威力提高30%	complete-current-ROM
+160	每次受到接触攻击时， 对手损失最大HP的1-8。	complete-current-ROM
+161	自己的HP低于一半时， 变成不倒翁形态。	complete-current-ROM
+162	在场时，自己和队友的招式 命中率提升10%	complete-current-ROM
+163	攻击同性时威力提高25%， 但攻击异性时降低25%	complete-current-ROM
+164	出场时，会布下电气场地。 持续5回合。	complete-current-ROM
+165	在场时，我方不受挑衅等 限制行动的状态影响。	complete-current-ROM
+166	在场时，我方草系不受对方 造成的能力下降和异常状态	complete-current-ROM
+167	自己吃下树果时，额外回复 最大HP的1-3。	complete-current-ROM
+168	每次自己陷入害怕状态时， 速度提高一个等级。	complete-current-ROM
+169	自己受到的物理伤害减半。	complete-current-ROM
+170	未携带道具时，攻击会偷取 对方宝可梦的携带道具。	complete-current-ROM
+171	自己不受球类和弹类招式 的伤害。	complete-current-ROM
+172	自己被对手降低能力等级时 特攻会大幅提高。	complete-current-ROM
+173	啃咬类招式的威力提高50%	complete-current-ROM
+174	自己使出的一般属性招式变 成冰属性且威力提升20%	complete-current-ROM
+175	在场时，自己和队友不会 陷入睡眠状态。	complete-current-ROM
+176	使出攻击招式时变为刀剑， 使用王者盾牌时变为盾牌。	complete-current-ROM
+177	满HP时，自己的飞行属性 招式优先度+1	complete-current-ROM
+178	波动类招式的威力提高50%	complete-current-ROM
+179	处于青草场地上时， 自己的物防提高50%	complete-current-ROM
+180	队友消耗掉携带的道具时， 会把自己携带的道具给它。	complete-current-ROM
+181	接触类招式的威力提高30%	complete-current-ROM
+182	自己使出的一般属性招式变 成妖精属性且威力提升20%	complete-current-ROM
+183	在冰雹天气下，闪避率提升 20%且免疫冰雹伤害。	complete-current-ROM
+184	自己使出的一般属性招式变 成飞行属性且威力提升20%	complete-current-ROM
+185	使出攻击招式时，孩子也能 以1-4的伤害一同攻击。	complete-current-ROM
+186	在场时，全场恶属性招式 的威力提高1-3。	complete-current-ROM
+187	在场时，全场妖精属性招式 的威力提高1-3。	complete-current-ROM
+188	在场时，使气场类特性的 威力加成变为威力减弱。	complete-current-ROM
+189	在场时，天气变为大雨天。 不能被普通天气覆盖	complete-current-ROM
+190	在场时，天气变为大晴天。 不能被普通天气覆盖	complete-current-ROM
+191	在场时，天气变为乱气流。 不能被普通天气覆盖	complete-current-ROM
+192	自己每次受到攻击时， 物防提高一级。	complete-current-ROM
+193	自己的HP低于一半时就能 吃下携带的回复HP树果。	complete-current-ROM
+194	自己使出的龙属性招式 威力提高50%	complete-current-ROM
+195	受到水属性招式攻击时， 物防会大幅提高。	complete-current-ROM
+196	攻击中毒状态的对手时， 必定会击中要害。	complete-current-ROM
+197	盾壳形态下免疫异常状态， HP低于一半时变为攻击形态	complete-current-ROM
+198	自己对本回合替换上场的 对手造成的伤害翻倍。	complete-current-ROM
+199	受到的火系伤害减半且免疫 烧伤，使出的水系伤害翻倍	complete-current-ROM
+200	自己使出的钢属性招式 的威力提高50%	complete-current-ROM
+201	被对手攻击到HP低于一半时 自己的特攻提高一级。	complete-current-ROM
+202	冰雹天气下，自己的速度 翻倍。	complete-current-ROM
+203	自己使出的所有招式都 不视为接触攻击。	complete-current-ROM
+204	自己使出的声音类招式 变为水属性。	complete-current-ROM
+205	自己使出能直接回复HP 的招式时，优先度+3。	complete-current-ROM
+206	自己使出的一般属性招式变 成电属性且威力提升20%	complete-current-ROM
+207	处于电气场地上时， 自己的速度翻倍。	complete-current-ROM
+208	HP高于25%时，会转变为 鱼群形态。	complete-current-ROM
+209	完全抵挡受到的第一次攻击 但自己失去最大HP的1-8。	complete-current-ROM
+210	战斗中首次击倒宝可梦时， 会变身为小智版甲贺忍蛙。	complete-current-ROM
+211	自己的HP低于一半时， 会变为完全体形态。	complete-current-ROM
+212	自己使出的招式可以让 钢和毒属性的对手也中毒。	complete-current-ROM
+213	始终视为自己处于睡眠状态 不会陷入其他异常状态。	complete-current-ROM
+214	对方无法对我方宝可梦 使出先制招式。	complete-current-ROM
+215	被对手击倒时的HP越多， 就会给对方造成越多的伤害	complete-current-ROM
+216	其他宝可梦使出跳舞类招式 时，自己也会跟着使出。	complete-current-ROM
+217	在场时，队友的特攻招式 威力提高30%	complete-current-ROM
+218	自己受到的接触攻击伤害减 半，受到火属性伤害翻倍。	complete-current-ROM
+219	对方无法对我方宝可梦 使出先制招式。	complete-current-ROM
+220	在场时，每次有其他宝可梦 被击倒，自己特攻提高一级	complete-current-ROM
+221	出场时，复原我方场上 宝可梦的能力变化。	complete-current-ROM
+222	自己被招式命中要害时， 物攻的能力等级提升到最大	complete-current-ROM
+223	同时具有蕾冠王与爱马的 两种特性。	complete-current-ROM
+224	击倒对手时，自己数值最高 的一项能力提高一级。	complete-current-ROM
+225	自己的属性会根据携带 的存储碟而改变。	complete-current-ROM
+226	在场时，自己和队友不会 陷入中毒状态。	complete-current-ROM
+227	每次回合结束时，自己的 花纹状态会改变。	complete-current-ROM
+228	使出攻击招式时，有30% 几率能率先出手。	complete-current-ROM
+229	使出接触攻击招式时， 无视对方的守住状态。	complete-current-ROM
+230	自己不会因对手而下降能力 等级（不受破格影响）	complete-current-ROM
+231	满HP时，受到的攻击伤害 变为一半（不受破格影响）	complete-current-ROM
+232	受到效果绝佳招式攻击的伤 害降低1-4（不受破格影响）	complete-current-ROM
+233	自己使出的效果绝佳招式 的威力提升25%	complete-current-ROM
+234	自己的物攻提高50%，但 只能一直使用同一个招式。	complete-current-ROM
+235	在场时，其他宝可梦的特性 效果无效化。	complete-current-ROM
+236	自己使出的电属性招式 威力提高50%	complete-current-ROM
+237	未携带道具时，可以捡起 捕捉失败的球。	complete-current-ROM
+238	受到攻击时，场上除自己以 外的宝可梦速度下降一级。	complete-current-ROM
+239	自己失去携带的道具后， 速度翻倍。换下场后失效。	complete-current-ROM
+240	对方让自己的能力等级下降 时，把效果反弹给对方。	complete-current-ROM
+241	冲浪潜水时根据HP叼来不同 猎物，受到攻击时吐出。	complete-current-ROM
+242	每次击倒其他宝可梦时， 自己的特攻提高一个等级。	complete-current-ROM
+243	受到水或火属性的攻击时， 自己的速度提升6级。	complete-current-ROM
+244	使出的声音类招式威力提高 30%，受到的声音伤害减半	complete-current-ROM
+245	自己受到攻击时， 触发5回合沙暴天气。	complete-current-ROM
+246	自己受到的特攻招式的 伤害减半。	complete-current-ROM
+247	自己吃下树果时，发生的 效果变为2倍。	complete-current-ROM
+248	冰头可以抵挡一次物理伤害 开始下冰雹时冰头复原。	complete-current-ROM
+249	双打时队友的招式威力 提高30%	complete-current-ROM
+250	处于场地状态上时，自己的 属性变为场地对应的属性。	complete-current-ROM
+251	出场时，清除双方场上 的墙壁类状态。	complete-current-ROM
+252	在场时，自己和队友的 钢属性招式威力提高50%	complete-current-ROM
+253	受到接触攻击时， 触发灭亡之歌的效果。	complete-current-ROM
+254	受到接触攻击时， 交换双方的特性。	complete-current-ROM
+255		missing-current-ROM
+256		missing-current-ROM
+257		missing-current-ROM
+258		missing-current-ROM
+259		missing-current-ROM
+260	自己不会被任何招式 命中要害。	complete-current-ROM
+261		missing-current-ROM
+262		missing-current-ROM
+263		missing-current-ROM
+264		missing-current-ROM
+265		missing-current-ROM
+266		missing-current-ROM
+267		missing-current-ROM
+268		missing-current-ROM
+269	在场时，场上的天气状态 效果无效化。	complete-current-ROM
+270		missing-current-ROM
+271		missing-current-ROM
+272		missing-current-ROM
+273		missing-current-ROM
+274	满HP时，自己的火属性招式 优先度+1。拥有引火的效果	complete-current-ROM
+275		missing-current-ROM
+276		missing-current-ROM
+277		missing-current-ROM
+278		missing-current-ROM
+279		missing-current-ROM
+280		missing-current-ROM
+281		missing-current-ROM
+282		missing-current-ROM
+283		missing-current-ROM
+284		missing-current-ROM
+285	自己不会因对手的招式或 特性而下降能力等级。	complete-current-ROM
+286		missing-current-ROM
+287		missing-current-ROM
+288		missing-current-ROM
+289		missing-current-ROM
+290		missing-current-ROM
+291		missing-current-ROM
+292		missing-current-ROM
+293	自己的物攻翻倍。	complete-current-ROM
+294		missing-current-ROM
+295		missing-current-ROM
+296		missing-current-ROM
+297		missing-current-ROM
+298		missing-current-ROM
+299		missing-current-ROM
+300		missing-current-ROM
+301		missing-current-ROM
+302		missing-current-ROM
+303		missing-current-ROM
+304		missing-current-ROM
+305		missing-current-ROM
+306		missing-current-ROM
+307		missing-current-ROM
+308		missing-current-ROM
+309		missing-current-ROM
+310		missing-current-ROM
+311		missing-current-ROM
+312		missing-current-ROM
+313		missing-current-ROM
+314		missing-current-ROM
+315		missing-current-ROM
+316		missing-current-ROM
+317		missing-current-ROM
+318		missing-current-ROM
+319		missing-current-ROM
+320		missing-current-ROM
+321		missing-current-ROM
+322		missing-current-ROM
+323		missing-current-ROM
+324		missing-current-ROM
+325		missing-current-ROM
+326		missing-current-ROM
+327		missing-current-ROM
+328		missing-current-ROM
+329		missing-current-ROM
+330		missing-current-ROM
+331		missing-current-ROM
+332		missing-current-ROM
+333	受到效果绝佳的招式攻击时 伤害降低1-4。	complete-current-ROM
+334	每次击倒其他宝可梦时， 自己的物攻提高一个等级。	complete-current-ROM
+335	攻击时，无视一些防守特性 的效果。	complete-current-ROM
+336	自己每次使出招式时， 会变成和招式相同的属性。	complete-current-ROM
+337	受到接触攻击时，使对手的 速度下降一级。	complete-current-ROM
+338	战斗中HP低于一半时， 会战术撤退回到队伍中。	complete-current-ROM
+339	双打队友被击倒时， 自己获得它的特性效果。	complete-current-ROM
+340	攻击时，不受吸引招式目标 的状态或特性影响。	complete-current-ROM
+341	攻击时，无视一些防守特性 的效果。	complete-current-ROM

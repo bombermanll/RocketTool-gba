@@ -38,6 +38,8 @@ public interface IGameRuntimeAdapter
     int FallbackPocketOfItem(int item);
     GameProfileLiveBagArea? LiveBagArea(int pocket);
     IReadOnlyList<BagPocketDefinition> ScannedBagDefinitions { get; }
+    void InitializeImportedParty(PartyPokemon mon, byte level, byte trainerGender);
+    void InitializeImportedBox(BoxPokemon mon, byte level, byte trainerGender);
 }
 
 public abstract class GameRuntimeAdapterBase : IGameRuntimeAdapter
@@ -66,6 +68,8 @@ public abstract class GameRuntimeAdapterBase : IGameRuntimeAdapter
     public int MachinePocket => Profile.Runtime.Machines.Pocket;
     public string BridgeExperimentProfile => Profile.Runtime.BridgeExperimentProfile;
     public virtual string? SpeciesFormLabel(int species) => null;
+    public virtual void InitializeImportedParty(PartyPokemon mon, byte level, byte trainerGender) { }
+    public virtual void InitializeImportedBox(BoxPokemon mon, byte level, byte trainerGender) { }
 
     public void ValidateLiveRom(MgbaBridgeClient bridge)
     {
@@ -188,11 +192,20 @@ public abstract class GameRuntimeAdapterBase : IGameRuntimeAdapter
         };
         if (!actual.SequenceEqual(expected, StringComparer.Ordinal))
             throw new InvalidOperationException($"版本 {profile.Id} 的策略组合不是独立适配器 {ExpectedRuntimeStrategy} 所要求的组合，已拒绝加载。");
-        var expectedBoxSize = LiveBoxLayout == PokemonDataLayout.UnboundCfruPlainParty
-            ? BoxPokemon.UnboundCompressedSize
-            : BoxPokemon.Size;
-        if (profile.Memory.PcBoxRecordSize != expectedBoxSize)
-            throw new InvalidOperationException($"版本 {profile.Id} 的箱子记录大小与其专属适配器布局不一致，已拒绝加载。");
+        if (LiveBoxLayout == PokemonDataLayout.Disabled)
+        {
+            if (profile.Features.LiveBoxes.Read || profile.Features.LiveBoxes.Write ||
+                profile.Features.SaveBoxes.Read || profile.Features.SaveBoxes.Write)
+                throw new InvalidOperationException($"版本 {profile.Id} 尚未验证箱子记录布局，却启用了箱子能力，已拒绝加载。");
+        }
+        else
+        {
+            var expectedBoxSize = LiveBoxLayout == PokemonDataLayout.UnboundCfruPlainParty
+                ? BoxPokemon.UnboundCompressedSize
+                : BoxPokemon.Size;
+            if (profile.Memory.PcBoxRecordSize != expectedBoxSize)
+                throw new InvalidOperationException($"版本 {profile.Id} 的箱子记录大小与其专属适配器布局不一致，已拒绝加载。");
+        }
         var caughtBallConfigured = new[]
         {
             profile.Features.CaughtBall.LiveParty,
@@ -202,6 +215,11 @@ public abstract class GameRuntimeAdapterBase : IGameRuntimeAdapter
         }.Any(access => access.Read || access.Write);
         if (caughtBallConfigured && !SupportsCaughtBall)
             throw new InvalidOperationException($"版本 {profile.Id} 的专属适配器没有验证球种字段，已拒绝启用。");
+        if (profile.Features.ImportToParty && !profile.Features.LiveParty.Write ||
+            profile.Features.ImportToBoxes && !profile.Features.LiveBoxes.Write ||
+            profile.Features.ImportToSaveParty && !profile.Features.SaveParty.Write ||
+            profile.Features.ImportToSaveBoxes && !profile.Features.SaveBoxes.Write)
+            throw new InvalidOperationException($"版本 {profile.Id} 启用了图鉴导入，但对应目标没有写入能力，已拒绝加载。");
     }
 
     private static string SurfaceName(GameDataSurface surface) => surface switch
@@ -225,6 +243,7 @@ public static class GameRuntimeAdapterCatalog
             PokemonUnboundRuntimeAdapter.StrategyId => new PokemonUnboundRuntimeAdapter(profile),
             PokemonDestinyRuntimeAdapter.StrategyId => new PokemonDestinyRuntimeAdapter(profile),
             PokemonRadicalRedRuntimeAdapter.StrategyId => new PokemonRadicalRedRuntimeAdapter(profile),
+            PokemonUltimateEmerald55RuntimeAdapter.StrategyId => new PokemonUltimateEmerald55RuntimeAdapter(profile),
             var id => throw new NotSupportedException($"当前程序不支持运行时策略：{id}")
         };
 }

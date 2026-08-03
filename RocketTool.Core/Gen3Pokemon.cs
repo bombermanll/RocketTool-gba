@@ -2,8 +2,11 @@ namespace RocketTool.Core;
 
 public enum PokemonDataLayout
 {
+    Disabled,
     SpanishRocketEncrypted,
     UnboundCfruPlainParty,
+    UltimateEmerald55CfruPlainParty,
+    UltimateEmerald55CfruPlainBox,
     DestinyCfruPlainParty,
     DestinyCfruPlainBox
 }
@@ -79,9 +82,19 @@ public sealed class PartyPokemon
     private const int UnboundAttacksOffset = 0x2C;
     private const int UnboundEvsOffset = 0x38;
     private const int UnboundMiscOffset = 0x44;
+    private const int UltimateEmerald55CaughtBallOffset = UnboundMiscOffset + 3;
+    private const byte UltimateEmerald55CaughtBallMask = 0x7C;
+    private const int UltimateEmerald55CaughtBallShift = 2;
+    private const int UltimateEmerald55HiddenAbilityOffset = UnboundEvsOffset + 4;
+    private const byte UltimateEmerald55HiddenAbilityMask = 0x01;
+    private const int UltimateEmerald55NormalAbilityOffset = UnboundMiscOffset + 7;
+    private const byte UltimateEmerald55NormalAbilityMask = 0x40;
     private readonly byte[] _raw;
     private readonly PokemonDataLayout _layout;
-    private bool IsCfruPlain => _layout is PokemonDataLayout.UnboundCfruPlainParty or PokemonDataLayout.DestinyCfruPlainParty;
+    private bool IsCfruPlain
+        => _layout is PokemonDataLayout.UnboundCfruPlainParty
+            or PokemonDataLayout.UltimateEmerald55CfruPlainParty
+            or PokemonDataLayout.DestinyCfruPlainParty;
 
     public PartyPokemon(ReadOnlySpan<byte> raw, PokemonDataLayout layout)
     {
@@ -105,8 +118,12 @@ public sealed class PartyPokemon
         var raw = new byte[Size];
         WriteU32(raw, 0x00, pid);
         WriteU32(raw, 0x04, otId);
-        raw[0x12] = layout is PokemonDataLayout.UnboundCfruPlainParty or PokemonDataLayout.DestinyCfruPlainParty ? (byte)2 : (byte)0x12;
-        if (layout is PokemonDataLayout.UnboundCfruPlainParty or PokemonDataLayout.DestinyCfruPlainParty)
+        raw[0x12] = layout is PokemonDataLayout.UnboundCfruPlainParty
+            or PokemonDataLayout.UltimateEmerald55CfruPlainParty
+            or PokemonDataLayout.DestinyCfruPlainParty ? (byte)2 : (byte)0x12;
+        if (layout is PokemonDataLayout.UnboundCfruPlainParty
+            or PokemonDataLayout.UltimateEmerald55CfruPlainParty
+            or PokemonDataLayout.DestinyCfruPlainParty)
         {
             raw[0x13] = 2; // hasSpecies sanity bit in CFRU's unpacked party structure
             raw.AsSpan(UnboundOtNameOffset, OtNameLength).Fill(0xFF);
@@ -125,7 +142,9 @@ public sealed class PartyPokemon
         {
             var unboundIvWord = U32(UnboundMiscOffset + 4);
             var unboundIvs = IvWordToDictionary(unboundIvWord);
-            unboundIvs["ability"] = UnboundAbilitySlot(unboundIvWord);
+            unboundIvs["ability"] = _layout == PokemonDataLayout.UltimateEmerald55CfruPlainParty
+                ? UltimateEmerald55AbilitySlot()
+                : UnboundAbilitySlot(unboundIvWord);
             return new PartyMonInfo(
                 Pid,
                 OtId,
@@ -136,9 +155,15 @@ public sealed class PartyPokemon
                 U32(UnboundGrowthOffset + 4),
                 _raw[UnboundGrowthOffset + 8],
                 _raw[UnboundGrowthOffset + 9],
-                _layout == PokemonDataLayout.UnboundCfruPlainParty
-                    ? _raw[UnboundGrowthOffset + 10]
-                    : (byte)((_raw[UnboundMiscOffset + 3] >> 3) & 0x0F),
+                _layout switch
+                {
+                    PokemonDataLayout.UnboundCfruPlainParty => _raw[UnboundGrowthOffset + 10],
+                    PokemonDataLayout.UltimateEmerald55CfruPlainParty =>
+                        (byte)((_raw[UltimateEmerald55CaughtBallOffset] &
+                                UltimateEmerald55CaughtBallMask) >>
+                               UltimateEmerald55CaughtBallShift),
+                    _ => (byte)((_raw[UnboundMiscOffset + 3] >> 3) & 0x0F)
+                },
                 [U16(UnboundAttacksOffset), U16(UnboundAttacksOffset + 2), U16(UnboundAttacksOffset + 4), U16(UnboundAttacksOffset + 6)],
                 _raw.AsSpan(UnboundAttacksOffset + 8, 4).ToArray(),
                 _raw.AsSpan(UnboundEvsOffset, 6).ToArray(),
@@ -227,7 +252,7 @@ public sealed class PartyPokemon
         if (IsCfruPlain)
         {
             if (code != NatureOverrideUsePid)
-                throw new InvalidOperationException("宝可梦解放的性格由 PID 决定，不支持旧版性格覆盖字段。");
+                throw new InvalidOperationException("当前 CFRU 明文队伍结构的性格由 PID 决定，不支持旧版性格覆盖字段。");
             return;
         }
         if (code is < 0 or > 0x1F) throw new ArgumentOutOfRangeException(nameof(code), "game nature code must be 0..31");
@@ -243,6 +268,17 @@ public sealed class PartyPokemon
         if (_layout == PokemonDataLayout.UnboundCfruPlainParty)
         {
             _raw[UnboundGrowthOffset + 10] = storedValue;
+            return;
+        }
+        if (_layout == PokemonDataLayout.UltimateEmerald55CfruPlainParty)
+        {
+            if (storedValue > 0x1F)
+                throw new ArgumentOutOfRangeException(nameof(storedValue), "究极绿宝石 5.5 球种存储值必须在 0..31 之间。");
+            _raw[UltimateEmerald55CaughtBallOffset] =
+                (byte)((_raw[UltimateEmerald55CaughtBallOffset] &
+                        ~UltimateEmerald55CaughtBallMask) |
+                       ((storedValue << UltimateEmerald55CaughtBallShift) &
+                        UltimateEmerald55CaughtBallMask));
             return;
         }
         if (_layout == PokemonDataLayout.DestinyCfruPlainParty)
@@ -267,6 +303,22 @@ public sealed class PartyPokemon
                    (storedValue & GrowthCaughtBallMask));
         ReplaceSubblock(dec, 0, block);
         SetDecrypted(dec);
+    }
+
+    public void SetUltimateEmerald55OriginInfo(byte metLevel, byte trainerGender)
+    {
+        if (_layout != PokemonDataLayout.UltimateEmerald55CfruPlainParty)
+            throw new InvalidOperationException("当前队伍记录不是究极绿宝石 5.5 明文结构。");
+        if (metLevel is < 1 or > 100)
+            throw new ArgumentOutOfRangeException(nameof(metLevel), "相遇等级必须在 1..100 之间。");
+        if (trainerGender > 1)
+            throw new ArgumentOutOfRangeException(nameof(trainerGender), "初训家性别必须为 0 或 1。");
+
+        _raw[UnboundMiscOffset + 2] = metLevel;
+        _raw[UnboundMiscOffset + 3] =
+            (byte)((_raw[UnboundMiscOffset + 3] & UltimateEmerald55CaughtBallMask) |
+                   0x03 |
+                   (trainerGender << 7));
     }
 
     public void SetNicknameFromSpeciesNameEntry(ReadOnlySpan<byte> speciesNameEntry)
@@ -310,8 +362,16 @@ public sealed class PartyPokemon
     {
         if (IsCfruPlain)
         {
+            var ultimateHiddenAbility = _layout == PokemonDataLayout.UltimateEmerald55CfruPlainParty &&
+                                        (_raw[UltimateEmerald55HiddenAbilityOffset] & UltimateEmerald55HiddenAbilityMask) != 0;
             for (var i = 0; i < Gen3Constants.StatNames.Length; i++)
                 if (values.TryGetValue(Gen3Constants.StatNames[i], out var value)) _raw[UnboundEvsOffset + i] = value;
+            if (_layout == PokemonDataLayout.UltimateEmerald55CfruPlainParty)
+            {
+                _raw[UltimateEmerald55HiddenAbilityOffset] = ultimateHiddenAbility
+                    ? (byte)(_raw[UltimateEmerald55HiddenAbilityOffset] | UltimateEmerald55HiddenAbilityMask)
+                    : (byte)(_raw[UltimateEmerald55HiddenAbilityOffset] & ~UltimateEmerald55HiddenAbilityMask);
+            }
             return;
         }
 
@@ -409,6 +469,20 @@ public sealed class PartyPokemon
     public void SetAbilitySlot(int abilitySlot, byte? genderRatio = null)
     {
         if (abilitySlot is not (0 or 1 or 2)) throw new ArgumentOutOfRangeException(nameof(abilitySlot), "ability slot must be 0..2");
+        if (_layout == PokemonDataLayout.UltimateEmerald55CfruPlainParty)
+        {
+            if (abilitySlot == 2)
+            {
+                _raw[UltimateEmerald55HiddenAbilityOffset] |= UltimateEmerald55HiddenAbilityMask;
+                return;
+            }
+
+            _raw[UltimateEmerald55HiddenAbilityOffset] &= unchecked((byte)~UltimateEmerald55HiddenAbilityMask);
+            _raw[UltimateEmerald55NormalAbilityOffset] = abilitySlot == 1
+                ? (byte)(_raw[UltimateEmerald55NormalAbilityOffset] | UltimateEmerald55NormalAbilityMask)
+                : (byte)(_raw[UltimateEmerald55NormalAbilityOffset] & ~UltimateEmerald55NormalAbilityMask);
+            return;
+        }
         if (IsCfruPlain)
         {
             var word = U32(UnboundMiscOffset + 4);
@@ -569,6 +643,11 @@ public sealed class PartyPokemon
 
     private int UnboundAbilitySlot(uint ivWord)
         => (ivWord & 0x80000000u) != 0 ? 2 : (int)(Pid & 1);
+
+    private int UltimateEmerald55AbilitySlot()
+        => (_raw[UltimateEmerald55HiddenAbilityOffset] & UltimateEmerald55HiddenAbilityMask) != 0
+            ? 2
+            : (_raw[UltimateEmerald55NormalAbilityOffset] & UltimateEmerald55NormalAbilityMask) != 0 ? 1 : 0;
 
     private static uint FindUnboundPidForAbility(uint oldPid, uint otId, int abilitySlot, byte? genderRatio, int? gender)
     {

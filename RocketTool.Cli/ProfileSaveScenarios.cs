@@ -14,14 +14,59 @@ internal static class ProfileSaveScenarioCatalog
             PokemonUnboundRuntimeAdapter.StrategyId => PokemonUnboundSaveScenario.Instance,
             PokemonDestinyRuntimeAdapter.StrategyId => PokemonDestinySaveScenario.Instance,
             PokemonRadicalRedRuntimeAdapter.StrategyId => PokemonRadicalRedSaveScenario.Instance,
+            PokemonUltimateEmerald55RuntimeAdapter.StrategyId => PokemonUltimateEmerald55SaveScenario.Instance,
             var id => throw new NotSupportedException($"没有与运行时适配器 {id} 配套的 CLI 存档场景。")
         };
+}
+
+internal sealed class PokemonUltimateEmerald55SaveScenario : IProfileSaveScenario
+{
+    public static PokemonUltimateEmerald55SaveScenario Instance { get; } = new();
+    public void ApplyVerificationChanges(Gen3SaveDocument document, PartyMonInfo? partyInfo)
+    {
+        foreach (var (pocket, item) in new[]
+                 {
+                     (1, (ushort)14),
+                     (2, (ushort)3),
+                     (3, (ushort)378),
+                     (4, (ushort)133),
+                     (5, (ushort)119)
+                 })
+        {
+            if (document.CurrentBag.All(entry => entry.ItemId != item))
+                document.AddBagItem(pocket, item, pocket == 1 ? (ushort)2 : (ushort)1);
+        }
+
+        if (document.Snapshot.Trainer is { } trainer)
+        {
+            var name = trainer.NameBytes.ToArray();
+            if (name.Length > 0)
+                name[0] = name[0] == 0xBB ? (byte)0xBC : (byte)0xBB;
+            document.ReplaceTrainerName(name);
+            document.ReplaceTrainerMoney(
+                trainer.Money == 999_999
+                    ? trainer.Money - 1
+                    : trainer.Money + 1);
+        }
+
+        if (document.Snapshot.Boxes.FirstOrDefault() is not { } entry) return;
+        var mon = new BoxPokemon(entry.Mon.Raw, entry.Mon.Layout);
+        var info = mon.GetInfo();
+        mon.SetGrowth(friendship: (byte)(info.Friendship == 255 ? 254 : info.Friendship + 1));
+        document.ReplaceBoxPokemon(entry.GlobalSlot, mon);
+    }
 }
 
 internal sealed class SpanishRocketSaveScenario : IProfileSaveScenario
 {
     public static SpanishRocketSaveScenario Instance { get; } = new();
-    public void ApplyVerificationChanges(Gen3SaveDocument document, PartyMonInfo? partyInfo) { }
+    public void ApplyVerificationChanges(Gen3SaveDocument document, PartyMonInfo? partyInfo)
+    {
+        if (document.CurrentBag.All(entry => entry.Pocket != 3 || entry.ItemId != 6))
+            document.AddBagItem(3, 6, 2);
+        if (document.CurrentBag.All(entry => entry.Pocket != 2 || entry.ItemId != 28))
+            document.AddBagItem(2, 28, 2);
+    }
 }
 
 internal sealed class DisabledSaveScenario : IProfileSaveScenario

@@ -596,8 +596,53 @@ static PartyPokemon BuildDexImportParty(
         ["hp"] = 0, ["atk"] = 0, ["def"] = 0,
         ["spe"] = 0, ["spa"] = 0, ["spd"] = 0
     });
+    runtime.InitializeImportedParty(mon, (byte)level, trainer.Gender);
     mon.SetUnencrypted(status: 0, level: (byte)level);
     mon.RecalculateStats(stats);
+    return mon;
+}
+
+static BoxPokemon BuildDexImportBox(
+    GameProfile profile,
+    ModifierDatabase db,
+    Gen3SaveTrainerInfo trainer,
+    int species,
+    int level = 5,
+    bool live = false)
+{
+    if (species < 1 || species > profile.Limits.MaxSpecies)
+        throw new ArgumentOutOfRangeException(nameof(species), $"species must be 1..{profile.Limits.MaxSpecies}");
+
+    var stats = ReadSpeciesStatsFromDb(db, species);
+    if (!db.Table("species_nickname_bytes").TryGetValue(species, out var nicknameHex) &&
+        !db.Table("species_name_bytes").TryGetValue(species, out nicknameHex))
+        throw new InvalidOperationException($"species {species} is missing current-Profile nickname bytes.");
+    var nickname = Convert.FromHexString(nicknameHex.Trim());
+    if (nickname.Length < 10)
+        throw new InvalidOperationException($"species {species} nickname entry is shorter than 10 bytes.");
+
+    var runtime = GameRuntimeAdapterCatalog.ForProfile(profile);
+    var experience = new PokemonExperienceTable(db).ExperienceForLevel(level, stats.GrowthRate);
+    var (moves, pp) = BuildDexImportMoves(db, species, level);
+    var mon = BoxPokemon.Create(NewNonShinyImportPid(trainer.OtId), trainer.OtId, runtime.LiveBoxLayout);
+    mon.SetOtName(trainer.NameBytes);
+    mon.SetNicknameFromSpeciesNameEntry(nickname);
+    mon.SetGrowth((ushort)species, item: 0, exp: experience, friendship: stats.Friendship, ppBonuses: 0);
+    if (runtime.CanWriteCaughtBall(GameDataSurface.Boxes, live))
+        SetDefaultBoxCaughtBall(profile, mon);
+    mon.SetGameNatureCode(26);
+    mon.SetMoves(moves.Select(move => (ushort?)move).ToArray(), pp.Select(value => (byte?)value).ToArray());
+    mon.SetIvs(new Dictionary<string, int>
+    {
+        ["hp"] = 31, ["atk"] = 31, ["def"] = 31,
+        ["spe"] = 31, ["spa"] = 31, ["spd"] = 31, ["ability"] = 0
+    });
+    mon.SetEvs(new Dictionary<string, byte>
+    {
+        ["hp"] = 0, ["atk"] = 0, ["def"] = 0,
+        ["spe"] = 0, ["spa"] = 0, ["spd"] = 0
+    });
+    runtime.InitializeImportedBox(mon, (byte)level, trainer.Gender);
     return mon;
 }
 
@@ -631,49 +676,10 @@ static int BoxVerifyCreate(string[] args)
     var db = Db();
     var trainer = ReadLiveTrainer(bridge, profile);
     var stats = ReadSpeciesStatsFromDb(db, species);
-    if (!db.Table("species_nickname_bytes").TryGetValue(species, out var nicknameHex) &&
-        !db.Table("species_name_bytes").TryGetValue(species, out nicknameHex))
-        throw new InvalidOperationException($"species {species} is missing Profile nickname bytes.");
-    var nickname = Convert.FromHexString(nicknameHex.Trim());
-    if (nickname.Length < 10)
-        throw new InvalidOperationException($"species {species} nickname entry is shorter than 10 bytes.");
-
-    var selectedMoves = new List<ushort>();
-    if (db.Table("species_level_moves").TryGetValue(species, out var rawLevelMoves))
-    {
-        foreach (var entry in rawLevelMoves.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            var parts = entry.Split(':');
-            if (parts.Length != 2 || !ushort.TryParse(parts[0], out var level) || !ushort.TryParse(parts[1], out var move))
-                throw new InvalidOperationException($"species {species} has an invalid level-up move row.");
-            if (level > 5 || move == 0) continue;
-            selectedMoves.Remove(move);
-            selectedMoves.Add(move);
-            if (selectedMoves.Count > 4) selectedMoves.RemoveAt(0);
-        }
-    }
-
-    var moves = new ushort[4];
-    for (var i = 0; i < selectedMoves.Count; i++) moves[i] = selectedMoves[i];
+    var (moves, expectedPp) = BuildDexImportMoves(db, species, 5);
     var experience = new PokemonExperienceTable(db).ExperienceForLevel(5, stats.GrowthRate);
-    var mon = BoxPokemon.Create(NewNonShinyImportPid(trainer.OtId), trainer.OtId, runtime.LiveBoxLayout);
-    mon.SetOtName(trainer.NameBytes);
-    mon.SetNicknameFromSpeciesNameEntry(nickname);
-    mon.SetGrowth((ushort)species, item: 0, exp: experience, friendship: stats.Friendship, ppBonuses: 0);
-    if (runtime.CanWriteCaughtBall(GameDataSurface.Boxes, live: true))
-        SetDefaultBoxCaughtBall(profile, mon);
-    mon.SetGameNatureCode(26);
-    mon.SetMoves(moves.Select(move => (ushort?)move).ToArray(), [null, null, null, null]);
-    mon.SetIvs(new Dictionary<string, int>
-    {
-        ["hp"] = 31, ["atk"] = 31, ["def"] = 31,
-        ["spe"] = 31, ["spa"] = 31, ["spd"] = 31, ["ability"] = 0
-    });
-    mon.SetEvs(new Dictionary<string, byte>
-    {
-        ["hp"] = 0, ["atk"] = 0, ["def"] = 0,
-        ["spe"] = 0, ["spa"] = 0, ["spd"] = 0
-    });
+    var trainerInfo = new Gen3SaveTrainerInfo(trainer.NameBytes, trainer.OtId, trainer.Money, trainer.Gender);
+    var mon = BuildDexImportBox(profile, db, trainerInfo, species, live: true);
 
     var intended = mon.Raw.ToArray();
     var intendedInfo = mon.GetInfo();
@@ -693,7 +699,9 @@ static int BoxVerifyCreate(string[] args)
         var info = parsed.GetInfo();
         if (!parsed.HasValidHeader(profile.Limits.MaxSpecies) || info.Species != species ||
             info.OtId != trainer.OtId || info.Exp != experience || info.Friendship != stats.Friendship ||
-            !info.Moves.SequenceEqual(moves) || info.Ivs.Where(pair => Gen3Constants.StatNames.Contains(pair.Key)).Any(pair => pair.Value != 31))
+            !info.Moves.SequenceEqual(moves) || !info.Pp.SequenceEqual(expectedPp) ||
+            info.Ivs.Where(pair => Gen3Constants.StatNames.Contains(pair.Key)).Any(pair => pair.Value != 31) ||
+            info.Ivs["ability"] != 0 || info.Evs.Any(value => value != 0))
             throw new InvalidOperationException("Created box record semantic readback did not match the requested defaults.");
         Console.WriteLine($"Created readback OK: box{box:00}-{slot:00} address=0x{address:X8} species={info.Species} exp={info.Exp} friendship={info.Friendship} moves={string.Join(',', info.Moves)}");
     }
@@ -705,7 +713,7 @@ static int BoxVerifyCreate(string[] args)
     var restored = bridge.Read(address, original.Length);
     if (!restored.AsSpan().SequenceEqual(original))
         throw new InvalidOperationException("Empty target slot restore did not match its original bytes.");
-    Console.WriteLine("Restore readback OK: target slot is the original 58 zero bytes.");
+    Console.WriteLine($"Restore readback OK: target slot is the original {profile.Memory.PcBoxRecordSize} zero bytes.");
     return 0;
 }
 
@@ -1038,11 +1046,15 @@ static int ProfileDataVerify()
     RequireCount("abilities", profile.Limits.MaxAbility + 1);
     RequireCount("move_data", profile.RomTables.Moves.Count);
     RequireCount("item_data", profile.RomTables.Items.Count);
-    RequireCount("move_descriptions", profile.Limits.MaxMove);
-    RequireCount("item_descriptions", profile.RomTables.Items.Count);
-    RequireCount("ability_descriptions", profile.Limits.MaxAbility + 1);
+    if (db.Table("move_descriptions").Count > 0)
+        RequireCount("move_descriptions", profile.Limits.MaxMove);
+    if (db.Table("item_descriptions").Count > 0)
+        RequireCount("item_descriptions", profile.RomTables.Items.Count);
+    if (db.Table("ability_descriptions").Count > 0)
+        RequireCount("ability_descriptions", profile.Limits.MaxAbility + 1);
     RequireCount("species_evolutions", profile.Limits.MaxSpecies);
-    RequireCount("species_level_moves", profile.Limits.MaxSpecies);
+    if (profile.RomTables.LevelMoves is not null)
+        RequireCount("species_level_moves", profile.Limits.MaxSpecies);
     RequireCount("experience", profile.RomTables.Experience.Count);
     if (profile.RomTables.MachineMoves is not null)
         RequireCount("machine_moves", profile.RomTables.MachineMoves.Count);
@@ -1100,11 +1112,17 @@ static int ProfileDataVerify()
             errors.Add($"{table}: unresolved display rows {string.Join(',', placeholders.Take(12))}{(placeholders.Length > 12 ? "..." : "")}");
     }
 
-    foreach (var table in new[] { "move_effects", "item_effects", "species_national_dex", "species_forms", "maps", "map_sections", "map_warps" })
+    foreach (var table in new[] { "move_effects", "item_effects" })
     {
         var lineCount = db.Lines(table).Count(line => !string.IsNullOrWhiteSpace(line));
         Console.WriteLine($"  {table,-28} {lineCount,5} rows");
         if (lineCount == 0) errors.Add($"{table}: missing or empty");
+    }
+    foreach (var table in new[] { "species_national_dex", "species_forms", "maps", "map_sections", "map_warps" })
+    {
+        var lineCount = db.Lines(table).Count(line => !string.IsNullOrWhiteSpace(line));
+        if (lineCount > 0)
+            Console.WriteLine($"  {table,-28} {lineCount,5} rows");
     }
 
     if (profile.Graphics.SpritesVerified)
@@ -1153,7 +1171,7 @@ static int ProfileDataVerify()
     return 0;
 }
 
-static (uint SaveBlock1, uint SaveBlock2, byte[] NameBytes, uint OtId, uint MoneyKey, uint EncryptedMoney, uint Money) ReadLiveTrainer(
+static (uint SaveBlock1, uint SaveBlock2, byte[] NameBytes, uint OtId, uint MoneyKey, uint EncryptedMoney, uint Money, byte Gender) ReadLiveTrainer(
     MgbaBridgeClient bridge,
     GameProfile profile)
 {
@@ -1174,13 +1192,16 @@ static (uint SaveBlock1, uint SaveBlock2, byte[] NameBytes, uint OtId, uint Mone
     var otId = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(profile.Memory.SaveBlock2PlayerOtIdOffset, 4));
     if (otId == 0 || !name.Contains((byte)0xFF))
         throw new InvalidOperationException("SaveBlock2 trainer header failed the current Profile safety checks.");
+    var gender = header.Length > 8 && header[8] <= 1
+        ? header[8]
+        : throw new InvalidOperationException("SaveBlock2 trainer gender failed the current Profile safety checks.");
 
     var key = U32(bridge.Read(saveBlock2 + profile.Memory.SaveBlock2EncryptionKeyOffset, 4));
     var encrypted = U32(bridge.Read(saveBlock1 + profile.Memory.SaveBlock1MoneyOffset, 4));
     var money = encrypted ^ key;
     if (money > profile.Runtime.MaxTrainerMoney)
         throw new InvalidOperationException($"Decrypted money {money} exceeds Profile limit {profile.Runtime.MaxTrainerMoney}.");
-    return (saveBlock1, saveBlock2, name, otId, key, encrypted, money);
+    return (saveBlock1, saveBlock2, name, otId, key, encrypted, money, gender);
 }
 
 static string DecodeGameText(ReadOnlySpan<byte> raw, ModifierDatabase db)
@@ -1355,8 +1376,8 @@ static int TrainerVerifyWrite(string[] args)
 static int PartyVerifyCreate(string[] args)
 {
     var profile = CurrentProfile();
-    if (!string.Equals(profile.Id, "pokemon-radical-red-41-cn", StringComparison.Ordinal))
-        throw new InvalidOperationException("party-verify-create is currently scoped to the independently reversed Radical Red 4.1 CN Profile.");
+    if (profile.Id is not ("pokemon-radical-red-41-cn" or "pokemon-ultimate-emerald-55-cn"))
+        throw new InvalidOperationException("party-verify-create is currently scoped to the independently reversed Radical Red 4.1 CN and Ultimate Emerald 5.5 CN Profiles.");
     var runtime = CurrentRuntime();
     runtime.EnsureCanWrite(GameDataSurface.Party, live: true);
     if (!HasArg(args, "--yes"))
@@ -1371,11 +1392,9 @@ static int PartyVerifyCreate(string[] args)
     var targetSlot = originalCount == Gen3Constants.PartySlots ? Gen3Constants.PartySlots : originalCount + 1;
     var targetAddress = SlotAddress(baseAddr, targetSlot);
     var originalRecord = bridge.Read(targetAddress, Gen3Constants.PartyMonSize);
-    if (originalCount < Gen3Constants.PartySlots && originalRecord.Any(value => value != 0))
-        throw new InvalidOperationException($"队伍槽位 {targetSlot} 不为空，拒绝覆盖。");
 
     var trainer = ReadLiveTrainer(bridge, profile);
-    var trainerInfo = new Gen3SaveTrainerInfo(trainer.NameBytes, trainer.OtId, trainer.Money);
+    var trainerInfo = new Gen3SaveTrainerInfo(trainer.NameBytes, trainer.OtId, trainer.Money, trainer.Gender);
     var db = Db();
     var stats = ReadSpeciesStatsFromDb(db, species);
     var experience = new PokemonExperienceTable(db).ExperienceForLevel(5, stats.GrowthRate);
@@ -1812,33 +1831,28 @@ static int SaveVerifyImportBox(string[] args)
     if (targetSlot == 0) throw new InvalidOperationException("已验证的存档箱子槽位已满。");
 
     var db = Db();
-    if (!db.Table("species_nickname_bytes").TryGetValue(species, out var nicknameHex) &&
-        !db.Table("species_name_bytes").TryGetValue(species, out nicknameHex))
-        throw new InvalidOperationException($"物种 {species} 缺少当前 Profile 的昵称字节。");
-    var nickname = Convert.FromHexString(nicknameHex);
-    var runtime = GameRuntimeAdapterCatalog.ForProfile(profile);
-    var mon = BoxPokemon.Create(0x12345678u, trainer.OtId, runtime.LiveBoxLayout);
-    mon.SetOtName(trainer.NameBytes);
-    mon.SetNicknameFromSpeciesNameEntry(nickname);
-    mon.SetGrowth((ushort)species, item: 0, exp: 125, friendship: 70, ppBonuses: 0);
-    if (runtime.CanWriteCaughtBall(GameDataSurface.Boxes, live: false))
-        SetDefaultBoxCaughtBall(profile, mon);
-    mon.SetGameNatureCode(26);
-    mon.SetMoves([(ushort?)33, null, null, null], [(byte?)35, null, null, null]);
-    mon.SetIvs(new Dictionary<string, int>
-    {
-        ["hp"] = 31, ["atk"] = 31, ["def"] = 31,
-        ["spe"] = 31, ["spa"] = 31, ["spd"] = 31, ["ability"] = 0
-    });
-    mon.SetEvs(new Dictionary<string, byte>
-    {
-        ["hp"] = 0, ["atk"] = 0, ["def"] = 0,
-        ["spe"] = 0, ["spa"] = 0, ["spd"] = 0
-    });
+    var stats = ReadSpeciesStatsFromDb(db, species);
+    var experience = new PokemonExperienceTable(db).ExperienceForLevel(5, stats.GrowthRate);
+    var (expectedMoves, expectedPp) = BuildDexImportMoves(db, species, 5);
+    var mon = BuildDexImportBox(profile, db, trainer, species);
+    var intended = mon.Raw.ToArray();
     document.ReplaceBoxPokemon(targetSlot, mon);
     var result = document.SaveAs(output);
-    var imported = result.Boxes.Single(entry => entry.GlobalSlot == targetSlot).Mon.GetInfo();
-    Console.WriteLine($"Verified box import: slot={targetSlot} species={imported.Species} sections={result.ValidSectionCount}/14 boxes={result.Boxes.Count}");
+    if (result.ValidSectionCount != 14)
+        throw new InvalidOperationException("Imported save did not reopen with all 14 valid sections.");
+    var importedMon = result.Boxes.Single(entry => entry.GlobalSlot == targetSlot).Mon;
+    if (!importedMon.Raw.SequenceEqual(intended))
+        throw new InvalidOperationException("Imported box record did not match the complete intended 80-byte record.");
+    var imported = importedMon.GetInfo();
+    if (!importedMon.HasValidHeader(profile.Limits.MaxSpecies) ||
+        imported.Species != species || imported.OtId != trainer.OtId ||
+        imported.Exp != experience || imported.Friendship != stats.Friendship ||
+        imported.Item != 0 || imported.GameNatureCode != 26 ||
+        !imported.Moves.SequenceEqual(expectedMoves) || !imported.Pp.SequenceEqual(expectedPp) ||
+        imported.Ivs.Where(pair => Gen3Constants.StatNames.Contains(pair.Key)).Any(pair => pair.Value != 31) ||
+        imported.Ivs["ability"] != 0 || imported.Evs.Any(value => value != 0))
+        throw new InvalidOperationException("Imported box record semantic readback did not match the current-Profile defaults.");
+    Console.WriteLine($"Verified box import: slot={targetSlot} species={imported.Species} exp={imported.Exp} friendship={imported.Friendship} moves={string.Join(',', imported.Moves)} pp={string.Join(',', imported.Pp)} sections={result.ValidSectionCount}/14 boxes={result.Boxes.Count}");
     return 0;
 }
 

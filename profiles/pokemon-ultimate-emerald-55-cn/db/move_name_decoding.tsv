@@ -1,0 +1,1024 @@
+1	拍击	exact-current-bytes
+2	空手劈	exact-current-bytes
+3	连环巴掌	exact-current-bytes
+4	连续拳	exact-current-bytes
+5	百万吨重拳	exact-current-bytes
+6	聚宝功	exact-current-bytes
+7	火焰拳	exact-current-bytes
+8	冰冻拳	exact-current-bytes
+9	雷电拳	exact-current-bytes
+10	抓	exact-current-bytes
+11	夹住	exact-current-bytes
+12	断头钳	complete-token-map
+13	旋风刀	exact-current-bytes
+14	剑舞	exact-current-bytes
+15	居合斩	complete-token-map
+16	起风	exact-current-bytes
+17	翅膀攻击	exact-current-bytes
+18	吹飞	exact-current-bytes
+19	飞翔	exact-current-bytes
+20	绑紧	exact-current-bytes
+21	摔打	exact-current-bytes
+22	藤鞭	exact-current-bytes
+23	踩踏	exact-current-bytes
+24	二连踢	exact-current-bytes
+25	百万吨重踢	exact-current-bytes
+26	飞踢	exact-current-bytes
+27	回旋踢	exact-current-bytes
+28	泼沙	exact-current-bytes
+29	头锤	exact-current-bytes
+30	角撞	exact-current-bytes
+31	乱击	exact-current-bytes
+32	角钻	exact-current-bytes
+33	撞击	exact-current-bytes
+34	泰山压顶	exact-current-bytes
+35	紧束	exact-current-bytes
+36	猛撞	exact-current-bytes
+37	大闹一番	exact-current-bytes
+38	舍身冲撞	exact-current-bytes
+39	摇尾巴	exact-current-bytes
+40	毒针	exact-current-bytes
+41	双针	exact-current-bytes
+42	飞弹针	exact-current-bytes
+43	瞪眼	exact-current-bytes
+44	咬住	exact-current-bytes
+45	叫声	exact-current-bytes
+46	吼叫	exact-current-bytes
+47	唱歌	exact-current-bytes
+48	超音波	exact-current-bytes
+49	音爆	exact-current-bytes
+50	定身法	exact-current-bytes
+51	溶解液	exact-current-bytes
+52	火花	exact-current-bytes
+53	喷射火焰	exact-current-bytes
+54	白雾	exact-current-bytes
+55	水枪	exact-current-bytes
+56	水炮	exact-current-bytes
+57	冲浪	exact-current-bytes
+58	冰冻光束	exact-current-bytes
+59	暴风雪	exact-current-bytes
+60	幻象光线	exact-current-bytes
+61	泡沫光线	exact-current-bytes
+62	极光束	exact-current-bytes
+63	破坏光线	exact-current-bytes
+64	啄	exact-current-bytes
+65	啄钻	exact-current-bytes
+66	地狱翻滚	complete-token-map
+67	踢倒	exact-current-bytes
+68	双倍奉还	exact-current-bytes
+69	地球上投	exact-current-bytes
+70	怪力	exact-current-bytes
+71	吸取	exact-current-bytes
+72	超级吸取	exact-current-bytes
+73	寄生种子	exact-current-bytes
+74	生长	exact-current-bytes
+75	飞叶快刀	exact-current-bytes
+76	日光束	exact-current-bytes
+77	毒粉	exact-current-bytes
+78	麻痹粉	exact-current-bytes
+79	催眠粉	exact-current-bytes
+80	花瓣舞	exact-current-bytes
+81	吐丝	exact-current-bytes
+82	龙之怒	exact-current-bytes
+83	火焰旋涡	exact-current-bytes
+84	电击	exact-current-bytes
+85	十万伏特	exact-current-bytes
+86	电磁波	exact-current-bytes
+87	打雷	exact-current-bytes
+88	落石	exact-current-bytes
+89	地震	exact-current-bytes
+90	地裂	complete-token-map
+91	挖洞	exact-current-bytes
+92	剧毒	exact-current-bytes
+93	念力	exact-current-bytes
+94	精神强念	exact-current-bytes
+95	催眠术	exact-current-bytes
+96	瑜伽姿势	exact-current-bytes
+97	高速移动	exact-current-bytes
+98	电光一闪	exact-current-bytes
+99	愤怒	exact-current-bytes
+100	瞬间移动	exact-current-bytes
+101	黑夜魔影	exact-current-bytes
+102	模仿	exact-current-bytes
+103	刺耳声	exact-current-bytes
+104	影子分身	exact-current-bytes
+105	自我再生	exact-current-bytes
+106	变硬	exact-current-bytes
+107	变小	exact-current-bytes
+108	烟幕	exact-current-bytes
+109	奇异之光	exact-current-bytes
+110	缩入壳中	exact-current-bytes
+111	变圆	exact-current-bytes
+112	屏障	exact-current-bytes
+113	光墙	exact-current-bytes
+114	黑雾	exact-current-bytes
+115	反射壁	exact-current-bytes
+116	聚气	exact-current-bytes
+117	忍耐	exact-current-bytes
+118	挥指	exact-current-bytes
+119	鹦鹉学舌	exact-current-bytes
+120	自爆	complete-token-map
+121	炸蛋	exact-current-bytes
+122	舌舔	exact-current-bytes
+123	浊雾	exact-current-bytes
+124	污泥攻击	exact-current-bytes
+125	骨棒	exact-current-bytes
+126	大字爆炎	exact-current-bytes
+127	攀瀑	exact-current-bytes
+128	贝壳夹击	exact-current-bytes
+129	高速星星	exact-current-bytes
+130	火箭头锤	exact-current-bytes
+131	尖刺加农炮	exact-current-bytes
+132	缠绕	exact-current-bytes
+133	瞬间失忆	exact-current-bytes
+134	折弯汤匙	exact-current-bytes
+135	生蛋	exact-current-bytes
+136	飞膝踢	exact-current-bytes
+137	大蛇瞪眼	exact-current-bytes
+138	食梦	exact-current-bytes
+139	毒瓦斯	exact-current-bytes
+140	投球	exact-current-bytes
+141	吸血	exact-current-bytes
+142	恶魔之吻	exact-current-bytes
+143	神鸟猛击	exact-current-bytes
+144	变身	exact-current-bytes
+145	泡沫	exact-current-bytes
+146	迷昏拳	exact-current-bytes
+147	蘑菇孢子	exact-current-bytes
+148	闪光	exact-current-bytes
+149	精神波	exact-current-bytes
+150	跃起	exact-current-bytes
+151	溶化	exact-current-bytes
+152	蟹钳锤	exact-current-bytes
+153	大爆炸	exact-current-bytes
+154	乱抓	exact-current-bytes
+155	骨头回力镖	exact-current-bytes
+156	睡觉	exact-current-bytes
+157	岩崩	exact-current-bytes
+158	必杀门牙	complete-token-map
+159	棱角化	exact-current-bytes
+160	纹理	complete-token-map
+161	三重攻击	exact-current-bytes
+162	愤怒门牙	exact-current-bytes
+163	劈开	exact-current-bytes
+164	替身	exact-current-bytes
+165	挣扎	exact-current-bytes
+166	写生	exact-current-bytes
+167	三连踢	exact-current-bytes
+168	小偷	exact-current-bytes
+169	蛛网	exact-current-bytes
+170	心之眼	exact-current-bytes
+171	恶梦	exact-current-bytes
+172	火焰轮	exact-current-bytes
+173	打鼾	exact-current-bytes
+174	诅咒	exact-current-bytes
+175	抓狂	exact-current-bytes
+176	纹理2	exact-current-bytes
+177	气旋攻击	exact-current-bytes
+178	棉孢子	exact-current-bytes
+179	起死回生	complete-token-map
+180	怨恨	exact-current-bytes
+181	细雪	exact-current-bytes
+182	守住	exact-current-bytes
+183	音速拳	exact-current-bytes
+184	鬼面	complete-token-map
+185	出奇一击	exact-current-bytes
+186	天使之吻	exact-current-bytes
+187	腹鼓	exact-current-bytes
+188	污泥炸弹	exact-current-bytes
+189	掷泥	exact-current-bytes
+190	章鱼桶炮	exact-current-bytes
+191	撒菱	exact-current-bytes
+192	电磁炮	exact-current-bytes
+193	识破	exact-current-bytes
+194	同命	exact-current-bytes
+195	灭亡之歌	complete-token-map
+196	冰冻之风	exact-current-bytes
+197	看穿	exact-current-bytes
+198	骨棒乱打	exact-current-bytes
+199	锁定	exact-current-bytes
+200	逆鳞	exact-current-bytes
+201	沙暴	exact-current-bytes
+202	终极吸取	exact-current-bytes
+203	挺住	exact-current-bytes
+204	撒娇	exact-current-bytes
+205	滚动	exact-current-bytes
+206	点到为止	exact-current-bytes
+207	虚张声势	exact-current-bytes
+208	喝牛奶	exact-current-bytes
+209	电光	exact-current-bytes
+210	连斩	exact-current-bytes
+211	钢翼	exact-current-bytes
+212	黑色目光	exact-current-bytes
+213	迷人	exact-current-bytes
+214	梦话	exact-current-bytes
+215	治愈铃声	exact-current-bytes
+216	报恩	exact-current-bytes
+217	礼物	exact-current-bytes
+218	迁怒	exact-current-bytes
+219	神秘守护	exact-current-bytes
+220	分担痛楚	exact-current-bytes
+221	神圣之火	exact-current-bytes
+222	震级	exact-current-bytes
+223	爆裂拳	exact-current-bytes
+224	超级角击	exact-current-bytes
+225	龙息	exact-current-bytes
+226	接棒	exact-current-bytes
+227	再来一次	exact-current-bytes
+228	追打	exact-current-bytes
+229	高速旋转	exact-current-bytes
+230	甜甜香气	exact-current-bytes
+231	铁尾	exact-current-bytes
+232	金属爪	exact-current-bytes
+233	借力摔	exact-current-bytes
+234	晨光	exact-current-bytes
+235	光合作用	exact-current-bytes
+236	月光	exact-current-bytes
+237	觉醒力量	exact-current-bytes
+238	十字劈	exact-current-bytes
+239	龙卷风	exact-current-bytes
+240	求雨	exact-current-bytes
+241	大晴天	exact-current-bytes
+242	咬碎	exact-current-bytes
+243	镜面反射	exact-current-bytes
+244	自我暗示	exact-current-bytes
+245	神速	exact-current-bytes
+246	原始之力	exact-current-bytes
+247	暗影球	exact-current-bytes
+248	预知未来	exact-current-bytes
+249	碎岩	exact-current-bytes
+250	潮旋	exact-current-bytes
+251	围攻	exact-current-bytes
+252	击掌奇袭	exact-current-bytes
+253	吵闹	exact-current-bytes
+254	蓄力	exact-current-bytes
+255	喷出	exact-current-bytes
+256	吞下	exact-current-bytes
+257	热风	exact-current-bytes
+258	冰雹	complete-token-map
+259	无理取闹	exact-current-bytes
+260	吹捧	exact-current-bytes
+261	鬼火	complete-token-map
+262	临别礼物	exact-current-bytes
+263	硬撑	exact-current-bytes
+264	真气拳	exact-current-bytes
+265	清醒	exact-current-bytes
+266	看我嘛	exact-current-bytes
+267	自然之力	exact-current-bytes
+268	充电	exact-current-bytes
+269	挑衅	exact-current-bytes
+270	帮助	exact-current-bytes
+271	戏法	exact-current-bytes
+272	扮演	exact-current-bytes
+273	祈愿	exact-current-bytes
+274	借助	exact-current-bytes
+275	扎根	exact-current-bytes
+276	蛮力	exact-current-bytes
+277	魔法反射	exact-current-bytes
+278	回收利用	exact-current-bytes
+279	报复	exact-current-bytes
+280	劈瓦	exact-current-bytes
+281	哈欠	exact-current-bytes
+282	拍落	exact-current-bytes
+283	蛮干	exact-current-bytes
+284	喷火	exact-current-bytes
+285	特性互换	exact-current-bytes
+286	封印	exact-current-bytes
+287	焕然一新	exact-current-bytes
+288	怨念	exact-current-bytes
+289	抢夺	exact-current-bytes
+290	秘密之力	exact-current-bytes
+291	潜水	exact-current-bytes
+292	猛推	exact-current-bytes
+293	保护色	exact-current-bytes
+294	萤火	exact-current-bytes
+295	洁净光芒	exact-current-bytes
+296	薄雾球	exact-current-bytes
+297	羽毛舞	exact-current-bytes
+298	摇晃舞	exact-current-bytes
+299	火焰踢	exact-current-bytes
+300	玩泥巴	exact-current-bytes
+301	冰球	exact-current-bytes
+302	尖刺臂	exact-current-bytes
+303	偷懒	exact-current-bytes
+304	巨声	exact-current-bytes
+305	剧毒牙	exact-current-bytes
+306	撕裂爪	exact-current-bytes
+307	爆炸烈焰	exact-current-bytes
+308	加农水炮	exact-current-bytes
+309	彗星拳	exact-current-bytes
+310	惊吓	exact-current-bytes
+311	气象球	exact-current-bytes
+312	芳香治疗	exact-current-bytes
+313	假哭	exact-current-bytes
+314	空气利刃	exact-current-bytes
+315	过热	exact-current-bytes
+316	气味侦测	exact-current-bytes
+317	岩石封锁	exact-current-bytes
+318	银色旋风	exact-current-bytes
+319	金属音	exact-current-bytes
+320	草笛	exact-current-bytes
+321	挠痒	exact-current-bytes
+322	宇宙力量	exact-current-bytes
+323	喷水	exact-current-bytes
+324	信号光束	exact-current-bytes
+325	暗影拳	exact-current-bytes
+326	神通力	exact-current-bytes
+327	冲天拳	exact-current-bytes
+328	流沙地狱	complete-token-map
+329	绝对零度	exact-current-bytes
+330	浊流	exact-current-bytes
+331	种子机关枪	exact-current-bytes
+332	燕返	exact-current-bytes
+333	冰锥	exact-current-bytes
+334	铁壁	exact-current-bytes
+335	挡路	exact-current-bytes
+336	长嚎	exact-current-bytes
+337	龙爪	exact-current-bytes
+338	疯狂植物	exact-current-bytes
+339	健美	exact-current-bytes
+340	弹跳	exact-current-bytes
+341	泥巴射击	exact-current-bytes
+342	毒尾	exact-current-bytes
+343	渴望	exact-current-bytes
+344	伏特攻击	exact-current-bytes
+345	魔法叶	exact-current-bytes
+346	玩水	exact-current-bytes
+347	冽想	exact-current-bytes
+348	叶刃	exact-current-bytes
+349	龙之舞	exact-current-bytes
+350	岩石爆击	exact-current-bytes
+351	电击波	exact-current-bytes
+352	水之波动	exact-current-bytes
+353	破灭之愿	exact-current-bytes
+354	精神突进	exact-current-bytes
+355	羽栖	complete-token-map
+356	重力	complete-token-map
+357	奇迹之眼	complete-token-map
+358	唤醒巴掌	complete-token-map
+359	臂锤	complete-token-map
+360	陀螺球	complete-token-map
+361	治愈之愿	complete-token-map
+362	盐水	complete-token-map
+363	自然之恩	complete-token-map
+364	佯攻	complete-token-map
+365	啄食	complete-token-map
+366	顺风	complete-token-map
+367	点穴	complete-token-map
+368	金属爆炸	complete-token-map
+369	急速折返	complete-token-map
+370	近身战	complete-token-map
+371	以牙还牙	complete-token-map
+372	恶意追击	complete-token-map
+373	查封	complete-token-map
+374	投掷	complete-token-map
+375	精神转移	complete-token-map
+376	王牌	complete-token-map
+377	回复封锁	complete-token-map
+378	绞紧	complete-token-map
+379	力量戏法	complete-token-map
+380	胃液	complete-token-map
+381	幸运咒语	complete-token-map
+382	抢先一步	complete-token-map
+383	仿效	complete-token-map
+384	力量互换	complete-token-map
+385	防守互换	complete-token-map
+386	惩罚	complete-token-map
+387	珍藏	complete-token-map
+388	烦恼种子	complete-token-map
+389	突袭	complete-token-map
+390	毒菱	complete-token-map
+391	心灵互换	complete-token-map
+392	水流环	complete-token-map
+393	电磁飘浮	complete-token-map
+394	闪焰冲锋	complete-token-map
+395	发劲	complete-token-map
+396	波导弹	complete-token-map
+397	岩石打聚	complete-token-map
+398	毒击	complete-token-map
+399	恶之波动	complete-token-map
+400	暗袭要害	complete-token-map
+401	水流尾	complete-token-map
+402	种子炸弹	complete-token-map
+403	空气斩	complete-token-map
+404	十字剪	complete-token-map
+405	虫鸣	complete-token-map
+406	龙之波动	complete-token-map
+407	龙之俯冲	complete-token-map
+408	力量宝石	complete-token-map
+409	吸取拳	complete-token-map
+410	真空波	complete-token-map
+411	真气弹	complete-token-map
+412	能量球	complete-token-map
+413	勇鸟猛攻	complete-token-map
+414	大地之力	complete-token-map
+415	掉包	complete-token-map
+416	终极冲击	complete-token-map
+417	诡计	complete-token-map
+418	子弹拳	complete-token-map
+419	雪崩	complete-token-map
+420	冰砾	complete-token-map
+421	暗影爪	complete-token-map
+422	雷电牙	complete-token-map
+423	冰冻牙	complete-token-map
+424	火焰牙	complete-token-map
+425	影子偷袭	complete-token-map
+426	泥巴炸弹	complete-token-map
+427	精神利刃	complete-token-map
+428	意念头锤	complete-token-map
+429	镜光射击	complete-token-map
+430	加农光炮	complete-token-map
+431	攀岩	complete-token-map
+432	清除浓雾	complete-token-map
+433	戏法空间	complete-token-map
+434	流星群	complete-token-map
+435	放电	complete-token-map
+436	喷烟	complete-token-map
+437	飞叶风暴	complete-token-map
+438	强力鞭打	complete-token-map
+439	岩石炮	complete-token-map
+440	十字毒刃	complete-token-map
+441	垃圾射击	complete-token-map
+442	铁头	complete-token-map
+443	磁铁炸弹	complete-token-map
+444	尖石攻击	complete-token-map
+445	诱惑	complete-token-map
+446	隐形岩	complete-token-map
+447	打草结	complete-token-map
+448	喋喋不休	complete-token-map
+449	制裁光砾	complete-token-map
+450	虫咬	exact-current-bytes
+451	充电光束	complete-token-map
+452	木槌	complete-token-map
+453	水流喷射	complete-token-map
+454	攻击指令	complete-token-map
+455	防御指令	complete-token-map
+456	回复指令	complete-token-map
+457	双刃头锤	complete-token-map
+458	二连击	complete-token-map
+459	时光咆哮	complete-token-map
+460	亚空裂斩	complete-token-map
+461	新月舞	complete-token-map
+462	捏碎	complete-token-map
+463	熔岩风暴	complete-token-map
+464	暗黑洞	complete-token-map
+465	种子闪光	complete-token-map
+466	奇异之风	complete-token-map
+467	暗影潜袭	complete-token-map
+468	聚爪	complete-token-map
+469	广域防守	complete-token-map
+470	防守平分	complete-token-map
+471	力量平分	complete-token-map
+472	奇妙空间	complete-token-map
+473	精神冲击	complete-token-map
+474	毒液冲击	complete-token-map
+475	身体轻量化	complete-token-map
+476	愤怒粉	complete-token-map
+477	意念移物	complete-token-map
+478	魔法空间	complete-token-map
+479	击落	complete-token-map
+480	山岚摔	complete-token-map
+481	烈焰溅射	complete-token-map
+482	污泥波	complete-token-map
+483	蝶舞	complete-token-map
+484	重磅冲撞	complete-token-map
+485	同步干扰	complete-token-map
+486	电球	complete-token-map
+487	浸水	complete-token-map
+488	蓄能焰袭	complete-token-map
+489	盘蜷	complete-token-map
+490	下盘踢	complete-token-map
+491	酸液炸弹	complete-token-map
+492	欺诈	complete-token-map
+493	单纯光束	complete-token-map
+494	找伙伴	complete-token-map
+495	您先请	complete-token-map
+496	轮唱	complete-token-map
+497	回声	complete-token-map
+498	逐步击破	complete-token-map
+499	清除之烟	complete-token-map
+500	辅助力量	complete-token-map
+501	快速防守	complete-token-map
+502	交换场地	complete-token-map
+503	热水	complete-token-map
+504	破壳	complete-token-map
+505	治愈波动	complete-token-map
+506	祸不单行	complete-token-map
+507	自由落体	complete-token-map
+508	换挡	complete-token-map
+509	巴投	complete-token-map
+510	烧尽	complete-token-map
+511	延后	complete-token-map
+512	杂技	complete-token-map
+513	镜面属性	complete-token-map
+514	报仇	complete-token-map
+515	搏命	complete-token-map
+516	传递礼物	complete-token-map
+517	炼狱	complete-token-map
+518	水之誓约	complete-token-map
+519	火之誓约	complete-token-map
+520	草之誓约	complete-token-map
+521	伏特替换	complete-token-map
+522	虫之抵抗	complete-token-map
+523	重踏	complete-token-map
+524	冰息	complete-token-map
+525	龙尾	complete-token-map
+526	自我激励	complete-token-map
+527	电网	complete-token-map
+528	疯狂伏特	complete-token-map
+529	直冲钻	complete-token-map
+530	二连劈	complete-token-map
+531	爱心印章	complete-token-map
+532	木角	complete-token-map
+533	圣剑	complete-token-map
+534	贝壳刃	complete-token-map
+535	高温重压	complete-token-map
+536	青草搅拌器	complete-token-map
+537	疯狂滚压	complete-token-map
+538	棉花防守	complete-token-map
+539	暗黑爆破	complete-token-map
+540	精神击破	complete-token-map
+541	扫尾拍打	complete-token-map
+542	暴风	complete-token-map
+543	爆炸头突击	complete-token-map
+544	齿轮飞盘	complete-token-map
+545	火焰弹	complete-token-map
+546	高科技光炮	exact-current-bytes
+547	古老之歌	exact-current-bytes
+548	神秘之剑	exact-current-bytes
+549	冰封世界	exact-current-bytes
+550	雷击	exact-current-bytes
+551	青焰	exact-current-bytes
+552	火之舞	complete-token-map
+553	冰冻伏特	complete-token-map
+554	极寒冷焰	complete-token-map
+555	大声咆哮	complete-token-map
+556	冰柱坠击	complete-token-map
+557	V热焰	complete-token-map
+558	交错火焰	complete-token-map
+559	交错闪电	complete-token-map
+560	飞身重压	complete-token-map
+561	掀榻榻米	complete-token-map
+562	打嗝	complete-token-map
+563	耕地	complete-token-map
+564	黏黏网	complete-token-map
+565	致命针刺	complete-token-map
+566	潜灵奇袭	complete-token-map
+567	万圣夜	complete-token-map
+568	战吼	complete-token-map
+569	等离子浴	complete-token-map
+570	抛物面充电	complete-token-map
+571	森林诅咒	complete-token-map
+572	落英缤纷	complete-token-map
+573	冷冻干燥	complete-token-map
+574	魅惑之声	complete-token-map
+575	抛下狠话	complete-token-map
+576	颠倒	complete-token-map
+577	吸取之吻	complete-token-map
+578	戏法防守	complete-token-map
+579	鲜花防守	complete-token-map
+580	青草场地	complete-token-map
+581	薄雾场地	complete-token-map
+582	输电	complete-token-map
+583	嬉闹	complete-token-map
+584	妖精之风	complete-token-map
+585	月亮之力	complete-token-map
+586	爆音波	complete-token-map
+587	妖精之锁	complete-token-map
+588	王者盾牌	complete-token-map
+589	和睦相处	complete-token-map
+590	密语	complete-token-map
+591	钻石风暴	complete-token-map
+592	蒸汽爆炸	complete-token-map
+593	异次元洞	complete-token-map
+594	飞水手里剑	complete-token-map
+595	魔法火焰	complete-token-map
+596	尖刺防守	complete-token-map
+597	芳香薄雾	complete-token-map
+598	怪异电波	complete-token-map
+599	毒液陷阱	complete-token-map
+600	粉尘	complete-token-map
+601	大地掌控	complete-token-map
+602	磁场操控	complete-token-map
+603	欢乐时光	complete-token-map
+604	电气场地	complete-token-map
+605	魔法闪耀	complete-token-map
+606	庆祝	complete-token-map
+607	牵手	complete-token-map
+608	圆瞳	complete-token-map
+609	蹭蹭脸颊	complete-token-map
+610	手下留情	complete-token-map
+611	死缠烂打	complete-token-map
+612	增强拳	complete-token-map
+613	死亡之翼	complete-token-map
+614	千箭齐发	complete-token-map
+615	千波激荡	complete-token-map
+616	大地神力	complete-token-map
+617	破灭之光	complete-token-map
+618	根源波动	complete-token-map
+619	断崖之剑	complete-token-map
+620	画龙点睛	complete-token-map
+621	异次元猛攻	complete-token-map
+622	集沙	complete-token-map
+623	迎头一击	complete-token-map
+624	碉堡	complete-token-map
+625	缝影	complete-token-map
+626	DD金勾臂	complete-token-map
+627	泡影咏叹调	complete-token-map
+628	冰锤	complete-token-map
+629	花疗	complete-token-map
+630	十万马力	complete-token-map
+631	吸取力量	complete-token-map
+632	日光刃	complete-token-map
+633	树叶	complete-token-map
+634	聚光灯	complete-token-map
+635	毒丝	complete-token-map
+636	聚气	complete-token-map
+637	辅助齿轮	complete-token-map
+638	地狱突刺	complete-token-map
+639	花粉团	complete-token-map
+640	掷锚	complete-token-map
+641	精神场地	complete-token-map
+642	猛扑	complete-token-map
+643	火焰鞭	complete-token-map
+644	嚣张	complete-token-map
+645	燃尽	complete-token-map
+646	速度互换	complete-token-map
+647	修长之角	complete-token-map
+648	净化	complete-token-map
+649	觉醒之舞	complete-token-map
+650	核心惩罚者	complete-token-map
+651	热带踢	complete-token-map
+652	号令	complete-token-map
+653	鸟嘴加农炮	complete-token-map
+654	鳞片噪音	complete-token-map
+655	龙锤	complete-token-map
+656	狂舞挥打	complete-token-map
+657	极光幕	complete-token-map
+658	陷阱甲壳	complete-token-map
+659	花朵加农炮	complete-token-map
+660	精神之牙	complete-token-map
+661	跺脚	complete-token-map
+662	暗影之骨	complete-token-map
+663	冲岩	complete-token-map
+664	水流裂破	complete-token-map
+665	棱镜镭射	complete-token-map
+666	暗影偷盗	complete-token-map
+667	流星闪冲	complete-token-map
+668	暗影之光	complete-token-map
+669	泪眼汪汪	complete-token-map
+670	麻麻刺刺	complete-token-map
+671	自然之怒	complete-token-map
+672	多属性攻击	complete-token-map
+673	惊爆大头	complete-token-map
+674	等离子电拳	complete-token-map
+675	光子喷涌	complete-token-map
+676		unused-current-ROM-row
+677		unused-current-ROM-row
+678		unused-current-ROM-row
+679		unused-current-ROM-row
+680		unused-current-ROM-row
+681		unused-current-ROM-row
+682		unused-current-ROM-row
+683		unused-current-ROM-row
+684		unused-current-ROM-row
+685		unused-current-ROM-row
+686		unused-current-ROM-row
+687		unused-current-ROM-row
+688		unused-current-ROM-row
+689		unused-current-ROM-row
+690		unused-current-ROM-row
+691		unused-current-ROM-row
+692		unused-current-ROM-row
+693		unused-current-ROM-row
+694		unused-current-ROM-row
+695		unused-current-ROM-row
+696		unused-current-ROM-row
+697		unused-current-ROM-row
+698		unused-current-ROM-row
+699		unused-current-ROM-row
+700		unused-current-ROM-row
+701		unused-current-ROM-row
+702		unused-current-ROM-row
+703		unused-current-ROM-row
+704		unused-current-ROM-row
+705		unused-current-ROM-row
+706		unused-current-ROM-row
+707		unused-current-ROM-row
+708		unused-current-ROM-row
+709		unused-current-ROM-row
+710		unused-current-ROM-row
+711		unused-current-ROM-row
+712		unused-current-ROM-row
+713		unused-current-ROM-row
+714		unused-current-ROM-row
+715		unused-current-ROM-row
+716		unused-current-ROM-row
+717		unused-current-ROM-row
+718		unused-current-ROM-row
+719		unused-current-ROM-row
+720		unused-current-ROM-row
+721		unused-current-ROM-row
+722		unused-current-ROM-row
+723		unused-current-ROM-row
+724		unused-current-ROM-row
+725		unused-current-ROM-row
+726		unused-current-ROM-row
+727		unused-current-ROM-row
+728		unused-current-ROM-row
+729		unused-current-ROM-row
+730	电电加速	complete-token-map
+731	滔滔冲浪	complete-token-map
+732	飘飘坠落	complete-token-map
+733	闪闪雷光	complete-token-map
+734	活活气泡	complete-token-map
+735	麻麻电击	complete-token-map
+736	熊熊火爆	complete-token-map
+737	哗哗气场	complete-token-map
+738	坏坏领域	complete-token-map
+739	茁茁轰炸	complete-token-map
+740	冰冰霜冻	complete-token-map
+741	亮亮风暴	complete-token-map
+742	砰砰击破	complete-token-map
+743	钢拳双击	complete-token-map
+744	极巨防壁	complete-token-map
+745	极巨炮	complete-token-map
+746	狙击	complete-token-map
+747	紧咬不放	complete-token-map
+748	大快朵颐	complete-token-map
+749	背水一战	complete-token-map
+750	沥青射击	complete-token-map
+751	魔法粉	complete-token-map
+752	龙箭	complete-token-map
+753	茶会	complete-token-map
+754	蛸固	complete-token-map
+755	电喙	complete-token-map
+756	鳃咬	complete-token-map
+757	换场	complete-token-map
+758	魂舞烈音爆	complete-token-map
+759	扑击	complete-token-map
+760	装饰	complete-token-map
+761	鼓击	complete-token-map
+762	捕兽夹	complete-token-map
+763	火焰球	complete-token-map
+764	巨兽斩	complete-token-map
+765	巨兽弹	complete-token-map
+766	气场轮	complete-token-map
+767	广域破坏	complete-token-map
+768	木枝突刺	complete-token-map
+769	破音	complete-token-map
+770	苹果酸	complete-token-map
+771	万有引力	complete-token-map
+772	灵魂冲击	complete-token-map
+773	神奇蒸汽	complete-token-map
+774	生命水滴	complete-token-map
+775	拦堵	complete-token-map
+776	假跪真撞	complete-token-map
+777	流星突击	complete-token-map
+778	无极光束	complete-token-map
+779	铁蹄光线	complete-token-map
+780	极巨火爆	complete-token-map
+781	极巨火爆	complete-token-map
+782	极巨虫蛊	complete-token-map
+783	极巨虫蛊	complete-token-map
+784	极巨闪电	complete-token-map
+785	极巨闪电	complete-token-map
+786	极巨攻击	complete-token-map
+787	极巨攻击	complete-token-map
+788	极巨拳斗	complete-token-map
+789	极巨拳斗	complete-token-map
+790	极巨幽魂	complete-token-map
+791	极巨幽魂	complete-token-map
+792	极巨寒冰	complete-token-map
+793	极巨寒冰	complete-token-map
+794	极巨酸毒	complete-token-map
+795	极巨酸毒	complete-token-map
+796	极巨水流	complete-token-map
+797	极巨水流	complete-token-map
+798	极巨飞冲	complete-token-map
+799	极巨飞冲	complete-token-map
+800	极巨妖精	complete-token-map
+801	极巨妖精	complete-token-map
+802	极巨龙骑	complete-token-map
+803	极巨龙骑	complete-token-map
+804	极巨超能	complete-token-map
+805	极巨超能	complete-token-map
+806	极巨岩石	complete-token-map
+807	极巨岩石	complete-token-map
+808	极巨大地	complete-token-map
+809	极巨大地	complete-token-map
+810	极巨恶霸	complete-token-map
+811	极巨恶霸	complete-token-map
+812	极巨草原	complete-token-map
+813	极巨草原	complete-token-map
+814	极巨钢铁	complete-token-map
+815	极巨钢铁	complete-token-map
+816	地狱灭焰	complete-token-map
+817	地狱灭焰	complete-token-map
+818	蝶影蛊惑	complete-token-map
+819	蝶影蛊惑	complete-token-map
+820	万雷轰顶	complete-token-map
+821	万雷轰顶	complete-token-map
+822	特大金币	complete-token-map
+823	特大金币	complete-token-map
+824	会心一击	complete-token-map
+825	会心一击	complete-token-map
+826	幻影幽魂	complete-token-map
+827	幻影幽魂	complete-token-map
+828	极光旋律	complete-token-map
+829	极光旋律	complete-token-map
+830	热情拥抱	complete-token-map
+831	热情拥抱	complete-token-map
+832	资源再生	complete-token-map
+833	资源再生	complete-token-map
+834	臭气冲天	complete-token-map
+835	臭气冲天	complete-token-map
+836	岩阵以待	complete-token-map
+837	岩阵以待	complete-token-map
+838	旋风袭卷	complete-token-map
+839	旋风袭卷	complete-token-map
+840	异毒电场	complete-token-map
+841	异毒电场	complete-token-map
+842	幸福圆满	complete-token-map
+843	幸福圆满	complete-token-map
+844	劣化衰变	complete-token-map
+845	劣化衰变	complete-token-map
+846	天道七星	complete-token-map
+847	天道七星	complete-token-map
+848	炎石喷发	complete-token-map
+849	炎石喷发	complete-token-map
+850	沙尘漫天	complete-token-map
+851	沙尘漫天	complete-token-map
+852	睡魔降临	complete-token-map
+853	睡魔降临	complete-token-map
+854	酸不溜丢	complete-token-map
+855	酸不溜丢	complete-token-map
+856	琼浆玉液	complete-token-map
+857	琼浆玉液	complete-token-map
+858	天谴雷诛	complete-token-map
+859	天谴雷诛	complete-token-map
+860	钢铁阵法	complete-token-map
+861	钢铁阵法	complete-token-map
+862	液金熔击	complete-token-map
+863	液金熔击	complete-token-map
+864	激漩泡涡	complete-token-map
+865	激漩泡涡	complete-token-map
+866	百火焚野	complete-token-map
+867	百火焚野	complete-token-map
+868	狂擂乱打	complete-token-map
+869	狂擂乱打	complete-token-map
+870	破阵火球	complete-token-map
+871	破阵火球	complete-token-map
+872	狙击神射	complete-token-map
+873	狙击神射	complete-token-map
+874	广域战力	complete-token-map
+875	铁滚轮	complete-token-map
+876	鳞射	complete-token-map
+877	流星光束	complete-token-map
+878	臂贝武器	complete-token-map
+879	薄雾炸裂	complete-token-map
+880	青草滑梯	complete-token-map
+881	电力上升	complete-token-map
+882	大地波动	complete-token-map
+883	爬击	complete-token-map
+884	妒火	complete-token-map
+885	泄愤	complete-token-map
+886	灵骚	complete-token-map
+887	腐蚀气体	complete-token-map
+888	指导	complete-token-map
+889	快速折返	complete-token-map
+890	三旋击	complete-token-map
+891	双翼	complete-token-map
+892	热沙大地	complete-token-map
+893	丛林治疗	complete-token-map
+894	暗冽强击	complete-token-map
+895	水流连打	complete-token-map
+896	雷电囚笼	complete-token-map
+897	巨龙威能	complete-token-map
+898	冰冷视线	complete-token-map
+899	雷鸣蹴击	complete-token-map
+900	怒火中烧	complete-token-map
+901	雪矛	complete-token-map
+902	星碎	complete-token-map
+903	诡异咒语	complete-token-map
+904	臂贝武器	complete-token-map
+905	觉醒力量	complete-token-map
+906	克命爪	complete-token-map
+907	屏障猛攻	complete-token-map
+908	突飞猛扑	complete-token-map
+909	岩斧	complete-token-map
+910	阳春风暴	complete-token-map
+911	神秘之力	complete-token-map
+912	大愤慨	complete-token-map
+913	波动冲	complete-token-map
+914	叶绿爆震	complete-token-map
+915	冰山风	complete-token-map
+916	胜利之舞	complete-token-map
+917	毒千针	complete-token-map
+918	气场之翼	complete-token-map
+919	冤冤相报	complete-token-map
+920	闭关	complete-token-map
+921	三连箭	complete-token-map
+922	群魔乱舞	complete-token-map
+923	秘剑千涛	complete-token-map
+924	枯叶风暴	complete-token-map
+925	鸣雷风暴	complete-token-map
+926	热砂风暴	complete-token-map
+927	新月祈祷	complete-token-map
+928	勇气填充	complete-token-map
+929	灰飞鞭灭	complete-token-map
+930	灰飞鞭灭	complete-token-map
+931	水炮轰灭	complete-token-map
+932	水炮轰灭	complete-token-map
+933	夺命一击	complete-token-map
+934	夺命一击	complete-token-map
+935	流水连击	complete-token-map
+936	流水连击	complete-token-map
+937	花瓣舞	complete-token-map
+938		missing-current-ROM-name-row
+939		missing-current-ROM-name-row
+940		missing-current-ROM-name-row
+941		missing-current-ROM-name-row
+942		missing-current-ROM-name-row
+943		missing-current-ROM-name-row
+944		missing-current-ROM-name-row
+945		missing-current-ROM-name-row
+946		missing-current-ROM-name-row
+947		missing-current-ROM-name-row
+948		missing-current-ROM-name-row
+949		missing-current-ROM-name-row
+950		missing-current-ROM-name-row
+951		missing-current-ROM-name-row
+952		missing-current-ROM-name-row
+953		missing-current-ROM-name-row
+954		missing-current-ROM-name-row
+955		missing-current-ROM-name-row
+956		missing-current-ROM-name-row
+957		missing-current-ROM-name-row
+958		missing-current-ROM-name-row
+959		missing-current-ROM-name-row
+960		missing-current-ROM-name-row
+961		missing-current-ROM-name-row
+962		missing-current-ROM-name-row
+963		missing-current-ROM-name-row
+964		missing-current-ROM-name-row
+965		missing-current-ROM-name-row
+966		missing-current-ROM-name-row
+967		missing-current-ROM-name-row
+968		missing-current-ROM-name-row
+969		missing-current-ROM-name-row
+970		missing-current-ROM-name-row
+971		missing-current-ROM-name-row
+972		missing-current-ROM-name-row
+973		missing-current-ROM-name-row
+974		missing-current-ROM-name-row
+975		missing-current-ROM-name-row
+976		missing-current-ROM-name-row
+977		missing-current-ROM-name-row
+978		missing-current-ROM-name-row
+979		missing-current-ROM-name-row
+980		missing-current-ROM-name-row
+981		missing-current-ROM-name-row
+982		missing-current-ROM-name-row
+983		missing-current-ROM-name-row
+984		missing-current-ROM-name-row
+985		missing-current-ROM-name-row
+986		missing-current-ROM-name-row
+987		missing-current-ROM-name-row
+988		missing-current-ROM-name-row
+989		missing-current-ROM-name-row
+990		missing-current-ROM-name-row
+991		missing-current-ROM-name-row
+992		missing-current-ROM-name-row
+993		missing-current-ROM-name-row
+994		missing-current-ROM-name-row
+995		missing-current-ROM-name-row
+996		missing-current-ROM-name-row
+997		missing-current-ROM-name-row
+998		missing-current-ROM-name-row
+999		missing-current-ROM-name-row
+1000		missing-current-ROM-name-row
+1001		missing-current-ROM-name-row
+1002		missing-current-ROM-name-row
+1003		missing-current-ROM-name-row
+1004		missing-current-ROM-name-row
+1005		missing-current-ROM-name-row
+1006		missing-current-ROM-name-row
+1007		missing-current-ROM-name-row
+1008		missing-current-ROM-name-row
+1009		missing-current-ROM-name-row
+1010		missing-current-ROM-name-row
+1011		missing-current-ROM-name-row
+1012		missing-current-ROM-name-row
+1013		missing-current-ROM-name-row
+1014		missing-current-ROM-name-row
+1015		missing-current-ROM-name-row
+1016		missing-current-ROM-name-row
+1017		missing-current-ROM-name-row
+1018		missing-current-ROM-name-row
+1019		missing-current-ROM-name-row
+1020		missing-current-ROM-name-row
+1021		missing-current-ROM-name-row
+1022		missing-current-ROM-name-row
+1023		missing-current-ROM-name-row
+1024		missing-current-ROM-name-row

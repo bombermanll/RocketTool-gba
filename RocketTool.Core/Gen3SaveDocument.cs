@@ -25,6 +25,8 @@ public sealed class Gen3SaveDocument
     internal const int UnboundParasiteOffsetMarker = 0x100000;
     internal const int DestinyExtensionOffsetMarker = 0x200000;
     internal const int RadicalRedExtensionOffsetMarker = 0x300000;
+    internal const int UltimateEmerald55BagOffsetMarker = 0x400000;
+    internal const int UltimateEmerald55BagSize = 0x5A8;
     internal const int UnboundBoxRecordSize = BoxPokemon.UnboundCompressedSize;
     private const int MgbaRtcFooterOffset = 0x20000;
     private const int MgbaRtcFooterSize = 16;
@@ -864,6 +866,62 @@ public sealed class Gen3SaveDocument
     internal void ReadUnboundParasiteRange(int parasiteOffset, Span<byte> destination)
         => ReadCfruExtensionRange(parasiteOffset, destination);
 
+    internal void WriteUltimateEmerald55BagRange(int bagOffset, ReadOnlySpan<byte> data)
+    {
+        var sourceOffset = 0;
+        while (sourceOffset < data.Length)
+        {
+            var current = bagOffset + sourceOffset;
+            var segment = UltimateEmerald55BagSegment(current);
+            var length = Math.Min(data.Length - sourceOffset, segment.VirtualEnd - current);
+            WriteSectionRange(
+                segment.SectionId,
+                segment.RelativeOffset + current - segment.VirtualStart,
+                data.Slice(sourceOffset, length));
+            sourceOffset += length;
+        }
+    }
+
+    internal void ReadUltimateEmerald55BagRange(int bagOffset, Span<byte> destination)
+    {
+        var destinationOffset = 0;
+        while (destinationOffset < destination.Length)
+        {
+            var current = bagOffset + destinationOffset;
+            var segment = UltimateEmerald55BagSegment(current);
+            var length = Math.Min(destination.Length - destinationOffset, segment.VirtualEnd - current);
+            ReadSectionRange(
+                segment.SectionId,
+                segment.RelativeOffset + current - segment.VirtualStart,
+                destination.Slice(destinationOffset, length));
+            destinationOffset += length;
+        }
+    }
+
+    private static (int VirtualStart, int VirtualEnd, int SectionId, int RelativeOffset)
+        UltimateEmerald55BagSegment(int bagOffset)
+    {
+        if (bagOffset < 0 || bagOffset >= UltimateEmerald55BagSize)
+            throw new InvalidOperationException(
+                $"究极绿宝石5.5背包虚拟偏移 0x{bagOffset:X} 超出已验证范围。");
+
+        return bagOffset switch
+        {
+            < 0x068 => (0x000, 0x068, 1, 0xF88),
+            < 0x0D8 => (0x068, 0x0D8, 2, 0xF80),
+            < 0x148 => (0x0D8, 0x148, 3, 0xF80),
+            < 0x230 => (0x148, 0x230, 4, 0xF08),
+            < 0x2A0 => (0x230, 0x2A0, 5, 0xF80),
+            < 0x310 => (0x2A0, 0x310, 6, 0xF80),
+            < 0x380 => (0x310, 0x380, 7, 0xF80),
+            < 0x3F0 => (0x380, 0x3F0, 8, 0xF80),
+            < 0x460 => (0x3F0, 0x460, 9, 0xF80),
+            < 0x4D0 => (0x460, 0x4D0, 10, 0xF80),
+            < 0x540 => (0x4D0, 0x540, 11, 0xF80),
+            _ => (0x540, 0x5A8, 12, 0xF80)
+        };
+    }
+
     internal void ReadRadicalRedExtensionRange(int extensionOffset, Span<byte> destination)
     {
         var destinationOffset = 0;
@@ -1036,9 +1094,12 @@ public sealed class Gen3SaveDocument
             "extended" => SectionTrailerOffset,
             var mode when mode.StartsWith("unbound-", StringComparison.Ordinal) =>
                 Convert.ToInt32(mode["unbound-".Length..], 16),
+            "ultimate-emerald-55-constant" => 0,
             _ => throw new InvalidOperationException($"section {section.Id} 使用不支持的校验模式 {section.ChecksumMode}。")
         };
-        var checksum = CalculateChecksum(raw.Slice(section.FileOffset, checksumLength));
+        var checksum = section.ChecksumMode == "ultimate-emerald-55-constant"
+            ? (ushort)1
+            : CalculateChecksum(raw.Slice(section.FileOffset, checksumLength));
         WriteU16(raw, section.FileOffset + SectionChecksumOffset, checksum);
     }
 

@@ -24,6 +24,7 @@ internal static class Gen3SaveStrategyCatalog
             UnboundCfruSaveStrategy.StrategyId => UnboundCfruSaveStrategy.Instance,
             DestinyFireRedSaveStrategy.StrategyId => DestinyFireRedSaveStrategy.Instance,
             RadicalRedCfruSaveStrategy.StrategyId => RadicalRedCfruSaveStrategy.Instance,
+            UltimateEmerald55SaveStrategy.StrategyId => UltimateEmerald55SaveStrategy.Instance,
             DisabledSaveStrategy.StrategyId => DisabledSaveStrategy.Instance,
             var id => throw new NotSupportedException($"当前程序不支持存档策略：{id}")
         };

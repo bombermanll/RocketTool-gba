@@ -12,7 +12,7 @@ public sealed record Gen3SaveBagEntry(
     bool QuantityXor,
     string Note);
 
-public sealed record Gen3SaveTrainerInfo(byte[] NameBytes, uint OtId, uint Money);
+public sealed record Gen3SaveTrainerInfo(byte[] NameBytes, uint OtId, uint Money, byte Gender = 0);
 
 public sealed record Gen3SaveReadResult(
     string FileName,
@@ -160,6 +160,196 @@ public static class Gen3SaveReader
 
     public static Gen3SaveDocument Open(string path, GameProfile profile)
         => Gen3SaveStrategyCatalog.ForProfile(profile).Open(path, profile);
+
+    internal static Gen3SaveDocument OpenUltimateEmerald55(string path, GameProfile profile)
+    {
+        var raw = File.ReadAllBytes(path);
+        var warnings = new List<string>();
+        var slots = FindUltimateEmerald55Slots(raw).ToArray();
+        if (slots.Length == 0)
+            throw new InvalidOperationException(
+                "没有识别到有效的《究极绿宝石5.5》存档 section（签名 0x08012025、校验值 1）。");
+
+        var best = slots
+            .OrderByDescending(slot => slot.ValidSections.Count)
+            .ThenByDescending(slot => slot.SaveIndex)
+            .First();
+        if (best.ValidSections.Count < SectionsPerSlot)
+            warnings.Add($"只识别到 {best.ValidSections.Count}/{SectionsPerSlot} 个有效 section；当前仅允许读取。");
+
+        var saveBlock2 = BuildBlock(best, 0, 0, warnings, "SaveBlock2");
+        var saveBlock1 = BuildBlock(best, 1, 4, warnings, "SaveBlock1");
+        var pcStorage = BuildBlock(best, 5, 13, warnings, "PC 箱子");
+        var bagStorage = BuildUltimateEmerald55Bag(raw, best, warnings);
+        var party = ReadUltimateEmerald55Party(saveBlock1, profile, warnings);
+        var boxes = ReadUltimateEmerald55Boxes(pcStorage, profile, warnings);
+        var itemPockets = ReadProfileItemPockets(profile);
+        var bag = ReadUltimateEmerald55Bag(
+            bagStorage,
+            saveBlock2,
+            itemPockets,
+            profile,
+            warnings);
+        var trainerName = saveBlock2.AsSpan(0, profile.Memory.PlayerNameLength).ToArray();
+        var trainerOtId = ReadU32(saveBlock2, profile.Memory.SaveBlock2PlayerOtIdOffset);
+        var moneyKey = ReadU32(
+            saveBlock2,
+            (int)profile.Memory.SaveBlock2EncryptionKeyOffset);
+        var money = ReadU32(
+            saveBlock1,
+            (int)profile.Memory.SaveBlock1MoneyOffset) ^ moneyKey;
+        if (money > profile.Runtime.MaxTrainerMoney)
+            throw new InvalidOperationException(
+                $"究极绿宝石5.5存档金钱字段解密为 {money}，" +
+                $"超出当前 ROM 已确认范围 0..{profile.Runtime.MaxTrainerMoney}。");
+        var trainerGender = saveBlock2[8];
+        if (trainerGender > 1)
+            throw new InvalidOperationException($"究极绿宝石5.5存档玩家性别字段为 {trainerGender}，超出已确认范围 0..1。");
+        var trainer = new Gen3SaveTrainerInfo(trainerName, trainerOtId, money, trainerGender);
+        warnings.Add(
+            $"究极绿宝石5.5存档：使用 save index {best.SaveIndex}；" +
+            "section 校验函数 0x0925782A 固定返回 1。");
+        warnings.Add("队伍按当前 ROM 已验证的 SaveBlock1+0x238 CFRU 明文 100 字节结构读取。");
+        warnings.Add("箱子按当前 ROM 已验证的 PC+4、14箱×30格×80字节 CFRU 明文结构读取。");
+        warnings.Add(
+            "背包按当前 ROM 保存函数和受控差分确认的 1448 字节映射读取：" +
+            "道具100、重要物品50、精灵球32、招式机器130、树果50。");
+        warnings.Add(
+            $"玩家资料按 SaveBlock2+0x0/0x{profile.Memory.SaveBlock2PlayerOtIdOffset:X}，" +
+            $"金钱按 SaveBlock1+0x{profile.Memory.SaveBlock1MoneyOffset:X} XOR " +
+            $"SaveBlock2+0x{profile.Memory.SaveBlock2EncryptionKeyOffset:X} 读取。");
+
+        var snapshot = new Gen3SaveReadResult(
+            Path.GetFileName(path),
+            raw.Length,
+            best.Ordinal + 1,
+            best.SaveIndex,
+            best.ValidSections.Count,
+            party,
+            bag,
+            boxes,
+            trainer,
+            warnings);
+        var sections = best.ValidSections.ToDictionary(
+            pair => pair.Key,
+            pair => new Gen3SaveSectionLayout(
+                pair.Key,
+                pair.Value.Offset,
+                pair.Value.SaveIndex,
+                pair.Value.ChecksumMode));
+        return new Gen3SaveDocument(
+            path,
+            raw,
+            sections,
+            StandardPartyCountOffset,
+            StandardPartyOffset,
+            snapshot,
+            profile,
+            itemPockets,
+            UltimateEmerald55SaveStrategy.Instance);
+    }
+
+    private static byte[] BuildUltimateEmerald55Bag(
+        byte[] raw,
+        SaveSlot slot,
+        List<string> warnings)
+    {
+        var output = new byte[Gen3SaveDocument.UltimateEmerald55BagSize];
+        var segments = new[]
+        {
+            (VirtualOffset: 0x000, Length: 0x068, SectionId: 1, RelativeOffset: 0xF88),
+            (VirtualOffset: 0x068, Length: 0x070, SectionId: 2, RelativeOffset: 0xF80),
+            (VirtualOffset: 0x0D8, Length: 0x070, SectionId: 3, RelativeOffset: 0xF80),
+            (VirtualOffset: 0x148, Length: 0x0E8, SectionId: 4, RelativeOffset: 0xF08),
+            (VirtualOffset: 0x230, Length: 0x070, SectionId: 5, RelativeOffset: 0xF80),
+            (VirtualOffset: 0x2A0, Length: 0x070, SectionId: 6, RelativeOffset: 0xF80),
+            (VirtualOffset: 0x310, Length: 0x070, SectionId: 7, RelativeOffset: 0xF80),
+            (VirtualOffset: 0x380, Length: 0x070, SectionId: 8, RelativeOffset: 0xF80),
+            (VirtualOffset: 0x3F0, Length: 0x070, SectionId: 9, RelativeOffset: 0xF80),
+            (VirtualOffset: 0x460, Length: 0x070, SectionId: 10, RelativeOffset: 0xF80),
+            (VirtualOffset: 0x4D0, Length: 0x070, SectionId: 11, RelativeOffset: 0xF80),
+            (VirtualOffset: 0x540, Length: 0x068, SectionId: 12, RelativeOffset: 0xF80)
+        };
+
+        foreach (var segment in segments)
+        {
+            if (!slot.ValidSections.TryGetValue(segment.SectionId, out var section))
+            {
+                warnings.Add($"背包映射缺少 section {segment.SectionId}。");
+                continue;
+            }
+            raw.AsSpan(section.Offset + segment.RelativeOffset, segment.Length)
+                .CopyTo(output.AsSpan(segment.VirtualOffset, segment.Length));
+        }
+        return output;
+    }
+
+    private static IReadOnlyList<Gen3SaveBagEntry> ReadUltimateEmerald55Bag(
+        ReadOnlySpan<byte> storage,
+        ReadOnlySpan<byte> saveBlock2,
+        IReadOnlyDictionary<int, int> itemPockets,
+        GameProfile profile,
+        List<string> warnings)
+    {
+        var quantityKey = (ushort)(
+            ReadU32(saveBlock2, (int)profile.Memory.SaveBlock2EncryptionKeyOffset) &
+            0xFFFF);
+        var areas = new[]
+        {
+            (Pocket: 1, Offset: 0x000, Capacity: 100, Name: "道具"),
+            (Pocket: 5, Offset: 0x190, Capacity: 50, Name: "重要物品"),
+            (Pocket: 2, Offset: 0x258, Capacity: 32, Name: "精灵球"),
+            (Pocket: 3, Offset: 0x2D8, Capacity: 130, Name: "招式机器"),
+            (Pocket: 4, Offset: 0x4E0, Capacity: 50, Name: "树果")
+        };
+        var entries = new List<Gen3SaveBagEntry>();
+        foreach (var area in areas)
+        {
+            var displaySlot = 0;
+            for (var i = 0; i < area.Capacity; i++)
+            {
+                var offset = area.Offset + i * 4;
+                var item = ReadU16(storage, offset);
+                if (item == 0) continue;
+                if (item > profile.Limits.MaxItem)
+                {
+                    warnings.Add(
+                        $"究极绿宝石5.5{area.Name}槽 {i + 1} 的道具 {item} " +
+                        $"超过当前 Profile 上限，已忽略。");
+                    continue;
+                }
+                if (!itemPockets.TryGetValue(item, out var mappedPocket) ||
+                    mappedPocket != area.Pocket)
+                {
+                    warnings.Add(
+                        $"究极绿宝石5.5{area.Name}槽 {i + 1} 的道具 {item} " +
+                        $"不属于当前 ROM 的该口袋，已忽略。");
+                    continue;
+                }
+
+                var quantity = (ushort)(ReadU16(storage, offset + 2) ^ quantityKey);
+                var maxQuantity = profile.Limits.MaxBagQuantityForPocket(area.Pocket);
+                if (quantity < 1 || quantity > maxQuantity)
+                {
+                    warnings.Add(
+                        $"究极绿宝石5.5{area.Name}槽 {i + 1} 的数量 {quantity} " +
+                        $"超出已确认范围 1..{maxQuantity}，已忽略。");
+                    continue;
+                }
+
+                entries.Add(new Gen3SaveBagEntry(
+                    Gen3SaveDocument.UltimateEmerald55BagOffsetMarker + offset,
+                    area.Pocket,
+                    ++displaySlot,
+                    item,
+                    quantity,
+                    quantityKey,
+                    true,
+                    $"究极绿宝石5.5扩展背包；{area.Name} {i + 1}"));
+            }
+        }
+        return entries;
+    }
 
     internal static Gen3SaveDocument OpenUnbound(string path, GameProfile profile)
     {
@@ -880,6 +1070,81 @@ public static class Gen3SaveReader
         return result;
     }
 
+    private static IEnumerable<SaveSlot> FindUltimateEmerald55Slots(byte[] raw)
+    {
+        var sections = new List<SaveSection>();
+        for (var offset = 0; offset + SectionSize <= raw.Length; offset += SectionSize)
+        {
+            var data = raw.AsSpan(offset, SectionSize);
+            var id = ReadU16(data, 0xFF4);
+            if (id >= SectionsPerSlot ||
+                ReadU16(data, 0xFF6) != 1 ||
+                ReadU32(data, 0xFF8) != SectionSignature)
+                continue;
+            sections.Add(new SaveSection(
+                id,
+                offset,
+                ReadU32(data, 0xFFC),
+                data[..SectionDataSize].ToArray(),
+                "ultimate-emerald-55-constant"));
+        }
+
+        var ordinal = 0;
+        foreach (var group in sections
+                     .GroupBy(section => section.SaveIndex)
+                     .OrderBy(group => group.Min(section => section.Offset)))
+        {
+            var byId = group
+                .GroupBy(section => section.Id)
+                .ToDictionary(
+                    sameId => sameId.Key,
+                    sameId => sameId.OrderBy(section => section.Offset).First());
+            if (byId.Count > 0)
+                yield return new SaveSlot(
+                    ordinal++,
+                    byId.Values.Min(section => section.Offset),
+                    byId);
+        }
+    }
+
+    private static IReadOnlyList<PartyPokemon> ReadUltimateEmerald55Party(
+        ReadOnlySpan<byte> saveBlock1,
+        GameProfile profile,
+        List<string> warnings)
+    {
+        if (saveBlock1.Length < StandardPartyOffset + PartyPokemon.Size)
+            throw new InvalidOperationException("究极绿宝石5.5 SaveBlock1 长度不足，无法读取队伍。");
+        var count = saveBlock1[StandardPartyCountOffset];
+        if (count > Gen3Constants.PartySlots)
+        {
+            warnings.Add($"究极绿宝石5.5队伍数量异常：{count}。");
+            return [];
+        }
+
+        var result = new List<PartyPokemon>();
+        for (var slot = 0; slot < count; slot++)
+        {
+            var mon = new PartyPokemon(
+                saveBlock1.Slice(
+                    StandardPartyOffset + slot * PartyPokemon.Size,
+                    PartyPokemon.Size),
+                PokemonDataLayout.UltimateEmerald55CfruPlainParty);
+            var info = mon.GetInfo();
+            if (mon.IsEmpty ||
+                info.Species is < 1 ||
+                info.Species > profile.Limits.MaxSpecies ||
+                info.Level is < 1 or > 100)
+            {
+                warnings.Add(
+                    $"究极绿宝石5.5队伍槽 {slot + 1} 数据无效，已停止读取后续槽位。");
+                break;
+            }
+            result.Add(mon);
+        }
+        return result;
+    }
+
+
     private static IReadOnlyList<SaveSection> ReadAllSections(byte[] raw)
     {
         var sections = new List<SaveSection>();
@@ -1148,6 +1413,48 @@ public static class Gen3SaveReader
         warnings.Add($"命运背包读取：{name}显示 {displayed} 格，容量 {capacity} 格。");
     }
 
+    private static IReadOnlyList<Gen3SaveBoxEntry> ReadUltimateEmerald55Boxes(
+        ReadOnlySpan<byte> pcStorage,
+        GameProfile profile,
+        List<string> warnings)
+    {
+        var entries = new List<Gen3SaveBoxEntry>();
+        var totalSlots = profile.Memory.PcBoxCount * profile.Memory.PcBoxSlots;
+        var required = StandardPcBoxesOffset + totalSlots * BoxPokemon.Size;
+        if (pcStorage.Length < required)
+        {
+            warnings.Add(
+                $"究极绿宝石5.5 PC 箱子数据不足：需要 0x{required:X} 字节，实际 0x{pcStorage.Length:X}。");
+            return entries;
+        }
+
+        for (var globalSlot = 0; globalSlot < totalSlots; globalSlot++)
+        {
+            var offset = StandardPcBoxesOffset + globalSlot * BoxPokemon.Size;
+            var mon = new BoxPokemon(
+                pcStorage.Slice(offset, BoxPokemon.Size),
+                PokemonDataLayout.UltimateEmerald55CfruPlainBox);
+            if (mon.IsEmpty) continue;
+            if (!mon.HasValidHeader(profile.Limits.MaxSpecies))
+            {
+                var boxNumber = globalSlot / profile.Memory.PcBoxSlots + 1;
+                var slotInBox = globalSlot % profile.Memory.PcBoxSlots + 1;
+                warnings.Add(
+                    $"究极绿宝石5.5箱{boxNumber:00}-{slotInBox:00}存在非空但未通过当前 ROM 明文 80 字节结构校验的数据。");
+                continue;
+            }
+            entries.Add(new Gen3SaveBoxEntry(
+                globalSlot + 1,
+                globalSlot / profile.Memory.PcBoxSlots + 1,
+                globalSlot % profile.Memory.PcBoxSlots + 1,
+                offset,
+                mon));
+        }
+
+        warnings.Add($"究极绿宝石5.5箱子读取：已检查 {totalSlots} 个 80 字节槽，识别到 {entries.Count} 只宝可梦。");
+        return entries;
+    }
+
     private static IReadOnlyList<Gen3SaveBoxEntry> ReadDestinyBoxes(ReadOnlySpan<byte> pcStorage, GameProfile profile, List<string> warnings)
     {
         var entries = new List<Gen3SaveBoxEntry>();
@@ -1366,22 +1673,40 @@ public static class Gen3SaveReader
         return slot;
     }
 
-    private static ushort InferSaveBagQuantityKey(ReadOnlySpan<byte> data)
+    internal static ushort InferSaveBagQuantityKey(ReadOnlySpan<byte> data)
     {
-        var values = new Dictionary<ushort, int>();
+        var emptyValues = new Dictionary<ushort, int>();
+        var occupiedValues = new Dictionary<ushort, int>();
         foreach (var physical in SaveBagPhysicalPockets.Where(p => p.HasQuantity && p.FixedPocket != MachinePocket))
         {
             for (var i = 0; i < physical.Capacity && physical.Offset + i * 4 + 4 <= data.Length; i++)
             {
                 var offset = physical.Offset + i * 4;
-                if (ReadU16(data, offset) is 0 or > MaxItem) continue;
+                var item = ReadU16(data, offset);
                 var raw = ReadU16(data, offset + 2);
-                values[raw] = values.GetValueOrDefault(raw) + 1;
+                if (item == 0)
+                {
+                    emptyValues[raw] = emptyValues.GetValueOrDefault(raw) + 1;
+                    continue;
+                }
+                if (item > MaxItem) continue;
+                occupiedValues[raw] = occupiedValues.GetValueOrDefault(raw) + 1;
             }
         }
 
-        if (values.Count > 0)
-            return values.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key).First().Key;
+        // Save quantities decode as (raw ^ key) + 1, while the physical empty marker
+        // decodes as zero and therefore stores raw=(key ^ 1). Prefer that direct evidence.
+        // Inferring the key from the most common occupied quantity breaks sparse bags:
+        // a newly added x2 item has the same raw value as an empty marker and reopens x1.
+        var nonZeroEmpty = emptyValues.Where(entry => entry.Key != 0).ToArray();
+        if (nonZeroEmpty.Length > 0)
+            return (ushort)(nonZeroEmpty.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key).First().Key ^ 1);
+
+        if (occupiedValues.Count > 0)
+            return occupiedValues.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key).First().Key;
+
+        if (emptyValues.Count > 0)
+            return 1;
 
         var machine = SaveBagPhysicalPockets.First(p => p.FixedPocket == MachinePocket);
         return InferMostCommonRawQuantity(data, machine.Offset, machine.Capacity, nonEmptyOnly: true);

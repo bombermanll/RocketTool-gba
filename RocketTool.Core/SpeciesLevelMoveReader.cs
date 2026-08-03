@@ -21,11 +21,19 @@ public sealed class SpeciesLevelMoveReader
         _rom = File.ReadAllBytes(romPath);
         _pointerTableOffset = pointerTableOffset;
         _maxEntriesPerSpecies = maxEntriesPerSpecies;
+        if (entrySize is not (2 or 3 or 4))
+            throw new ArgumentOutOfRangeException(nameof(entrySize), "Level-up move entry size must be 2, 3, or 4 bytes.");
         _entrySize = entrySize;
     }
 
     public SpeciesLevelMoveReader(string romPath, GameProfile profile, int maxEntriesPerSpecies = DefaultMaxEntriesPerSpecies)
-        : this(romPath, profile.RomTables.LevelMoves.Offset, maxEntriesPerSpecies, profile.RomTables.LevelMoves.EntrySize)
+        : this(
+            romPath,
+            profile.RomTables.LevelMoves?.Offset
+                ?? throw new InvalidOperationException($"版本 {profile.DisplayName} 尚未定位升级招式表。"),
+            maxEntriesPerSpecies,
+            profile.RomTables.LevelMoves?.EntrySize
+                ?? throw new InvalidOperationException($"版本 {profile.DisplayName} 尚未定位升级招式表。"))
     {
     }
 
@@ -53,6 +61,14 @@ public sealed class SpeciesLevelMoveReader
                 if (packed == 0xFFFF)
                     return result;
                 result.Add(new SpeciesLevelMove(species, (ushort)(packed >> 9), (ushort)(packed & 0x01FF)));
+            }
+            else if (_entrySize == 3)
+            {
+                var move = U16(entryOff);
+                var level = _rom[entryOff + 2];
+                if (move == 0 || level == 0xFF)
+                    return result;
+                result.Add(new SpeciesLevelMove(species, level, move));
             }
             else
             {

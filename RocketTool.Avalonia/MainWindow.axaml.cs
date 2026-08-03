@@ -154,7 +154,7 @@ public partial class MainWindow : Window
 
     private const int MaxPokemonLevel = PokemonExperienceTable.MaxLevel;
     private const int DexImportLevel = 5;
-    private sealed record PlayerTrainerIdentity(uint OtId, byte[] OtName);
+    private sealed record PlayerTrainerIdentity(uint OtId, byte[] OtName, byte Gender);
     private sealed record DexEvolutionSegment(string Text, int? SpeciesId = null, bool IsCurrent = false);
 
     private readonly ObservableCollection<PartySlotRow> _partyRows = [];
@@ -3224,6 +3224,7 @@ public partial class MainWindow : Window
         var mon = PartyPokemon.Create(NewNonShinyPid(trainer.OtId), trainer.OtId, ActivePokemonLayout);
         mon.SetOtName(trainer.OtName);
         ApplyDexImportDefaults(mon, species, stats);
+        _runtime.InitializeImportedParty(mon, DexImportLevel, trainer.Gender);
         mon.SetUnencrypted(status: 0, level: DexImportLevel);
         mon.RecalculateStats(stats);
         return mon;
@@ -3235,6 +3236,7 @@ public partial class MainWindow : Window
         var mon = BoxPokemon.Create(NewNonShinyPid(trainer.OtId), trainer.OtId, ActiveBoxLayout);
         mon.SetOtName(trainer.OtName);
         ApplyDexImportDefaults(mon, species, stats);
+        _runtime.InitializeImportedBox(mon, DexImportLevel, trainer.Gender);
         return mon;
     }
 
@@ -3308,16 +3310,14 @@ public partial class MainWindow : Window
     };
 
     private PlayerTrainerIdentity ResolveImportTrainerIdentity(MgbaBridgeClient bridge)
-    {
-        var trainer = ReadTrainerInfo(bridge);
-        return new PlayerTrainerIdentity(trainer.OtId, trainer.NameBytes);
-    }
+        => TryReadCurrentPlayerIdentity(bridge)
+           ?? throw new InvalidOperationException("没有读到已验证的玩家名字、OT ID 和性别，不能新建宝可梦。");
 
     private static PlayerTrainerIdentity ResolveSaveImportTrainerIdentity(Gen3SaveDocument document)
     {
         var trainer = document.Snapshot.Trainer
                       ?? throw new InvalidOperationException("存档中没有已验证的玩家名字和 OT ID，不能新建宝可梦。");
-        return new PlayerTrainerIdentity(trainer.OtId, trainer.NameBytes);
+        return new PlayerTrainerIdentity(trainer.OtId, trainer.NameBytes, trainer.Gender);
     }
 
     private PlayerTrainerIdentity? TryReadCurrentPlayerIdentity(MgbaBridgeClient bridge)
@@ -3331,7 +3331,11 @@ public partial class MainWindow : Window
             var header = bridge.Read(saveBlock2, _profile.Memory.SaveBlock2HeaderLength);
             if (!LooksLikePlayerSaveBlock2Header(header)) return null;
             var otName = CopyGameTextBuffer(header, _profile.Memory.PlayerNameLength);
-            return new PlayerTrainerIdentity(ReadU32Le(header, _profile.Memory.SaveBlock2PlayerOtIdOffset), otName);
+            var gender = header.Length > 8 && header[8] <= 1 ? header[8] : (byte)0;
+            return new PlayerTrainerIdentity(
+                ReadU32Le(header, _profile.Memory.SaveBlock2PlayerOtIdOffset),
+                otName,
+                gender);
         }
         catch
         {
@@ -4484,7 +4488,7 @@ public partial class MainWindow : Window
     {
         _dexOtherMoveRows.Clear();
         foreach (var (index, move) in ReadIndexedSpeciesMoves("species_machine_moves", species))
-            AddDexMoveRow(_dexOtherMoveRows, $"机器槽 {index:000}", move);
+            AddDexMoveRow(_dexOtherMoveRows, $"机器 {index + 1:000}", move);
         foreach (var (index, move) in ReadIndexedSpeciesMoves("species_tutor_moves", species))
             AddDexMoveRow(_dexOtherMoveRows, $"教学 {index + 1:000}", move);
         if (_db.Table("species_egg_moves").TryGetValue(species, out var rawEggMoves))
@@ -5978,6 +5982,7 @@ public partial class MainWindow : Window
             _bagRows.Add(row);
         if (_dataSourceMode == DataSourceMode.SaveFile)
         {
+            SetBagItemChoicesForPocket(selectedPocket);
             RefreshSaveBagEditableRows();
             UpdateBagNameText();
             return;
@@ -8012,6 +8017,22 @@ public partial class MainWindow : Window
     private void WriteLiveBagRange(MgbaBridgeClient bridge, uint address, ReadOnlySpan<byte> data)
     {
         _runtime.EnsureCanWrite(GameDataSurface.Bag, live: true);
+        if (data.Length <= 0 || data.Length % 4 != 0 || (address & 3) != 0 ||
+            !IsEwramRange(address, data.Length))
+            throw new InvalidOperationException("背包写入必须是位于 EWRAM 且按 4 字节槽对齐的完整记录，已拒绝写入。");
+
+        var end = (ulong)address + (uint)data.Length;
+        bool IsWithin(uint start, int slotCount)
+            => address >= start && end <= (ulong)start + checked((uint)slotCount * 4U);
+
+        var allowed = UsesFixedLiveBag
+            ? _profile.Runtime.LiveBag.Areas.Any(area => IsWithin(area.Address, area.Capacity))
+            : _bagBase is { } bagBase &&
+              _runtime.ScannedBagDefinitions.Any(definition =>
+                  IsWithin(bagBase + checked((uint)definition.Offset), definition.SlotCount));
+        if (!allowed)
+            throw new InvalidOperationException("背包写入范围不属于当前 Profile 已验证的口袋区域，已拒绝写入。");
+
         bridge.WriteRangeVerified(address, data);
     }
 

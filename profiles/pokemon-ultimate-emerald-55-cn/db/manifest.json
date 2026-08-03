@@ -1,0 +1,15 @@
+{
+  "profile": "pokemon-ultimate-emerald-55-cn",
+  "romSha256": "54fcca2edaeb359867d7bd3fc5bd88687e84ea069488be1b0a011bb3eefae6cc",
+  "counts": {
+    "speciesSlots": 1200,
+    "visibleSpecies": 1197,
+    "moves": 1025,
+    "items": 800,
+    "abilities": 342,
+    "frontSprites": 1197,
+    "menuIcons": 1197,
+    "itemIcons": 800
+  },
+  "evidence": "See ULTIMATE_EMERALD_55_REVERSE_NOTES.md"
+}

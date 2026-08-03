@@ -125,10 +125,11 @@ public sealed record GameProfileBoxRegion
 public sealed record GameProfileRomTables
 {
     public required GameProfileRomTable BaseStats { get; init; }
+    public GameProfileRomTable? SpeciesAbilities { get; init; }
     public required GameProfileRomTable Moves { get; init; }
     public required GameProfileRomTable Items { get; init; }
     public required GameProfileRomTable Evolutions { get; init; }
-    public required GameProfileRomTable LevelMoves { get; init; }
+    public GameProfileRomTable? LevelMoves { get; init; }
     public required GameProfileRomTable Experience { get; init; }
     public GameProfileRomTable? MachineMoves { get; init; }
     public GameProfileRomTable? TutorMoves { get; init; }
@@ -636,13 +637,18 @@ public static class GameProfileCatalog
                      ("moves", profile.RomTables.Moves),
                      ("items", profile.RomTables.Items),
                      ("evolutions", profile.RomTables.Evolutions),
-                     ("levelMoves", profile.RomTables.LevelMoves),
                      ("experience", profile.RomTables.Experience)
                  })
         {
             if (table is null || table.Offset < 0 || table.EntrySize <= 0 || table.Count <= 0 || table.EntriesPerRecord <= 0)
                 throw new InvalidOperationException($"版本配置 {profile.Id} 的 ROM 表 {name} 无效。");
         }
+        if (profile.RomTables.LevelMoves is { } levelMoves &&
+            (levelMoves.Offset < 0 || levelMoves.EntrySize <= 0 || levelMoves.Count <= 0 || levelMoves.EntriesPerRecord <= 0))
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的 ROM 表 levelMoves 无效。");
+        if (profile.RomTables.SpeciesAbilities is { } speciesAbilities &&
+            (speciesAbilities.Offset < 0 || speciesAbilities.EntrySize <= 0 || speciesAbilities.Count <= 0 || speciesAbilities.EntriesPerRecord <= 0))
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的 ROM 表 speciesAbilities 无效。");
     }
 
     private static string NormalizeResourceName(string name) => name.Replace('\\', '.').Replace('/', '.');
