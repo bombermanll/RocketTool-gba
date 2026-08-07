@@ -8,8 +8,12 @@
     "items": 800,
     "abilities": 342,
     "frontSprites": 1197,
+    "frontShinySprites": 1197,
+    "backSprites": 1197,
+    "backShinySprites": 1197,
     "menuIcons": 1197,
-    "itemIcons": 800
+    "itemIcons": 800,
+    "nationalDexRows": 1199
   },
   "evidence": "See ULTIMATE_EMERALD_55_REVERSE_NOTES.md"
 }

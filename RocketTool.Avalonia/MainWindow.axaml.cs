@@ -222,7 +222,7 @@ public partial class MainWindow : Window
     private readonly Dictionary<SearchableChoiceBox, IReadOnlyList<ChoiceRow>> _searchableChoices = [];
     private readonly Dictionary<int, IReadOnlyList<SpeciesEvolution>> _evolutionCache = [];
     private readonly Dictionary<int, IReadOnlyList<SpeciesLevelMove>> _levelMoveCache = [];
-    private readonly Dictionary<int, Bitmap?> _spriteCache = [];
+    private readonly Dictionary<(int Species, bool Shiny, bool Back), Bitmap?> _spriteCache = [];
     private readonly Dictionary<int, Bitmap?> _itemIconCache = [];
     private Bitmap? _eggSpriteCache;
     private int ProfileMaxPokemonLevel => Math.Clamp(_profile.Limits.MaxLevel, 1, MaxPokemonLevel);
@@ -248,6 +248,10 @@ public partial class MainWindow : Window
         _runtime = GameRuntimeAdapterCatalog.ForProfile(profile);
         _dexMaxLevel = ProfileMaxPokemonLevel;
         InitializeComponent();
+        PartyBackSpriteBox.IsVisible = profile.Graphics.BackSpritesVerified;
+        BoxBackSpriteBox.IsVisible = profile.Graphics.BackSpritesVerified;
+        DexBackSpriteBox.IsVisible = profile.Graphics.BackSpritesVerified;
+        DexShinySpriteBox.IsVisible = profile.Graphics.ShinySpritesVerified;
         ReorderMainTabs();
         ApplyWindowIcon();
         ApplyWindowTitle();
@@ -2443,7 +2447,11 @@ public partial class MainWindow : Window
     {
         if (BoxList.SelectedItem is not BoxSlotRow row) return;
         var info = row.Info;
-        SetPokemonSprite(BoxDetailSpriteImage, info.Species);
+        SetPokemonSprite(
+            BoxDetailSpriteImage,
+            info.Species,
+            row.Mon.IsShiny,
+            BoxBackSpriteBox.IsChecked == true);
         UpdateBoxHeaderInfo(info.Species, info.Exp);
         SetOtEditor(BoxOtNameBox, BoxOtIdText, row.Mon.Raw, info.OtId);
         BoxAddressText.Text = $"0x{row.Address:X8}";
@@ -3782,6 +3790,29 @@ public partial class MainWindow : Window
             RefreshDexDetails(row);
     }
 
+    private void OnSpritePreviewChanged(object? sender, RoutedEventArgs e)
+    {
+        if (DexSpeciesList.SelectedItem is DexSpeciesRow dexRow)
+            SetDexSprite(LoadSpriteBitmap(
+                dexRow.Id,
+                DexShinySpriteBox.IsChecked == true,
+                DexBackSpriteBox.IsChecked == true));
+
+        var partySpecies = ParseChoiceUShortOrNull(SpeciesBox, _speciesChoices) ?? 0;
+        SetPokemonSprite(
+            PartyDetailSpriteImage,
+            partySpecies,
+            ShinyBox.IsChecked == true,
+            PartyBackSpriteBox.IsChecked == true);
+
+        var boxSpecies = ParseChoiceUShortOrNull(BoxSpeciesBox, _speciesChoices) ?? 0;
+        SetPokemonSprite(
+            BoxDetailSpriteImage,
+            boxSpecies,
+            BoxShinyBox.IsChecked == true,
+            BoxBackSpriteBox.IsChecked == true);
+    }
+
     private void InitializeDexRows()
     {
         _allDexRows = _speciesChoices
@@ -3789,7 +3820,11 @@ public partial class MainWindow : Window
             .Select(c =>
             {
                 var display = c.ToString();
-                return new DexSpeciesRow(c.Id, c.Name, display, $"No.{c.Id:0000} {display}", LoadSpriteBitmap(c.Id));
+                var nationalDex = NationalDexNumber(c.Id);
+                var title = nationalDex is > 0
+                    ? $"全国No.{nationalDex.Value:0000} / ID {c.Id:0000} {display}"
+                    : $"ID {c.Id:0000} {display}";
+                return new DexSpeciesRow(c.Id, c.Name, display, title, LoadSpriteBitmap(c.Id));
             })
             .ToArray();
         ApplyDexFilter(selectFirst: true);
@@ -4004,7 +4039,10 @@ public partial class MainWindow : Window
     private void RefreshDexDetails(DexSpeciesRow row)
     {
         DexTitleText.Text = row.Title;
-        SetDexSprite(row.Sprite);
+        SetDexSprite(LoadSpriteBitmap(
+            row.Id,
+            DexShinySpriteBox.IsChecked == true,
+            DexBackSpriteBox.IsChecked == true));
         try
         {
             var stats = ReadSpeciesStats(row.Id);
@@ -4060,9 +4098,13 @@ public partial class MainWindow : Window
         DexSpriteImage.IsVisible = sprite is not null;
     }
 
-    private void SetPokemonSprite(Image image, int speciesId)
+    private void SetPokemonSprite(
+        Image image,
+        int speciesId,
+        bool shiny = false,
+        bool back = false)
     {
-        var sprite = speciesId > 0 ? LoadSpriteBitmap(speciesId) : null;
+        var sprite = speciesId > 0 ? LoadSpriteBitmap(speciesId, shiny, back) : null;
         image.Source = sprite;
         image.IsVisible = sprite is not null;
     }
@@ -4135,24 +4177,38 @@ public partial class MainWindow : Window
         bstText.Text = string.Empty;
     }
 
-    private Bitmap? LoadSpriteBitmap(int speciesId)
+    private Bitmap? LoadSpriteBitmap(int speciesId, bool shiny = false, bool back = false)
     {
         if (!UsesVerifiedSpriteAssets) return null;
-        if (_spriteCache.TryGetValue(speciesId, out var cached)) return cached;
-        var sprite = LoadSpriteBitmapCore(speciesId) ?? LoadIconBitmapCore(speciesId);
-        _spriteCache[speciesId] = sprite;
+        shiny &= _profile.Graphics.ShinySpritesVerified;
+        back &= _profile.Graphics.BackSpritesVerified;
+        var key = (speciesId, shiny, back);
+        if (_spriteCache.TryGetValue(key, out var cached)) return cached;
+        var root = (shiny, back) switch
+        {
+            (true, true) => _profile.Graphics.ShinyBackSpriteAssetRoot,
+            (true, false) => _profile.Graphics.ShinySpriteAssetRoot,
+            (false, true) => _profile.Graphics.BackSpriteAssetRoot,
+            _ => _profile.Graphics.SpriteAssetRoot,
+        };
+        var sprite = LoadSpriteBitmapCore(speciesId, root)
+                     ?? LoadSpriteBitmapCore(speciesId, _profile.Graphics.SpriteAssetRoot)
+                     ?? LoadIconBitmapCore(speciesId);
+        _spriteCache[key] = sprite;
         return sprite;
     }
 
     private Bitmap? LoadEggSpriteBitmap()
     {
         if (!UsesVerifiedSpriteAssets || _profile.Graphics.EggSpeciesId <= 0) return null;
-        _eggSpriteCache ??= LoadSpriteBitmapCore(_profile.Graphics.EggSpeciesId);
+        _eggSpriteCache ??= LoadSpriteBitmapCore(
+            _profile.Graphics.EggSpeciesId,
+            _profile.Graphics.SpriteAssetRoot);
         return _eggSpriteCache;
     }
 
-    private Bitmap? LoadSpriteBitmapCore(int speciesId)
-        => LoadSpriteBitmapCore($"{speciesId:0000}");
+    private Bitmap? LoadSpriteBitmapCore(int speciesId, string root)
+        => LoadSpriteBitmapCore($"{speciesId:0000}", root);
 
     private Bitmap? LoadIconBitmapCore(int speciesId)
     {
@@ -4169,12 +4225,12 @@ public partial class MainWindow : Window
         }
     }
 
-    private Bitmap? LoadSpriteBitmapCore(string assetName)
+    private Bitmap? LoadSpriteBitmapCore(string assetName, string root)
     {
         try
         {
-            var root = _profile.Graphics.SpriteAssetRoot.Trim().Trim('/').Replace('\\', '/');
-            var uri = new Uri($"avares://RocketTool.Avalonia/Assets/{root}/{assetName}.png");
+            var normalizedRoot = root.Trim().Trim('/').Replace('\\', '/');
+            var uri = new Uri($"avares://RocketTool.Avalonia/Assets/{normalizedRoot}/{assetName}.png");
             return new Bitmap(AssetLoader.Open(uri));
         }
         catch
@@ -4206,6 +4262,10 @@ public partial class MainWindow : Window
     {
         _dexInfoRows.Clear();
         _dexInfoRows.Add(new DexInfoRow("宝可梦", row.DisplayName));
+        if (NationalDexNumber(row.Id) is { } nationalDex)
+            _dexInfoRows.Add(new DexInfoRow("全国图鉴编号", $"No.{nationalDex:0000}（内部 ID {row.Id}）"));
+        else
+            _dexInfoRows.Add(new DexInfoRow("内部编号", row.Id.ToString()));
         _dexInfoRows.Add(new DexInfoRow("属性", TypePairText(s.Type1, s.Type2), TypeBadges: TypeBadges(s.Type1, s.Type2)));
         _dexInfoRows.Add(new DexInfoRow("特性1", AbilityName(s.Ability1), AbilityTooltip(s.Ability1)));
         if (s.Ability2 != 0)
@@ -5334,7 +5394,14 @@ public partial class MainWindow : Window
         var shiny = mon.IsShiny ? "闪光" : "非闪";
         var gender = GenderText(GenderChoiceId(info.Species, info.Pid));
         var detail = $"HP {info.Hp}/{info.MaxHp}  {shiny}  性别 {gender}  性格 {NatureText(info.Nature, info.GameNatureCode)}  特性 {AbilityText(info.Species, info.Ivs["ability"])}  携带 {item}  校验 {ok}";
-        return new PartySlotRow(slot, addr, mon, info, title, detail, LoadSpriteBitmap(info.Species));
+        return new PartySlotRow(
+            slot,
+            addr,
+            mon,
+            info,
+            title,
+            detail,
+            LoadSpriteBitmap(info.Species, mon.IsShiny));
     }
 
     private void FillEditor(PartySlotRow row)
@@ -5344,7 +5411,11 @@ public partial class MainWindow : Window
             UpdatePartyHeaderInfo(headerInfo.Species, headerInfo.Level);
         else
             UpdatePartyHeaderInfo(0, null);
-        SetPokemonSprite(PartyDetailSpriteImage, headerInfo?.Species ?? 0);
+        SetPokemonSprite(
+            PartyDetailSpriteImage,
+            headerInfo?.Species ?? 0,
+            row.Mon.IsShiny,
+            PartyBackSpriteBox.IsChecked == true);
         SelectedDetailText.Text = string.Empty;
         SelectedDetailText.IsVisible = false;
         if (row.Info is not { } info)
@@ -5973,7 +6044,11 @@ public partial class MainWindow : Window
     }
 
     private Bitmap? BoxDisplaySprite(BoxMonInfo info)
-        => IsEgg(info) ? LoadEggSpriteBitmap() : LoadSpriteBitmap(info.Species);
+        => IsEgg(info)
+            ? LoadEggSpriteBitmap()
+            : LoadSpriteBitmap(
+                info.Species,
+                PartyPokemon.IsShinyPid(info.Pid, info.OtId));
 
     private void ApplyBagPocketFilter()
     {
@@ -6102,7 +6177,11 @@ public partial class MainWindow : Window
             var species = ParseChoiceUShortOrNull(SpeciesBox, _speciesChoices) ?? 0;
             var item = ParseChoiceUShortOrNull(ItemBox, _itemChoices) ?? 0;
             var level = ParseByteOrNull(LevelBox.Text);
-            SetPokemonSprite(PartyDetailSpriteImage, species);
+            SetPokemonSprite(
+                PartyDetailSpriteImage,
+                species,
+                ShinyBox.IsChecked == true,
+                PartyBackSpriteBox.IsChecked == true);
             UpdatePartyHeaderInfo(species, level);
             RefreshAbilityChoices(species, SelectedAbilitySlot());
             AbilityDescriptionText.Text = AbilityDescriptionFor(species, SelectedAbilitySlot());
@@ -6175,7 +6254,11 @@ public partial class MainWindow : Window
             var item = ParseChoiceUShortOrNull(BoxItemBox, _itemChoices) ?? 0;
             var exp = ParseUIntOrNull(BoxExpBox.Text);
             var friendship = ParseByteOrNull(BoxFriendshipBox.Text);
-            SetPokemonSprite(BoxDetailSpriteImage, species);
+            SetPokemonSprite(
+                BoxDetailSpriteImage,
+                species,
+                BoxShinyBox.IsChecked == true,
+                BoxBackSpriteBox.IsChecked == true);
             UpdateBoxHeaderInfo(species, exp);
             RefreshBoxAbilityChoices(species, SelectedChoiceId(BoxAbilityBox));
             BoxAbilityDescriptionText.Text = AbilityDescriptionFor(species, SelectedChoiceId(BoxAbilityBox));
@@ -6392,6 +6475,15 @@ public partial class MainWindow : Window
             .OrderBy(id => id)
             .ToArray();
         return duplicateIds.Length > 1 ? DuplicateSpeciesDisplay(species, name, duplicateIds) : name;
+    }
+
+    private int? NationalDexNumber(int species)
+    {
+        if (!_db.Table("species_national_dex").TryGetValue(species, out var value) ||
+            !int.TryParse(value, out var nationalDex) ||
+            nationalDex <= 0)
+            return null;
+        return nationalDex;
     }
 
     private string DuplicateSpeciesDisplay(int species, string name, IReadOnlyList<int> duplicateIds)

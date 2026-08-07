@@ -156,12 +156,20 @@ public sealed record GameProfileGraphics
 {
     public bool SpritesVerified { get; init; }
     public required string SpriteAssetRoot { get; init; }
+    public bool ShinySpritesVerified { get; init; }
+    public string ShinySpriteAssetRoot { get; init; } = "";
+    public bool BackSpritesVerified { get; init; }
+    public string BackSpriteAssetRoot { get; init; } = "";
+    public string ShinyBackSpriteAssetRoot { get; init; } = "";
     public string IconAssetRoot { get; init; } = "";
     public bool ItemIconsVerified { get; init; }
     public string ItemIconAssetRoot { get; init; } = "";
 
     [JsonConverter(typeof(FlexibleInt32JsonConverter))]
     public int FrontSpriteTableOffset { get; init; }
+
+    [JsonConverter(typeof(FlexibleInt32JsonConverter))]
+    public int BackSpriteTableOffset { get; init; }
 
     [JsonConverter(typeof(FlexibleInt32JsonConverter))]
     public int IconSpriteTableOffset { get; init; }
@@ -172,10 +180,16 @@ public sealed record GameProfileGraphics
     [JsonConverter(typeof(FlexibleInt32JsonConverter))]
     public int NormalPaletteTableOffset { get; init; }
 
+    [JsonConverter(typeof(FlexibleInt32JsonConverter))]
+    public int ShinyPaletteTableOffset { get; init; }
+
     public int SpriteIndexAdjustment { get; init; }
     public int PaletteIndexAdjustment { get; init; }
     public int EggSpeciesId { get; init; }
     public int VerifiedItemIconCount { get; init; }
+    public int VerifiedShinySpriteCount { get; init; }
+    public int VerifiedBackSpriteCount { get; init; }
+    public int VerifiedShinyBackSpriteCount { get; init; }
 }
 
 public sealed record GameProfileLimits
@@ -573,6 +587,22 @@ public static class GameProfileCatalog
              profile.Graphics.FrontSpriteTableOffset <= 0 ||
              profile.Graphics.NormalPaletteTableOffset <= 0))
             throw new InvalidOperationException($"版本配置 {profile.Id} 的精灵图片配置无效。");
+        if (profile.Graphics.ShinySpritesVerified &&
+            (!profile.Graphics.SpritesVerified ||
+             string.IsNullOrWhiteSpace(profile.Graphics.ShinySpriteAssetRoot) ||
+             profile.Graphics.ShinyPaletteTableOffset <= 0 ||
+             profile.Graphics.VerifiedShinySpriteCount != profile.DataVerification.VisibleSpeciesCount))
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的闪光正面图配置无效。");
+        if (profile.Graphics.BackSpritesVerified &&
+            (!profile.Graphics.SpritesVerified ||
+             string.IsNullOrWhiteSpace(profile.Graphics.BackSpriteAssetRoot) ||
+             profile.Graphics.BackSpriteTableOffset <= 0 ||
+             profile.Graphics.VerifiedBackSpriteCount != profile.DataVerification.VisibleSpeciesCount))
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的背面图配置无效。");
+        if (profile.Graphics.ShinySpritesVerified && profile.Graphics.BackSpritesVerified &&
+            (string.IsNullOrWhiteSpace(profile.Graphics.ShinyBackSpriteAssetRoot) ||
+             profile.Graphics.VerifiedShinyBackSpriteCount != profile.DataVerification.VisibleSpeciesCount))
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的闪光背面图配置无效。");
         if (profile.Graphics.ItemIconsVerified &&
             (string.IsNullOrWhiteSpace(profile.Graphics.ItemIconAssetRoot) ||
              profile.Graphics.ItemIconTableOffset <= 0 ||
@@ -583,6 +613,21 @@ public static class GameProfileCatalog
             var itemRoot = profile.Graphics.ItemIconAssetRoot.Replace('\\', '/').Trim('/');
             if (!itemRoot.StartsWith($"Profiles/{profile.Id}/", StringComparison.Ordinal))
                 throw new InvalidOperationException($"版本配置 {profile.Id} 的道具图片目录没有按 Profile 隔离。");
+        }
+        foreach (var (name, root) in new[]
+                 {
+                     ("正面图", profile.Graphics.SpritesVerified ? profile.Graphics.SpriteAssetRoot : ""),
+                     ("闪光正面图", profile.Graphics.ShinySpritesVerified ? profile.Graphics.ShinySpriteAssetRoot : ""),
+                     ("背面图", profile.Graphics.BackSpritesVerified ? profile.Graphics.BackSpriteAssetRoot : ""),
+                     ("闪光背面图", profile.Graphics.ShinySpritesVerified && profile.Graphics.BackSpritesVerified
+                         ? profile.Graphics.ShinyBackSpriteAssetRoot
+                         : "")
+                 })
+        {
+            if (string.IsNullOrWhiteSpace(root)) continue;
+            var normalizedRoot = root.Replace('\\', '/').Trim('/');
+            if (!normalizedRoot.StartsWith($"Profiles/{profile.Id}/", StringComparison.Ordinal))
+                throw new InvalidOperationException($"版本配置 {profile.Id} 的{name}目录没有按 Profile 隔离。");
         }
         foreach (var (name, value) in new[]
                  {

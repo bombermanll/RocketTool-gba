@@ -1101,6 +1101,43 @@ static int ProfileDataVerify()
         if (db.Table("moves").GroupBy(row => row.Value).Any(group => group.Count() > 1))
             errors.Add("moves: semantic display names are not unique");
     }
+    if (profile.Id == "pokemon-ultimate-emerald-55-cn")
+    {
+        void RequireValue(string table, int id, string expected)
+        {
+            var actual = db.NameOf(table, id);
+            if (!string.Equals(actual, expected, StringComparison.Ordinal))
+                errors.Add($"{table}[{id}]: expected {expected}, got {actual}");
+        }
+
+        RequireCount("species_national_dex", profile.Limits.MaxSpecies + 1);
+        RequireValue("species_national_dex", 252, "6");
+        RequireValue("species_national_dex", 277, "252");
+        RequireValue("species_forms", 201, "A");
+        RequireValue("species_forms", 254, "超极巨化");
+        RequireValue("species_forms", 856, "阿罗拉形态");
+        RequireValue("species_forms", 902, "Mega");
+        RequireValue("species_forms", 1040, "格斗属性");
+        var forms = db.Table("species_forms");
+        foreach (var group in speciesRows.GroupBy(row => row.Value).Where(group => group.Count() > 1))
+        {
+            var missing = group.Select(row => row.Key).Where(id => !forms.ContainsKey(id)).ToArray();
+            if (missing.Length > 0)
+                errors.Add($"species_forms: duplicate name {group.Key} is missing rows {string.Join(',', missing)}");
+            var labels = group
+                .Select(row => forms.TryGetValue(row.Key, out var label) ? label : "")
+                .ToArray();
+            if (labels.Length != labels.Distinct(StringComparer.Ordinal).Count())
+                errors.Add($"species_forms: duplicate name {group.Key} has repeated semantic form labels");
+        }
+        var genericForms = forms
+            .Where(row => row.Value.StartsWith("形态", StringComparison.Ordinal) &&
+                          row.Value.Length > 2 && row.Value[2..].All(char.IsDigit))
+            .Select(row => row.Key)
+            .ToArray();
+        if (genericForms.Length > 0)
+            errors.Add($"species_forms: unresolved generic labels at {string.Join(',', genericForms.Take(20))}");
+    }
 
     foreach (var table in new[] { "species", "moves", "items", "abilities" })
     {
@@ -1142,6 +1179,37 @@ static int ProfileDataVerify()
         var egg = Path.Combine(assetRoot, $"{profile.Graphics.EggSpeciesId:0000}.png");
         if (!File.Exists(egg)) errors.Add($"egg front sprite missing: {profile.Graphics.EggSpeciesId}");
     }
+    void VerifyPokemonSpriteSet(string label, string configuredRoot, int expected)
+    {
+        var root = Path.Combine(
+            RootDir(),
+            "RocketTool.Avalonia",
+            "Assets",
+            configuredRoot.Replace('/', Path.DirectorySeparatorChar));
+        var found = Directory.Exists(root)
+            ? speciesRows.Keys.Count(species => File.Exists(Path.Combine(root, $"{species:0000}.png")))
+            : 0;
+        Console.WriteLine($"  {label,-28} {found,5} / {expected}");
+        if (found != expected)
+            errors.Add($"{label}: expected {expected} profile species assets, got {found}");
+        var egg = Path.Combine(root, $"{profile.Graphics.EggSpeciesId:0000}.png");
+        if (!File.Exists(egg)) errors.Add($"{label}: egg sprite missing: {profile.Graphics.EggSpeciesId}");
+    }
+    if (profile.Graphics.ShinySpritesVerified)
+        VerifyPokemonSpriteSet(
+            "front shiny sprites",
+            profile.Graphics.ShinySpriteAssetRoot,
+            profile.Graphics.VerifiedShinySpriteCount);
+    if (profile.Graphics.BackSpritesVerified)
+        VerifyPokemonSpriteSet(
+            "back sprites",
+            profile.Graphics.BackSpriteAssetRoot,
+            profile.Graphics.VerifiedBackSpriteCount);
+    if (profile.Graphics.ShinySpritesVerified && profile.Graphics.BackSpritesVerified)
+        VerifyPokemonSpriteSet(
+            "back shiny sprites",
+            profile.Graphics.ShinyBackSpriteAssetRoot,
+            profile.Graphics.VerifiedShinyBackSpriteCount);
     if (profile.Graphics.ItemIconsVerified)
     {
         var itemIconRoot = Path.Combine(

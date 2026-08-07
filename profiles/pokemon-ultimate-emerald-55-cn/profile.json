@@ -1,7 +1,7 @@
 {
   "id": "pokemon-ultimate-emerald-55-cn",
   "displayName": "究极绿宝石5.5",
-  "description": "究极绿宝石5.5独立配置；已启用当前 ROM 的图鉴、图片、升级/机器/教学/蛋招式、名称与说明，以及实时/存档队伍、箱子、背包、玩家资料和金钱读写。",
+  "description": "究极绿宝石5.5独立配置；已启用当前 ROM 的全国编号与语义形态、正反面普通/闪光图片、图鉴、升级/机器/教学/蛋招式、名称与说明，以及实时/存档队伍、箱子、背包、玩家资料和金钱读写。",
   "romIdentity": {
     "fileName": "究极绿宝石 V-5.gba",
     "romSize": 33554432,
@@ -112,17 +112,27 @@
   "graphics": {
     "spritesVerified": true,
     "spriteAssetRoot": "Profiles/pokemon-ultimate-emerald-55-cn/Pokemon/front",
+    "shinySpritesVerified": true,
+    "shinySpriteAssetRoot": "Profiles/pokemon-ultimate-emerald-55-cn/Pokemon/front-shiny",
+    "backSpritesVerified": true,
+    "backSpriteAssetRoot": "Profiles/pokemon-ultimate-emerald-55-cn/Pokemon/back",
+    "shinyBackSpriteAssetRoot": "Profiles/pokemon-ultimate-emerald-55-cn/Pokemon/back-shiny",
     "iconAssetRoot": "Profiles/pokemon-ultimate-emerald-55-cn/Pokemon/icon",
     "itemIconsVerified": true,
     "itemIconAssetRoot": "Profiles/pokemon-ultimate-emerald-55-cn/Items/icon",
     "frontSpriteTableOffset": "0xF20A20",
+    "backSpriteTableOffset": "0xF22FA0",
     "iconSpriteTableOffset": "0xF2A020",
     "itemIconTableOffset": "0xFCBFF4",
     "normalPaletteTableOffset": "0xF25520",
+    "shinyPaletteTableOffset": "0xF27AA0",
     "spriteIndexAdjustment": 0,
     "paletteIndexAdjustment": 0,
     "eggSpeciesId": 412,
-    "verifiedItemIconCount": 800
+    "verifiedItemIconCount": 800,
+    "verifiedShinySpriteCount": 1197,
+    "verifiedBackSpriteCount": 1197,
+    "verifiedShinyBackSpriteCount": 1197
   },
   "limits": {
     "maxSpecies": 1198,
