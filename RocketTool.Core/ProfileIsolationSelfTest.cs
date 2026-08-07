@@ -7,6 +7,7 @@ public static class ProfileIsolationSelfTest
         VerifyMovePriorityParsing();
         VerifySpanishRocketSparseBagQuantityKey();
         VerifySpanishRocketLiveBagRangeIsolation();
+        VerifyUnboundSection2ChecksumVariants();
         var adapter = GameRuntimeAdapterCatalog.ForProfile(profile);
 
         var mixed = profile with
@@ -132,6 +133,28 @@ public static class ProfileIsolationSelfTest
         {
             // Expected: pocket B's first slot must never be offered to pocket A.
         }
+    }
+
+    private static void VerifyUnboundSection2ChecksumVariants()
+    {
+        var section = new byte[0x1000];
+
+        section[0] = 1;
+        section[0xF80] = 1;
+        if (!Gen3SaveReader.TryMatchUnboundChecksum(section, 2, 1, out var f80Length) ||
+            f80Length != 0xF80)
+            throw new InvalidOperationException("解放版 section 2 的 0xF80 checksum 范围回归失败。");
+
+        section.AsSpan().Clear();
+        section[0xF80] = 1;
+        if (!Gen3SaveReader.TryMatchUnboundChecksum(section, 2, 1, out var ff4Length) ||
+            ff4Length != 0xFF4)
+            throw new InvalidOperationException("解放版 section 2 的 0xFF4 checksum 范围回归失败。");
+
+        section[0xFF0] = 1;
+        if (!Gen3SaveReader.TryMatchUnboundChecksum(section, 2, 1, out var ff0Length) ||
+            ff0Length != 0xFF0)
+            throw new InvalidOperationException("解放版 section 2 的 0xFF0 checksum 范围回归失败。");
     }
 
     private static void VerifyCaughtBallIsolation(GameProfile profile, IGameRuntimeAdapter adapter)

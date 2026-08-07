@@ -366,6 +366,13 @@ public static class Gen3SaveReader
             .First();
         if (best.ValidSections.Count < SectionsPerSlot)
             warnings.Add($"只识别到 {best.ValidSections.Count}/{SectionsPerSlot} 个有效 section，已禁用安全写回。");
+        if (best.ValidSections.TryGetValue(2, out var section2) &&
+            section2.ChecksumMode != $"unbound-{SectionDataSize:X}")
+        {
+            warnings.Add(
+                $"解放版 section 2 使用当前存档自带的 0x{ChecksumLength(section2.ChecksumMode):X} " +
+                "checksum 范围；保存时会保持该范围。");
+        }
 
         var section0 = RequiredUnboundSection(best, 0);
         var saveBlock2 = section0.Data.AsSpan(0, 0xF24).ToArray();
@@ -695,7 +702,7 @@ public static class Gen3SaveReader
         }
     }
 
-    private static bool TryMatchUnboundChecksum(
+    internal static bool TryMatchUnboundChecksum(
         ReadOnlySpan<byte> section,
         int sectionId,
         ushort storedChecksum,
@@ -705,6 +712,9 @@ public static class Gen3SaveReader
         {
             0 => [0xF24],
             1 or 3 => [0xFF4, 0xFF0],
+            // 兼容 section 2 在不同存档中可能出现的 F80、FF4 或 FF0 范围。
+            // 只有实际保存的 checksum 精确命中才接受，写回时继续保持命中的范围。
+            2 => [SectionDataSize, 0xFF4, 0xFF0],
             4 => [0xD98],
             >= 5 and <= 12 => [0xFF4, 0xFF0, SectionDataSize],
             13 => [0x450],
@@ -720,6 +730,11 @@ public static class Gen3SaveReader
         checksumLength = 0;
         return false;
     }
+
+    private static int ChecksumLength(string mode)
+        => mode.StartsWith("unbound-", StringComparison.Ordinal)
+            ? Convert.ToInt32(mode["unbound-".Length..], 16)
+            : 0;
 
     private static SaveSection RequiredUnboundSection(SaveSlot slot, int id)
         => slot.ValidSections.TryGetValue(id, out var section)
