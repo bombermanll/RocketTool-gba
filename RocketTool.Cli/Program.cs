@@ -1647,8 +1647,16 @@ static (BagPocketDefinition Definition, int MaxQuantity) ResolveLiveBagSlot(
     }
 
     var baseAddress = BagScanner.LocateSaveBlockBase(bridge, profile, runtime.ScannedBagDefinitions);
-    var definition = BagScanner.DefinitionForAddress(runtime.ScannedBagDefinitions, baseAddress, address)
+    var ewram = PartyScanner.ReadEwram(bridge, profile);
+    var definition = BagScanner.DefinitionForAddress(
+                         runtime.ScannedBagDefinitions,
+                         baseAddress,
+                         address,
+                         profile.Memory.EwramBase,
+                         ewram.Length,
+                         pocket => runtime.BagBatchCapacity(pocket, true))
                      ?? throw new InvalidOperationException("地址不属于当前 Profile 已验证的扫描背包口袋，已拒绝访问。");
+    definition = definition with { QuantityKey = BagScanner.InferQuantityKey(ewram) };
     return (definition, profile.Limits.MaxBagQuantityForPocket(definition.Pocket));
 }
 

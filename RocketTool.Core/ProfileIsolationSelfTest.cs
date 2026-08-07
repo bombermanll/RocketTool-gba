@@ -6,6 +6,7 @@ public static class ProfileIsolationSelfTest
     {
         VerifyMovePriorityParsing();
         VerifySpanishRocketSparseBagQuantityKey();
+        VerifySpanishRocketLiveBagRangeIsolation();
         var adapter = GameRuntimeAdapterCatalog.ForProfile(profile);
 
         var mixed = profile with
@@ -84,6 +85,53 @@ public static class ProfileIsolationSelfTest
 
         if (Gen3SaveReader.InferSaveBagQuantityKey(saveBlock1) != quantityKey)
             throw new InvalidOperationException("西火稀疏存档背包的空槽数量密钥推断回归失败。");
+    }
+
+    private static void VerifySpanishRocketLiveBagRangeIsolation()
+    {
+        const uint ewramBase = 0x02000000;
+        var ewram = new byte[0x400];
+        BagPocketDefinition[] definitions =
+        [
+            new(1, "测试口袋A", 0x100, 120, false, 0),
+            new(2, "测试口袋B", 0x140, 120, false, 0)
+        ];
+        for (var slot = 0; slot < 16; slot++)
+        {
+            var offset = 0x100 + slot * 4;
+            ewram[offset] = 1;
+            ewram[offset + 2] = 1;
+        }
+        ewram[0x140] = 3;
+        ewram[0x142] = 1;
+
+        var (start, end) = BagScanner.ConfiguredPocketRange(
+            ewram.Length, ewramBase, ewramBase, definitions, 1, pocketCapacity: 20);
+        if (start != 0x100 || end != 0x140)
+            throw new InvalidOperationException("西火实时背包口袋范围没有按下一配置区域截断。");
+        var boundaryDefinition = BagScanner.DefinitionForAddress(
+            definitions, ewramBase, ewramBase + 0x140,
+            ewramBase, ewram.Length, _ => 20);
+        if (boundaryDefinition?.Pocket != 2)
+            throw new InvalidOperationException("西火实时背包重叠边界地址被识别成了错误口袋。");
+
+        try
+        {
+            _ = BagScanner.FindAddTarget(
+                ewram, ewramBase, ewramBase, definitions,
+                requestedPocket: 1, itemId: 2, addQuantity: 1,
+                itemPocket: item => item is 1 or 2 ? 1 : item == 3 ? 2 : -1,
+                isKeyItemPocket: _ => false,
+                pocketCapacity: _ => 20,
+                maxItemId: 10,
+                maxQuantity: 255);
+            throw new InvalidOperationException("西火实时背包在当前口袋已满时仍返回了跨区写入目标。");
+        }
+        catch (InvalidOperationException ex) when (
+            ex.Message.Contains("没有可安全追加的空槽", StringComparison.Ordinal))
+        {
+            // Expected: pocket B's first slot must never be offered to pocket A.
+        }
     }
 
     private static void VerifyCaughtBallIsolation(GameProfile profile, IGameRuntimeAdapter adapter)

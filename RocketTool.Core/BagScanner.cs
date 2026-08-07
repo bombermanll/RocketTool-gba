@@ -92,12 +92,17 @@ public static class BagScanner
         var definition = DefinitionForPocket(definitions, pocket);
         var pocketStart = searchStart;
         var pocketEnd = searchEnd;
+        if (definition is not null && saveBlockBase is null)
+            throw new InvalidOperationException("没有定位到当前存档的背包基址，已拒绝添加道具。");
         if (saveBlockBase is not null && definition is not null)
         {
-            pocketStart = checked((int)(saveBlockBase.Value + definition.Offset - ewramBase));
-            pocketEnd = checked(pocketStart + definition.SlotCount * 4);
-            if (pocketStart < 0 || pocketEnd > ewram.Length)
-                throw new InvalidOperationException("当前 Profile 的背包口袋范围超出 EWRAM，已拒绝写入。");
+            (pocketStart, pocketEnd) = ConfiguredPocketRange(
+                ewram.Length,
+                ewramBase,
+                saveBlockBase.Value,
+                definitions,
+                pocket,
+                pocketCapacity(pocket));
         }
 
         for (var off = pocketStart; off <= pocketEnd - 4; off += 4)
@@ -129,6 +134,63 @@ public static class BagScanner
             address >= saveBlockBase + definition.Offset &&
             address < saveBlockBase + definition.Offset + checked((uint)definition.SlotCount * 4U) &&
             ((address - saveBlockBase - definition.Offset) & 3U) == 0);
+
+    public static BagPocketDefinition? DefinitionForAddress(
+        IReadOnlyList<BagPocketDefinition> definitions,
+        uint saveBlockBase,
+        uint address,
+        uint ewramBase,
+        int ewramLength,
+        Func<int, int> pocketCapacity)
+    {
+        foreach (var definition in definitions)
+        {
+            var (startOffset, endOffset) = ConfiguredPocketRange(
+                ewramLength,
+                ewramBase,
+                saveBlockBase,
+                definitions,
+                definition.Pocket,
+                pocketCapacity(definition.Pocket));
+            var start = ewramBase + checked((uint)startOffset);
+            var end = ewramBase + checked((uint)endOffset);
+            if (address >= start && address < end && ((address - start) & 3U) == 0)
+                return definition;
+        }
+        return null;
+    }
+
+    public static (int StartOffset, int EndOffset) ConfiguredPocketRange(
+        int ewramLength,
+        uint ewramBase,
+        uint saveBlockBase,
+        IReadOnlyList<BagPocketDefinition> definitions,
+        int pocket,
+        int pocketCapacity)
+    {
+        var definition = DefinitionForPocket(definitions, pocket)
+                         ?? throw new InvalidOperationException($"当前 Profile 没有配置口袋 {pocket} 的实时区域。");
+        var start = checked((int)(saveBlockBase + definition.Offset - ewramBase));
+        var slotCount = Math.Min(definition.SlotCount, Math.Clamp(pocketCapacity, 1, MaxRunSlots));
+        var end = checked(start + slotCount * 4);
+
+        // Legacy scan windows can be wider than their logical pocket. Do not
+        // allow add/batch operations to enter the next configured region.
+        var nextOffset = definitions
+            .Where(candidate => candidate.Offset > definition.Offset)
+            .Select(candidate => candidate.Offset)
+            .DefaultIfEmpty(uint.MaxValue)
+            .Min();
+        if (nextOffset != uint.MaxValue)
+        {
+            var nextStart = checked((int)(saveBlockBase + nextOffset - ewramBase));
+            end = Math.Min(end, nextStart);
+        }
+
+        if (start < 0 || start >= ewramLength || end <= start || end > ewramLength)
+            throw new InvalidOperationException("当前 Profile 的背包口袋范围超出 EWRAM 或与下一口袋边界冲突，已拒绝写入。");
+        return (start, end);
+    }
 
     public static BagSlot ReadSlot(MgbaBridgeClient bridge, uint address, int maxItemId, int maxQuantity)
     {

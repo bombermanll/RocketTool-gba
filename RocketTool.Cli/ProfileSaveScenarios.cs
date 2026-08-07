@@ -89,7 +89,9 @@ internal sealed class PokemonUnboundSaveScenario : IProfileSaveScenario
             document.ReplaceTrainerMoney(trainer.Money == 99_999_999 ? trainer.Money - 1 : trainer.Money + 1);
         }
 
-        int[] targetSlots = [1, 20 * 30 - 29, 22 * 30, 23 * 30 - 29, 25 * 30 - 29];
+        // Global slot 71 (box 3, slot 11) crosses the first 0xFF0-byte PC
+        // section boundary and guards the Unbound-specific split/write path.
+        int[] targetSlots = [1, 71, 20 * 30 - 29, 22 * 30, 23 * 30 - 29, 25 * 30 - 29];
         for (var i = 0; i < targetSlots.Length; i++)
         {
             var box = BoxPokemon.Create(0x12345679u + (uint)(i * 2), partyInfo.OtId, PokemonDataLayout.UnboundCfruPlainParty);

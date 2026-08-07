@@ -28,6 +28,7 @@ public sealed class Gen3SaveDocument
     internal const int UltimateEmerald55BagOffsetMarker = 0x400000;
     internal const int UltimateEmerald55BagSize = 0x5A8;
     internal const int UnboundBoxRecordSize = BoxPokemon.UnboundCompressedSize;
+    private const int UnboundPcSectionDataSize = 0xFF0;
     private const int MgbaRtcFooterOffset = 0x20000;
     private const int MgbaRtcFooterSize = 16;
 
@@ -538,7 +539,7 @@ public sealed class Gen3SaveDocument
         if (box <= 19)
         {
             var logicalOffset = PcStorageOffset + (box - 1) * 30 * UnboundBoxRecordSize + slot * UnboundBoxRecordSize;
-            WriteLogicalRange(PcFirstSection, logicalOffset, data);
+            WriteUnboundPcRange(logicalOffset, data);
             return;
         }
         if (box <= 22)
@@ -559,6 +560,25 @@ public sealed class Gen3SaveDocument
             return;
         }
         throw new InvalidOperationException($"解放版没有箱子 {box}。");
+    }
+
+    private void WriteUnboundPcRange(int logicalOffset, ReadOnlySpan<byte> data)
+    {
+        var sourceOffset = 0;
+        while (sourceOffset < data.Length)
+        {
+            var sectionIndex = logicalOffset / UnboundPcSectionDataSize;
+            var sectionId = PcFirstSection + sectionIndex;
+            var sectionRelativeOffset = logicalOffset % UnboundPcSectionDataSize;
+            if (!_sections.TryGetValue(sectionId, out var section))
+                throw new InvalidOperationException($"解放版箱子写回需要 section {sectionId}，但当前存档中不存在。");
+
+            var count = Math.Min(data.Length - sourceOffset, UnboundPcSectionDataSize - sectionRelativeOffset);
+            data.Slice(sourceOffset, count).CopyTo(_raw.AsSpan(section.FileOffset + sectionRelativeOffset, count));
+            _touchedSectionIds.Add(sectionId);
+            logicalOffset += count;
+            sourceOffset += count;
+        }
     }
 
     internal void WriteRadicalRedBox(int globalSlot, ReadOnlySpan<byte> data)

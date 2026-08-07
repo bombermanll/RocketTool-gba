@@ -42,6 +42,8 @@ public static class Gen3SaveReader
     private const int UnboundBoxRecordSize = BoxPokemon.UnboundCompressedSize;
     private const int UnboundBoxSlots = 30;
     private const int UnboundMainBoxCount = 19;
+    private const int UnboundPcSectionDataSize = 0xFF0;
+    private const int UnboundMainPcStorageSize = 4 + UnboundMainBoxCount * UnboundBoxSlots * UnboundBoxRecordSize;
     private const int UnboundParasiteOffsetMarker = 0x100000;
     private const int UnboundParasiteSize = 0x2E38;
     private const int RadicalRedSectionDataSize = 0xFF0;
@@ -373,10 +375,22 @@ public static class Gen3SaveReader
         CopyUnboundSection(best, 3, saveBlock1, 0x1F00, 0xF80, warnings);
         CopyUnboundSection(best, 4, saveBlock1, 0x2E80, 0xD98, warnings);
 
-        var pcStorage = new byte[0x83D0];
+        var pcStorage = new byte[UnboundMainPcStorageSize];
         for (var id = 5; id <= 12; id++)
-            CopyUnboundSection(best, id, pcStorage, (id - 5) * SectionDataSize, SectionDataSize, warnings);
-        CopyUnboundSection(best, 13, pcStorage, 8 * SectionDataSize, 0x7D0, warnings);
+            CopyUnboundSection(
+                best,
+                id,
+                pcStorage,
+                (id - 5) * UnboundPcSectionDataSize,
+                UnboundPcSectionDataSize,
+                warnings);
+        CopyUnboundSection(
+            best,
+            13,
+            pcStorage,
+            8 * UnboundPcSectionDataSize,
+            UnboundMainPcStorageSize - 8 * UnboundPcSectionDataSize,
+            warnings);
 
         var parasite = BuildUnboundParasite(raw, best);
         var party = ReadUnboundParty(saveBlock1, profile, warnings);
@@ -392,7 +406,7 @@ public static class Gen3SaveReader
         var trainer = new Gen3SaveTrainerInfo(trainerName, trainerOtId, money);
 
         warnings.Add($"解放版存档：使用 save index {best.SaveIndex}；队伍为 100 字节明文结构，箱子为 58 字节 CFRU 压缩结构，共 {profile.Memory.PcBoxCount} 箱。");
-        warnings.Add("PC storage 已按 section 5-13 重组；section 13 checksum 只覆盖 0x450，但 PC 尾段读取保留到 0x7D0。");
+        warnings.Add("PC storage 已按解放版 0xFF0 字节 section 步长重组；section 13 checksum 只覆盖 0x450，主箱子数据使用其中前 0x1A8 字节。");
         warnings.Add("扩展数据已按 CFRU parasite 映射从 section 0/4/13、原始扇区 30/31 和 section 1 尾部重组。");
         var snapshot = new Gen3SaveReadResult(
             Path.GetFileName(path), raw.Length, best.Ordinal + 1, best.SaveIndex,
@@ -667,8 +681,7 @@ public static class Gen3SaveReader
             var data = raw.AsSpan(offset, SectionSize);
             var id = ReadU16(data, 0xFF4);
             if (id >= SectionsPerSlot || ReadU32(data, 0xFF8) != UnboundSectionSignature) continue;
-            var length = UnboundChecksumLength(id);
-            if (Checksum(data[..length]) != ReadU16(data, 0xFF6)) continue;
+            if (!TryMatchUnboundChecksum(data, id, ReadU16(data, 0xFF6), out var length)) continue;
             sections.Add(new SaveSection(id, offset, ReadU32(data, 0xFFC), data[..0xFF4].ToArray(), $"unbound-{length:X}"));
         }
 
@@ -682,16 +695,31 @@ public static class Gen3SaveReader
         }
     }
 
-    private static int UnboundChecksumLength(int sectionId) => sectionId switch
+    private static bool TryMatchUnboundChecksum(
+        ReadOnlySpan<byte> section,
+        int sectionId,
+        ushort storedChecksum,
+        out int checksumLength)
     {
-        0 => 0xF24,
-        1 => 0xFF4,
-        3 => 0xFF4,
-        4 => 0xD98,
-        5 => 0xFF4,
-        13 => 0x450,
-        _ => SectionDataSize
-    };
+        ReadOnlySpan<int> candidates = sectionId switch
+        {
+            0 => [0xF24],
+            1 or 3 => [0xFF4, 0xFF0],
+            4 => [0xD98],
+            >= 5 and <= 12 => [0xFF4, 0xFF0, SectionDataSize],
+            13 => [0x450],
+            _ => [SectionDataSize]
+        };
+        foreach (var candidate in candidates)
+        {
+            if (Checksum(section[..candidate]) != storedChecksum) continue;
+            checksumLength = candidate;
+            return true;
+        }
+
+        checksumLength = 0;
+        return false;
+    }
 
     private static SaveSection RequiredUnboundSection(SaveSlot slot, int id)
         => slot.ValidSections.TryGetValue(id, out var section)

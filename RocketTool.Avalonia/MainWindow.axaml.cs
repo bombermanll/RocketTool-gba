@@ -2313,16 +2313,22 @@ public partial class MainWindow : Window
             _bagBase = TryLocateBagBase(bridge);
             var ewram = PartyScanner.ReadEwram(bridge, _profile);
             var quantityKey = BagScanner.InferQuantityKey(ewram);
-            var run = BagScanner.FindLivePockets(
+            _ = BagScanner.FindLivePockets(
                     ewram, _profile.Memory.EwramBase, _bagBase,
                     _runtime.BagPockets(true).Select(candidate => candidate.Id).ToArray(),
                     PocketOfItem, candidate => _runtime.IsKeyItemPocket(candidate, true),
                     candidate => _runtime.BagBatchCapacity(candidate, true), MaxItemId(), MaxBagScanQuantity())
                 .FirstOrDefault(candidate => candidate.Pocket == pocket)
                 ?? throw new InvalidOperationException($"当前{PocketNameZh(pocket)}尚未定位。请先读取背包，或在游戏内至少获得该分类一个道具后再试。");
-
-            var startOffset = checked((int)(run.StartAddress - _profile.Memory.EwramBase));
-            var endOffset = Math.Min(ewram.Length, startOffset + BagBatchCapacity(pocket) * 4);
+            var saveBlockBase = _bagBase
+                                ?? throw new InvalidOperationException("没有定位到当前存档的背包基址，已拒绝批量写入。");
+            var (startOffset, endOffset) = BagScanner.ConfiguredPocketRange(
+                ewram.Length,
+                _profile.Memory.EwramBase,
+                saveBlockBase,
+                _runtime.ScannedBagDefinitions,
+                pocket,
+                BagBatchCapacity(pocket));
             var existing = new Dictionary<ushort, int>();
             var emptyOffsets = new List<int>();
             for (var offset = startOffset; offset <= endOffset - 4; offset += 4)
@@ -7932,7 +7938,17 @@ public partial class MainWindow : Window
         try
         {
             _bagBase ??= BagScanner.LocateSaveBlockBase(bridge, _profile, _runtime.ScannedBagDefinitions);
-            return BagScanner.DefinitionForAddress(_runtime.ScannedBagDefinitions, _bagBase.Value, address);
+            var ewram = PartyScanner.ReadEwram(bridge, _profile);
+            var definition = BagScanner.DefinitionForAddress(
+                _runtime.ScannedBagDefinitions,
+                _bagBase.Value,
+                address,
+                _profile.Memory.EwramBase,
+                ewram.Length,
+                pocket => _runtime.BagBatchCapacity(pocket, true));
+            return definition is null
+                ? null
+                : definition with { QuantityKey = BagScanner.InferQuantityKey(ewram) };
         }
         catch
         {
