@@ -1531,7 +1531,7 @@ static int ShopProbe(string[] args)
     return 0;
 }
 
-static int BagScan(string[] args)
+static int BagListLive(string[] args)
 {
     var profile = CurrentProfile();
     var runtime = GameRuntimeAdapterCatalog.ForProfile(profile);
@@ -1540,93 +1540,42 @@ static int BagScan(string[] args)
     var host = GetArg(args, "--host", "127.0.0.1");
     var port = GetIntArg(args, "--port", 8765);
     var limit = GetIntArg(args, "--limit", 12);
-    var singleLimit = GetIntArg(args, "--single-limit", 12);
     using var bridge = ConnectForProfile(profile, host, port);
     Console.WriteLine(bridge.Welcome);
     Console.WriteLine($"Game code: {bridge.GameCode()}");
-    if (runtime.UsesFixedLiveBag)
+    var fixedQuantityKey = ReadLiveBagQuantityKey(bridge, profile);
+    var fixedBase = LiveBagAccess.ResolveBaseAddress(bridge, profile);
+    Console.WriteLine($"\n{profile.DisplayName} 固定背包口袋，qtyKey=0x{fixedQuantityKey:X4}");
+    foreach (var area in profile.Runtime.LiveBag.Areas)
     {
-        var fixedQuantityKey = ReadLiveBagQuantityKey(bridge, profile);
-        Console.WriteLine($"\n{profile.DisplayName} 固定背包口袋，qtyKey=0x{fixedQuantityKey:X4}");
-        foreach (var area in profile.Runtime.LiveBag.Areas)
+        var areaAddress = LiveBagAccess.ResolveAreaAddress(profile, area, fixedBase);
+        var raw = bridge.Read(areaAddress, area.Capacity * 4);
+        var printedHeader = false;
+        var displaySlot = 0;
+        var sharedPhysicalArea = profile.Runtime.LiveBag.Mode == "save-block1" &&
+                                 profile.Runtime.LiveBag.Areas.Count(candidate => candidate.Offset == area.Offset) > 1;
+        for (var i = 0; i < area.Capacity; i++)
         {
-            var raw = bridge.Read(area.Address, area.Capacity * 4);
-            var printedHeader = false;
-            var displaySlot = 0;
-            for (var i = 0; i < area.Capacity; i++)
-            {
-                var item = U16(raw, i * 4);
-                if (item == 0 || item > profile.Limits.MaxItem) continue;
-                var quantity = (ushort)(U16(raw, i * 4 + 2) ^ fixedQuantityKey);
-                if (quantity == 0) quantity = 1;
-                if (!printedHeader)
-                {
-                    Console.WriteLine($"{area.Name} 0x{area.Address:X8} capacity={area.Capacity}");
-                    printedHeader = true;
-                }
-                displaySlot++;
-                Console.WriteLine($"  {displaySlot:00}. 0x{area.Address + (uint)(i * 4):X8}: {item}({db.NameOf("items", item)}) x{quantity}");
-                if (displaySlot >= limit) break;
-            }
+            var item = U16(raw, i * 4);
+            if (item == 0 || item > profile.Limits.MaxItem) continue;
+            if (sharedPhysicalArea && PocketOfItem(item) != area.Pocket) continue;
+            var quantity = LiveBagAccess.DecodeQuantity(
+                profile,
+                item,
+                U16(raw, i * 4 + 2),
+                fixedQuantityKey,
+                runtime.IsKeyItemPocket(area.Pocket, live: true));
             if (!printedHeader)
-                Console.WriteLine($"{area.Name} 0x{area.Address:X8} capacity={area.Capacity}: empty");
-        }
-        return 0;
-    }
-    uint? bagBase = null;
-    try { bagBase = BagScanner.LocateSaveBlockBase(bridge, profile, runtime.ScannedBagDefinitions); }
-    catch { }
-    var ewram = PartyScanner.ReadEwram(bridge, profile, (off, total) =>
-    {
-        if (off % 0x10000 == 0) Console.WriteLine($"read EWRAM 0x{off:X5}/0x{total:X5}");
-    });
-    var quantityKey = BagScanner.InferQuantityKey(ewram);
-    var pockets = BagScanner.FindLivePockets(
-        ewram, profile.Memory.EwramBase, bagBase,
-        runtime.BagPockets(true).Select(candidate => candidate.Id).ToArray(),
-        PocketOfItem, candidate => runtime.IsKeyItemPocket(candidate, true),
-        candidate => runtime.BagBatchCapacity(candidate, true),
-        profile.Limits.MaxItem, profile.Limits.MaxBagQuantity).ToArray();
-    Console.WriteLine($"\n背包口袋: {pockets.Length}，base={(bagBase is null ? "unknown" : $"0x{bagBase:X8}")} qtyKey=0x{quantityKey:X4}");
-    foreach (var pocket in pockets)
-    {
-        Console.WriteLine($"{runtime.PocketName(pocket.Pocket, live: true)} 0x{pocket.StartAddress:X8} nonEmpty={pocket.NonEmptyCount} score={pocket.Score}");
-        foreach (var slot in pocket.Slots.Take(limit))
-        {
-            Console.WriteLine($"  0x{slot.Address:X8}: {slot.ItemId}({db.NameOf("items", slot.ItemId)}) x{slot.Quantity}");
-        }
-    }
-    if (bagBase is not null)
-    {
-        var baseOffset = checked((int)(bagBase.Value - profile.Memory.EwramBase));
-        var endOffset = Math.Min(ewram.Length - 8, baseOffset + 0x4000);
-        var singles = new List<(uint Address, ushort Item, ushort Quantity, int Pocket, int Offset)>();
-        for (var off = baseOffset; off <= endOffset; off += 4)
-        {
-            var item = U16(ewram, off);
-            var quantity = U16(ewram, off + 2);
-            var nextItem = U16(ewram, off + 4);
-            var nextQuantity = U16(ewram, off + 6);
-            if (item == 0 ||
-                item > profile.Limits.MaxItem ||
-                quantity == 0 ||
-                quantity > profile.Limits.MaxBagQuantity ||
-                nextItem != 0 ||
-                nextQuantity != 0)
             {
-                continue;
+                Console.WriteLine($"{area.Name} 0x{areaAddress:X8} capacity={area.Capacity}");
+                printedHeader = true;
             }
-            singles.Add((profile.Memory.EwramBase + (uint)off, item, quantity, PocketOfItem(item), off - baseOffset));
+            displaySlot++;
+            Console.WriteLine($"  {displaySlot:00}. 0x{areaAddress + (uint)(i * 4):X8}: {item}({db.NameOf("items", item)}) x{quantity}");
+            if (displaySlot >= limit) break;
         }
-
-        if (singles.Count > 0)
-        {
-            Console.WriteLine($"\n一格背包候选: {singles.Count}（用于空背包/单一道具样本对照，不作为写入证据）");
-            foreach (var slot in singles.Take(singleLimit))
-            {
-                Console.WriteLine($"  +0x{slot.Offset:X4} 0x{slot.Address:X8}: {slot.Item}({db.NameOf("items", slot.Item)}) x{slot.Quantity} pocket={slot.Pocket}");
-            }
-        }
+        if (!printedHeader)
+            Console.WriteLine($"{area.Name} 0x{areaAddress:X8} capacity={area.Capacity}: empty");
     }
     return 0;
 
@@ -1662,8 +1611,8 @@ static int BagRead(string[] args)
     using var bridge = ConnectForProfile(profile, host, port);
     Console.WriteLine(bridge.Welcome);
     var (definition, maxQuantity) = ResolveLiveBagSlot(profile, runtime, bridge, addr);
-    var slot = BagScanner.ReadSlot(bridge, addr, definition, maxQuantity);
-    Console.WriteLine($"0x{slot.Address:X8}: item={slot.ItemId}({(slot.ItemId == 0 ? "无" : db.NameOf("items", slot.ItemId))}) qty={slot.Quantity} score={slot.Score} {slot.Note}");
+    var slot = ReadFixedLiveBagSlot(profile, runtime, bridge, addr, definition);
+    Console.WriteLine($"0x{slot.Address:X8}: item={slot.ItemId}({(slot.ItemId == 0 ? "无" : db.NameOf("items", slot.ItemId))}) qty={slot.Quantity} {slot.Note}");
     return 0;
 }
 
@@ -1683,19 +1632,44 @@ static int BagSet(string[] args)
     Console.WriteLine(bridge.Welcome);
     var (definition, maxQuantity) = ResolveLiveBagSlot(profile, runtime, bridge, addr);
     if (qty < 0 || qty > maxQuantity) throw new ArgumentOutOfRangeException("--qty", $"qty must be 0..{maxQuantity}");
-    var before = BagScanner.ReadSlot(bridge, addr, definition, maxQuantity);
+    var before = ReadFixedLiveBagSlot(profile, runtime, bridge, addr, definition);
     var summary = $"将写入背包槽 0x{addr:X8}\n" +
                   $"  原来: {before.ItemId}({(before.ItemId == 0 ? "无" : db.NameOf("items", before.ItemId))}) x{before.Quantity}\n" +
                   $"  新值: {item}({(item == 0 ? "无" : db.NameOf("items", item))}) x{qty}\n" +
                   $"编码: {profile.DisplayName}/{definition.Name}，数量{(definition.QuantityXor ? "使用 Profile 密钥" : "不加密")}。";
     if (Confirm(args, summary))
     {
-        bridge.WriteRangeVerified(addr, BagScanner.EncodeSlot((ushort)item, (ushort)qty, definition.QuantityKey, definition.QuantityXor));
-        var after = BagScanner.ReadSlot(bridge, addr, definition, maxQuantity);
+        var encoded = LiveBagAccess.EncodeSlot(
+            profile,
+            (ushort)item,
+            (ushort)qty,
+            definition.QuantityKey,
+            runtime.IsKeyItemPocket(definition.Pocket, live: true));
+        bridge.WriteRangeVerified(addr, encoded);
+        var after = ReadFixedLiveBagSlot(profile, runtime, bridge, addr, definition);
         Console.WriteLine($"已写入: {after.ItemId}({(after.ItemId == 0 ? "无" : db.NameOf("items", after.ItemId))}) x{after.Quantity}");
     }
     else Console.WriteLine("Cancelled");
     return 0;
+}
+
+static BagSlot ReadFixedLiveBagSlot(
+    GameProfile profile,
+    IGameRuntimeAdapter runtime,
+    MgbaBridgeClient bridge,
+    uint address,
+    BagPocketDefinition definition)
+{
+    var raw = bridge.Read(address, 4);
+    var item = (ushort)(raw[0] | raw[1] << 8);
+    var rawQuantity = (ushort)(raw[2] | raw[3] << 8);
+    var quantity = LiveBagAccess.DecodeQuantity(
+        profile,
+        item,
+        rawQuantity,
+        definition.QuantityKey,
+        runtime.IsKeyItemPocket(definition.Pocket, live: true));
+    return new BagSlot(address, item, quantity, $"按 Profile 固定口袋 {definition.Name} 解析");
 }
 
 static (BagPocketDefinition Definition, int MaxQuantity) ResolveLiveBagSlot(
@@ -1705,27 +1679,15 @@ static (BagPocketDefinition Definition, int MaxQuantity) ResolveLiveBagSlot(
     uint address)
 {
     if ((address & 3) != 0) throw new InvalidOperationException("背包槽地址必须按 4 字节对齐。");
-    if (runtime.UsesFixedLiveBag)
+    var fixedBaseAddress = LiveBagAccess.ResolveBaseAddress(bridge, profile);
+    var area = profile.Runtime.LiveBag.Areas.FirstOrDefault(candidate =>
     {
-        var area = profile.Runtime.LiveBag.Areas.FirstOrDefault(candidate =>
-            address >= candidate.Address && address < candidate.Address + checked((uint)candidate.Capacity * 4U));
-        if (area is null) throw new InvalidOperationException("地址不属于当前 Profile 的任何实时背包口袋，已拒绝访问。");
-        var key = ReadLiveBagQuantityKey(bridge, profile);
-        return (new BagPocketDefinition(area.Pocket, area.Name, 0, area.Capacity, true, key), profile.Limits.MaxBagQuantityForPocket(area.Pocket));
-    }
-
-    var baseAddress = BagScanner.LocateSaveBlockBase(bridge, profile, runtime.ScannedBagDefinitions);
-    var ewram = PartyScanner.ReadEwram(bridge, profile);
-    var definition = BagScanner.DefinitionForAddress(
-                         runtime.ScannedBagDefinitions,
-                         baseAddress,
-                         address,
-                         profile.Memory.EwramBase,
-                         ewram.Length,
-                         pocket => runtime.BagBatchCapacity(pocket, true))
-                     ?? throw new InvalidOperationException("地址不属于当前 Profile 已验证的扫描背包口袋，已拒绝访问。");
-    definition = definition with { QuantityKey = BagScanner.InferQuantityKey(ewram) };
-    return (definition, profile.Limits.MaxBagQuantityForPocket(definition.Pocket));
+        var areaAddress = LiveBagAccess.ResolveAreaAddress(profile, candidate, fixedBaseAddress);
+        return address >= areaAddress && address < areaAddress + checked((uint)candidate.Capacity * 4U);
+    });
+    if (area is null) throw new InvalidOperationException("地址不属于当前 Profile 的任何实时背包口袋，已拒绝访问。");
+    var key = ReadLiveBagQuantityKey(bridge, profile);
+    return (new BagPocketDefinition(area.Pocket, area.Name, 0, area.Capacity, true, key), profile.Limits.MaxBagQuantityForPocket(area.Pocket));
 }
 
 static int SaveProbe(string[] args)
@@ -2012,7 +1974,7 @@ if (args.Length == 0)
     Console.WriteLine("  RocketTool.Cli party-set-ivs --slot 1 [--hp N --atk N --def N --spe N --spa N --spd N --ability 0|1|2 --egg 0|1] [--yes]");
     Console.WriteLine("  RocketTool.Cli party-heal [--slot 1] [--yes]");
     Console.WriteLine("  RocketTool.Cli shop-probe");
-    Console.WriteLine("  RocketTool.Cli bag-scan [--limit 12] [--single-limit 12]");
+    Console.WriteLine("  RocketTool.Cli bag-list [--limit 12]");
     Console.WriteLine("  RocketTool.Cli bag-read --addr 0x02000000");
     Console.WriteLine("  RocketTool.Cli bag-set --addr 0x02000000 --item N --qty N [--yes]");
     Console.WriteLine("  RocketTool.Cli trainer-probe");
@@ -2045,7 +2007,7 @@ return args[0] switch
     "profile-self-test" => ProfileSelfTest(),
     "profile-data-verify" => ProfileDataVerify(),
     "shop-probe" => ShopProbe(args[1..]),
-    "bag-scan" => BagScan(args[1..]),
+    "bag-list" => BagListLive(args[1..]),
     "bag-read" => BagRead(args[1..]),
     "bag-set" => BagSet(args[1..]),
     "trainer-probe" => TrainerProbe(args[1..]),

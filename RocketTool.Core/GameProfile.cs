@@ -331,22 +331,8 @@ public sealed record GameProfileLiveBag
     public uint BaseAddress { get; init; }
 
     public required string QuantityKeyMode { get; init; }
+    public string QuantityEncoding { get; init; } = "xor";
     public IReadOnlyList<GameProfileLiveBagArea> Areas { get; init; } = [];
-    public IReadOnlyList<GameProfileScannedBagArea> ScannedAreas { get; init; } = [];
-}
-
-public sealed record GameProfileScannedBagArea
-{
-    public int Pocket { get; init; }
-    public required string Name { get; init; }
-
-    [JsonConverter(typeof(FlexibleUInt32JsonConverter))]
-    public uint Offset { get; init; }
-
-    public int Capacity { get; init; }
-
-    [JsonConverter(typeof(FlexibleUInt32JsonConverter))]
-    public uint QuantityKey { get; init; }
 }
 
 public sealed record GameProfileLiveBagArea
@@ -356,6 +342,9 @@ public sealed record GameProfileLiveBagArea
 
     [JsonConverter(typeof(FlexibleUInt32JsonConverter))]
     public uint Address { get; init; }
+
+    [JsonConverter(typeof(FlexibleUInt32JsonConverter))]
+    public uint Offset { get; init; }
 
     public int Capacity { get; init; }
 }
@@ -645,15 +634,16 @@ public static class GameProfileCatalog
 
         if (profile.Runtime.LiveBag is null || profile.Runtime.LiveBagPockets is null || profile.Runtime.SaveBagPockets is null || profile.Runtime.Machines is null || profile.Runtime.ShopProbe is null)
             throw new InvalidOperationException($"版本配置 {profile.Id} 缺少运行时隔离参数。");
-        if (profile.Runtime.LiveBag.Mode is not ("disabled" or "scanned" or "fixed"))
+        if (profile.Runtime.LiveBag.Mode is not ("disabled" or "fixed" or "save-block1"))
             throw new InvalidOperationException($"版本配置 {profile.Id} 的 liveBag.mode 无效。");
         if (profile.Runtime.LiveBag.Mode == "fixed" &&
             (profile.Runtime.LiveBag.BaseAddress == 0 || profile.Runtime.LiveBag.Areas.Count == 0))
             throw new InvalidOperationException($"版本配置 {profile.Id} 的固定实时背包区域为空。");
-        if (profile.Runtime.LiveBag.Mode == "scanned" && profile.Runtime.LiveBag.ScannedAreas.Count == 0)
-            throw new InvalidOperationException($"版本配置 {profile.Id} 的扫描实时背包区域为空。");
-        if (profile.Runtime.LiveBag.ScannedAreas.Any(area => area.Pocket <= 0 || area.Capacity <= 0 || area.QuantityKey > ushort.MaxValue))
-            throw new InvalidOperationException($"版本配置 {profile.Id} 的扫描背包口袋定义无效。");
+        if (profile.Runtime.LiveBag.Mode == "save-block1" &&
+            (profile.Memory.SaveBlock1PointerAddress == 0 || profile.Runtime.LiveBag.Areas.Count == 0))
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的 SaveBlock1 实时背包区域为空。");
+        if (profile.Runtime.LiveBag.QuantityEncoding is not ("xor" or "minus-one-xor"))
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的实时背包数量编码无效。");
         var ewramEnd = profile.Memory.EwramBase + checked((uint)profile.Memory.EwramSize);
         var totalBoxSlots = checked(profile.Memory.PcBoxCount * profile.Memory.PcBoxSlots);
         if (profile.Memory.PcBoxStoragePointerAddress != 0 &&
@@ -666,8 +656,12 @@ public static class GameProfileCatalog
             profile.Memory.SavePcBoxWritableSlotCount > totalBoxSlots)
             throw new InvalidOperationException($"版本配置 {profile.Id} 的 PC 箱子可写槽位范围无效。");
         if (profile.Runtime.LiveBag.Areas.Any(area =>
-                area.Pocket <= 0 || area.Capacity <= 0 || area.Address < profile.Memory.EwramBase ||
-                area.Address + checked((uint)area.Capacity * 4U) > ewramEnd))
+                area.Pocket <= 0 || area.Capacity <= 0 ||
+                profile.Runtime.LiveBag.Mode == "fixed" &&
+                (area.Address < profile.Memory.EwramBase ||
+                 area.Address + checked((uint)area.Capacity * 4U) > ewramEnd) ||
+                profile.Runtime.LiveBag.Mode == "save-block1" &&
+                area.Offset + checked((uint)area.Capacity * 4U) > (uint)profile.Memory.EwramSize))
             throw new InvalidOperationException($"版本配置 {profile.Id} 的固定背包区域超出 EWRAM。");
         if (profile.Runtime.LiveBagPockets.Concat(profile.Runtime.SaveBagPockets).Any(pocket => pocket.Id <= 0 || string.IsNullOrWhiteSpace(pocket.Name)))
             throw new InvalidOperationException($"版本配置 {profile.Id} 的背包口袋定义无效。");

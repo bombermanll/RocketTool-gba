@@ -328,10 +328,9 @@
                             <Border Background="#EFE5D3" Padding="14" CornerRadius="18,0,0,18">
                                 <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="5">
                                     <WrapPanel>
-                                        <Button x:Name="BagReadButton" Content="读取背包" Margin="0,0,6,4" Click="OnBagScanClicked" Classes="primary" />
-                                        <Button x:Name="BagSnapshotButton" Content="校准背包" Margin="0,0,6,4" Click="OnBagSnapshotClicked" />
+                                        <Button x:Name="BagReadButton" Content="读取背包" Margin="0,0,6,4" Click="OnBagRefreshClicked" Classes="primary" />
                                     </WrapPanel>
-                                    <TextBlock x:Name="BagModeHintText" Grid.Row="1" Text="请先对比下方道具列表是否和游戏中一致；如不一致，请先校准背包。" Foreground="#B3261E" FontWeight="SemiBold" FontSize="12" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="BagModeHintText" Grid.Row="1" Text="当前版本使用已逆向确认的实时背包区域；写入前建议先保存 mGBA 即时存档。" Foreground="#B3261E" FontWeight="SemiBold" FontSize="12" TextWrapping="Wrap" />
                                     <StackPanel Grid.Row="2" Spacing="2">
                                         <TabControl x:Name="BagPocketTabs" Classes="pocketTabs" SelectionChanged="OnBagPocketChanged">
                                             <TabControl.ItemTemplate>

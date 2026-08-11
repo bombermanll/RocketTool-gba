@@ -1,7 +1,7 @@
 {
   "id": "spanish-rocket-current",
   "displayName": "西班牙火箭队一至五周目汉化版+汉化by兔砸博士v2.1",
-  "description": "",
+  "description": "西班牙火箭队当前 ROM 独立配置；实时背包使用 SaveBlock1 物理口袋映射，实时箱子使用 gPokemonStoragePtr 保持游戏箱号顺序。",
   "romIdentity": {
     "fileName": "西班牙火箭队一至五周目汉化版+汉化by兔砸博士.gba",
     "romSize": 33554432,
@@ -37,6 +37,10 @@
     "pcBoxCount": 14,
     "pcBoxSlots": 30,
     "pcBoxRecordSize": 80,
+    "pcBoxStoragePointerAddress": "0x03005254",
+    "pcBoxDataOffset": 4,
+    "livePcBoxWritableSlotCount": 420,
+    "savePcBoxWritableSlotCount": 420,
     "pcBoxRegions": []
   },
   "romTables": {
@@ -131,30 +135,32 @@
   },
   "runtime": {
     "liveBag": {
-      "mode": "scanned",
+      "mode": "save-block1",
       "baseAddress": "0x0",
-      "quantityKeyMode": "scan-empty-slots",
-      "areas": [],
-      "scannedAreas": [
-        { "pocket": 1, "name": "普通道具", "offset": "0x1E78", "capacity": 120, "quantityKey": "0x4D23" },
-        { "pocket": 2, "name": "回复药品", "offset": "0x2884", "capacity": 120, "quantityKey": "0x6D5F" },
-        { "pocket": 3, "name": "精灵球", "offset": "0x2348", "capacity": 120, "quantityKey": "0x698B" },
-        { "pocket": 4, "name": "战斗道具", "offset": "0x29E0", "capacity": 120, "quantityKey": "0x3502" },
-        { "pocket": 5, "name": "树果", "offset": "0x27D0", "capacity": 120, "quantityKey": "0x5B67" },
-        { "pocket": 6, "name": "宝物", "offset": "0x2BF0", "capacity": 120, "quantityKey": "0xB01B" },
-        { "pocket": 7, "name": "招式机器/秘传机器", "offset": "0x23A0", "capacity": 254, "quantityKey": "0xFC51" },
-        { "pocket": 8, "name": "重要物品", "offset": "0x2268", "capacity": 120, "quantityKey": "0x5145" }
+      "quantityKeyMode": "save-block2-key-low16",
+      "quantityEncoding": "minus-one-xor",
+      "areas": [
+        { "pocket": 1, "name": "普通道具", "offset": "0x04C0", "capacity": 42 },
+        { "pocket": 8, "name": "重要物品", "offset": "0x08BC", "capacity": 63 },
+        { "pocket": 3, "name": "精灵球", "offset": "0x09BC", "capacity": 15 },
+        { "pocket": 7, "name": "招式机器/秘传机器", "offset": "0x09FC", "capacity": 254 },
+        { "pocket": 5, "name": "树果", "offset": "0x0DF4", "capacity": 67 },
+        { "pocket": 2, "name": "回复药品", "offset": "0x0F04", "capacity": 38 },
+        { "pocket": 4, "name": "战斗道具（第一段）", "offset": "0x0F9C", "capacity": 28 },
+        { "pocket": 4, "name": "战斗道具（第二段）", "offset": "0x1010", "capacity": 101 },
+        { "pocket": 6, "name": "宝物（第一段）", "offset": "0x11A4", "capacity": 28 },
+        { "pocket": 6, "name": "宝物（第二段）", "offset": "0x1218", "capacity": 101 }
       ]
     },
     "liveBagPockets": [
-      { "id": 1, "name": "普通道具", "isKeyItem": false, "batchCapacity": 255 },
-      { "id": 2, "name": "回复药品", "isKeyItem": false, "batchCapacity": 67 },
-      { "id": 3, "name": "精灵球", "isKeyItem": false, "batchCapacity": 16 },
-      { "id": 4, "name": "战斗道具", "isKeyItem": false, "batchCapacity": 130 },
-      { "id": 5, "name": "树果", "isKeyItem": false, "batchCapacity": 68 },
-      { "id": 6, "name": "宝物", "isKeyItem": false, "batchCapacity": 130 },
+      { "id": 1, "name": "普通道具", "isKeyItem": false, "batchCapacity": 42 },
+      { "id": 2, "name": "回复药品", "isKeyItem": false, "batchCapacity": 38 },
+      { "id": 3, "name": "精灵球", "isKeyItem": false, "batchCapacity": 15 },
+      { "id": 4, "name": "战斗道具", "isKeyItem": false, "batchCapacity": 129 },
+      { "id": 5, "name": "树果", "isKeyItem": false, "batchCapacity": 67 },
+      { "id": 6, "name": "宝物", "isKeyItem": false, "batchCapacity": 129 },
       { "id": 7, "name": "招式机器/秘传机器", "isKeyItem": false, "batchCapacity": 254 },
-      { "id": 8, "name": "重要物品", "isKeyItem": true, "batchCapacity": 64 }
+      { "id": 8, "name": "重要物品", "isKeyItem": true, "batchCapacity": 63 }
     ],
     "saveBagPockets": [
       { "id": 1, "name": "普通道具", "isKeyItem": false, "batchCapacity": 42 },

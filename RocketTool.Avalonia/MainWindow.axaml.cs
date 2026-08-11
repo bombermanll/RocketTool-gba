@@ -43,7 +43,6 @@ public sealed record SaveBagEditableRow(
     public string SlotLabel => Row.SlotInPocket > 0 ? Row.SlotInPocket.ToString("00") : "--";
     public bool IsQuantityEditable => Row.Pocket != 8;
 }
-public sealed record BagCalibrationRequest(int Pocket, ushort ItemId, ushort Quantity);
 public sealed record BoxSlotRow(int Slot, uint Address, BoxPokemon Mon, BoxMonInfo Info, string Title, string Detail, Bitmap? Sprite);
 public sealed record BoxGridCell(int GlobalSlot, int SlotInBox, BoxSlotRow? Row, Bitmap? Sprite, string Title, bool HasPokemon, bool IsWritable)
 {
@@ -227,8 +226,6 @@ public partial class MainWindow : Window
     private Bitmap? _eggSpriteCache;
     private int ProfileMaxPokemonLevel => Math.Clamp(_profile.Limits.MaxLevel, 1, MaxPokemonLevel);
     private bool UsesVerifiedSpriteAssets => _profile.Graphics.SpritesVerified;
-    private bool UsesFixedLiveBag => _runtime.UsesFixedLiveBag;
-    private bool UsesScannedLiveBag => _runtime.UsesScannedLiveBag;
     private bool HasOfficialSpeciesComparison => _db.Table("official_species_stats").Count > 0;
     private bool HasOfficialMoveComparison => _db.Table("official_move_data").Count > 0;
     private int MachinePocket => _runtime.MachinePocket;
@@ -523,7 +520,6 @@ public partial class MainWindow : Window
         TrainerMoneyApplyButton.IsVisible = trainerWrite && (live || _loadedSave?.CanWrite == true);
         TrainerMoneyApplyButton.Content = live ? "写入金钱" : "应用金钱到待保存存档";
         BagReadButton.IsVisible = live && bagRead;
-        BagSnapshotButton.IsVisible = live && bagRead && UsesScannedLiveBag;
         BagAddButton.IsVisible = bagWrite && (live || _loadedSave?.CanWrite == true);
         BagApplyButton.IsVisible = bagWrite && (live || _loadedSave?.CanWrite == true);
         BagApplyButton.Content = live ? "写入当前槽" : "应用到当前槽";
@@ -550,7 +546,7 @@ public partial class MainWindow : Window
         BagPocketTabs.ItemsSource = _bagPocketChoices;
         BagPocketTabs.SelectedIndex = 0;
         BagModeHintText.Text = live
-            ? "请先对比下方道具列表是否和游戏中一致；如不一致，请先校准背包。"
+            ? "当前版本使用已逆向确认的实时背包区域；写入前建议先保存 mGBA 即时存档。"
             : _loadedSave is null
                 ? "请先点击顶部“选择存档”读取 .sav 或 .srm 文件。"
                 : _loadedSave.CanWrite
@@ -1617,263 +1613,13 @@ public partial class MainWindow : Window
 
     private void OnBoxIvAll30Clicked(object? sender, RoutedEventArgs e) => SetAllBoxIvs(30);
 
-    private async void OnBagScanClicked(object? sender, RoutedEventArgs e)
+    private async void OnBagRefreshClicked(object? sender, RoutedEventArgs e)
     {
         await RunUiTask("读取背包", () =>
         {
             using var bridge = ConnectBridge();
             LoadBagRows(bridge);
         });
-    }
-
-    private async void OnBagSnapshotClicked(object? sender, RoutedEventArgs e)
-    {
-        var requests = await ShowBagCalibrationDialogAsync();
-        if (requests is null) return;
-
-        await RunUiTask("校准背包", () =>
-        {
-            using var bridge = ConnectBridge();
-            _bagBase = TryLocateBagBase(bridge);
-            var ewram = PartyScanner.ReadEwram(bridge, _profile);
-            var quantityKey = BagScanner.InferQuantityKey(ewram);
-            var pockets = CalibrateBagPockets(ewram, _bagBase, requests, quantityKey);
-            if (pockets.Count == 0)
-                throw new InvalidOperationException("没有按填写内容定位到口袋。请确认第一个道具和数量与游戏内一致。");
-
-            _allBagRows.Clear();
-            foreach (var pocket in pockets)
-            {
-                var definition = new BagPocketDefinition(
-                    pocket.Pocket,
-                    PocketNameZh(pocket.Pocket),
-                    0,
-                    pocket.SlotCount,
-                    true,
-                    quantityKey);
-                for (var i = 0; i < pocket.Slots.Count; i++)
-                {
-                    var slot = pocket.Slots[i];
-                    _allBagRows.Add(ToBagRow(
-                        slot.Address,
-                        slot.ItemId,
-                        slot.Quantity,
-                        $"第 {i + 1} 格 / 手动校准 / 数量密钥 0x{quantityKey:X4}",
-                        pocket.Pocket,
-                        i + 1,
-                        definition));
-                }
-            }
-
-            ApplyBagPocketFilter();
-            if (_bagRows.Count > 0) BagList.SelectedIndex = 0;
-            ShowToast($"背包校准完成：定位到 {pockets.Count} 个口袋、{_allBagRows.Count} 个槽位。", success: true);
-            Log($"背包校准完成：定位到 {pockets.Count} 个口袋、{_allBagRows.Count} 个槽位。");
-        });
-    }
-
-    private async Task<IReadOnlyList<BagCalibrationRequest>?> ShowBagCalibrationDialogAsync()
-    {
-        var dialog = new Window
-        {
-            Title = "校准背包",
-            Width = 780,
-            Height = 620,
-            MinWidth = 720,
-            MinHeight = 520,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner
-        };
-
-        var rows = new List<(int Pocket, SearchableChoiceBox ItemBox, TextBox QuantityBox, ChoiceRow[] Choices)>();
-        var root = new StackPanel { Spacing = 12, Margin = new Thickness(18) };
-        root.Children.Add(new TextBlock
-        {
-            Text = "请按游戏背包中每个分类的第一个道具填写。空口袋或不需要校准的分类可以留空。",
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = new SolidColorBrush(Color.FromRgb(108, 98, 85))
-        });
-        root.Children.Add(new TextBlock
-        {
-            Text = "注意：这里不会写入游戏，只用于重新定位各口袋的真实起始地址。",
-            TextWrapping = TextWrapping.Wrap,
-            FontWeight = FontWeight.SemiBold,
-            Foreground = new SolidColorBrush(Color.FromRgb(179, 38, 30))
-        });
-
-        var grid = new Grid
-        {
-            ColumnDefinitions = new ColumnDefinitions("120,*,100"),
-            RowDefinitions = new RowDefinitions(string.Join(",", Enumerable.Repeat("Auto", 8))),
-            ColumnSpacing = 10,
-            RowSpacing = 8
-        };
-
-        for (var i = 0; i < 8; i++)
-        {
-            var pocket = i + 1;
-            var choices = BagItemChoicesForPocket(pocket).Where(c => c.Id != 0).ToArray();
-            var itemBox = new SearchableChoiceBox
-            {
-                ItemsSource = choices,
-                PlaceholderText = "选择第一个道具",
-                MaxDropDownHeight = 360
-            };
-            FitComboToContent(itemBox, choices);
-            var quantityBox = new TextBox { Watermark = "数量" };
-
-            if (_allBagRows.FirstOrDefault(r => r.Pocket == pocket) is { } current)
-            {
-                SetChoice(itemBox, choices, current.ItemId);
-                quantityBox.Text = current.Quantity.ToString();
-            }
-
-            var label = new TextBlock
-            {
-                Text = PocketNameZh(pocket),
-                VerticalAlignment = VerticalAlignment.Center,
-                FontWeight = FontWeight.SemiBold
-            };
-
-            Grid.SetRow(label, i);
-            Grid.SetRow(itemBox, i);
-            Grid.SetColumn(itemBox, 1);
-            Grid.SetRow(quantityBox, i);
-            Grid.SetColumn(quantityBox, 2);
-            grid.Children.Add(label);
-            grid.Children.Add(itemBox);
-            grid.Children.Add(quantityBox);
-            rows.Add((pocket, itemBox, quantityBox, choices));
-        }
-
-        var errorText = new TextBlock
-        {
-            Foreground = new SolidColorBrush(Color.FromRgb(179, 38, 30)),
-            TextWrapping = TextWrapping.Wrap
-        };
-        var buttons = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Spacing = 10
-        };
-        var cancel = new Button { Content = "取消" };
-        var ok = new Button { Content = "开始校准", Classes = { "primary" } };
-        buttons.Children.Add(cancel);
-        buttons.Children.Add(ok);
-
-        root.Children.Add(grid);
-        root.Children.Add(errorText);
-        root.Children.Add(buttons);
-        dialog.Content = new ScrollViewer { Content = root };
-
-        IReadOnlyList<BagCalibrationRequest>? result = null;
-        cancel.Click += (_, _) => dialog.Close();
-        ok.Click += (_, _) =>
-        {
-            try
-            {
-                var requests = new List<BagCalibrationRequest>();
-                foreach (var row in rows)
-                {
-                    var item = ParseChoiceUShortOrNull(row.ItemBox, row.Choices);
-                    if (item is null or 0) continue;
-                    var quantity = ParseUShortRequired(row.QuantityBox.Text, $"{PocketNameZh(row.Pocket)}数量");
-                    var maxQuantity = MaxBagWriteQuantityForPocket(row.Pocket);
-                    if (quantity is 0 || quantity > maxQuantity)
-                        throw new InvalidOperationException($"{PocketNameZh(row.Pocket)}数量必须在 1..{maxQuantity}。");
-                    requests.Add(new BagCalibrationRequest(row.Pocket, item.Value, quantity));
-                }
-
-                if (requests.Count == 0)
-                    throw new InvalidOperationException("至少填写一个口袋的第一个道具和数量。");
-                result = requests;
-                dialog.Close();
-            }
-            catch (Exception ex)
-            {
-                errorText.Text = ex.Message;
-            }
-        };
-
-        await dialog.ShowDialog(this);
-        return result;
-    }
-
-    private IReadOnlyList<BagPocket> CalibrateBagPockets(
-        ReadOnlySpan<byte> ewram,
-        uint? saveBlockBase,
-        IReadOnlyList<BagCalibrationRequest> requests,
-        ushort quantityKey)
-    {
-        var startOffset = 0;
-        var endOffset = ewram.Length;
-        if (saveBlockBase.HasValue &&
-            saveBlockBase.Value >= _profile.Memory.EwramBase &&
-            saveBlockBase.Value < _profile.Memory.EwramBase + _profile.Memory.EwramSize)
-        {
-            startOffset = Math.Max(0, (int)(saveBlockBase.Value - _profile.Memory.EwramBase));
-            endOffset = Math.Min(ewram.Length, startOffset + 0x4000);
-        }
-
-        var pockets = new List<BagPocket>();
-        foreach (var request in requests)
-        {
-            var pocket = CalibrateBagPocket(ewram, startOffset, endOffset, request, quantityKey);
-            if (pocket is not null)
-                pockets.Add(pocket);
-        }
-
-        return pockets.OrderBy(pocket => pocket.Pocket).ToArray();
-    }
-
-    private BagPocket? CalibrateBagPocket(
-        ReadOnlySpan<byte> ewram,
-        int startOffset,
-        int endOffset,
-        BagCalibrationRequest request,
-        ushort quantityKey)
-    {
-        BagPocket? best = null;
-        for (var off = startOffset; off <= endOffset - 4; off += 4)
-        {
-            var item = ReadU16(ewram, off);
-            if (item != request.ItemId) continue;
-            var quantity = (ushort)(ReadU16(ewram, off + 2) ^ quantityKey);
-            if (quantity != request.Quantity) continue;
-
-            var slots = new List<BagSlot>();
-            var score = 0;
-            for (var i = 0; i < BagScanner.MaxRunSlots && off + i * 4 + 4 <= endOffset; i++)
-            {
-                var slotOff = off + i * 4;
-                var slotItem = ReadU16(ewram, slotOff);
-                var rawQuantity = ReadU16(ewram, slotOff + 2);
-                if (slotItem == 0)
-                {
-                    if (rawQuantity == 0 || rawQuantity == quantityKey) break;
-                    slots.Clear();
-                    break;
-                }
-
-                if (PocketOfItem(slotItem) != request.Pocket) break;
-                var slotQuantity = (ushort)(rawQuantity ^ quantityKey);
-                if (slotQuantity is 0 || slotQuantity > MaxBagWriteQuantityForPocket(request.Pocket)) break;
-                score += slotItem == request.ItemId && slotQuantity == request.Quantity ? 60 : 30;
-                slots.Add(new BagSlot(
-                    _profile.Memory.EwramBase + (uint)slotOff,
-                    slotItem,
-                    slotQuantity,
-                    score,
-                    $"手动校准；数量密钥 0x{quantityKey:X4}"));
-            }
-
-            if (slots.Count == 0) continue;
-            var candidate = new BagPocket(request.Pocket, slots[0].Address, slots.Count, slots.Count, score, slots);
-            if (best is null || candidate.Score > best.Score)
-                best = candidate;
-        }
-
-        return best;
     }
 
     private static ushort ReadU16(ReadOnlySpan<byte> data, int offset)
@@ -1989,11 +1735,10 @@ public partial class MainWindow : Window
         {
             using var bridge = ConnectBridge();
             var addr = ParseUIntRequired(BagAddressBox.Text, "背包槽地址");
-            var definition = ResolveBagDefinition(bridge, addr);
-            var slot = definition is null
-                ? BagScanner.ReadSlot(bridge, addr, MaxItemId(), MaxBagScanQuantity())
-                : BagScanner.ReadSlot(bridge, addr, definition, MaxBagWriteQuantityForPocket(definition.Pocket));
-            SetBagItemChoicesForPocket(definition?.Pocket ?? PocketOfItem(slot.ItemId), slot.ItemId);
+            var definition = ResolveBagDefinition(bridge, addr)
+                             ?? throw new InvalidOperationException("地址不属于当前 Profile 已确认的实时背包区域。");
+            var slot = ReadProfileLiveBagSlot(bridge, addr, definition.Pocket, definition.QuantityKey);
+            SetBagItemChoicesForPocket(definition.Pocket, slot.ItemId);
             BagQuantityBox.Text = slot.Quantity.ToString();
             UpdateBagNameText();
             Log($"已读取背包槽 0x{addr:X8}: {slot.ItemId}({ItemName(slot.ItemId)}) x{slot.Quantity}。");
@@ -2035,15 +1780,16 @@ public partial class MainWindow : Window
             var addr = row.Address;
             var item = ParseBagItemRequired(row.Pocket, allowEmpty: true);
             var qty = ParseBagQuantityRequired(item, allowZero: item == 0, row.Pocket);
-            var liveKey = UsesFixedLiveBag ? row.QuantityKey : BagScanner.InferQuantityKey(PartyScanner.ReadEwram(bridge, _profile));
+            var liveKey = ReadProfileQuantityKey(bridge);
             var quantityKey = liveKey != 0 ? liveKey : row.QuantityKey;
-            var quantityXor = row.QuantityXor || quantityKey != 0;
-            var definition = new BagPocketDefinition(row.Pocket, PocketNameZh(row.Pocket), 0, 0, quantityXor, quantityKey);
-            var before = BagScanner.ReadSlot(bridge, addr, definition, MaxBagWriteQuantityForPocket(row.Pocket));
+            var before = ReadProfileLiveBagSlot(bridge, addr, row.Pocket, quantityKey);
 
-            WriteLiveBagRange(bridge, addr, EncodeBagOverwriteSlot(item, qty, quantityKey, quantityXor));
+            WriteLiveBagRange(
+                bridge,
+                addr,
+                EncodeProfileLiveBagSlot(row.Pocket, item, qty, quantityKey));
 
-            var slot = BagScanner.ReadSlot(bridge, addr, definition, MaxBagWriteQuantityForPocket(row.Pocket));
+            var slot = ReadProfileLiveBagSlot(bridge, addr, row.Pocket, quantityKey);
             SetWriteNotice($"背包覆盖成功：{ItemName(before.ItemId)} x{before.Quantity} -> {ItemName(slot.ItemId)} x{slot.Quantity}。");
             LoadBagRows(bridge);
             BagList.SelectedItem = _bagRows.FirstOrDefault(r => r.Address == addr) ?? BagList.SelectedItem;
@@ -2075,30 +1821,7 @@ public partial class MainWindow : Window
         await RunUiTask("添加背包道具", () =>
         {
             using var bridge = ConnectBridge();
-            if (UsesFixedLiveBag)
-            {
-                AddFixedLiveBagItem(bridge);
-                return;
-            }
-            _bagBase = TryLocateBagBase(bridge);
-            var ewram = PartyScanner.ReadEwram(bridge, _profile);
-            var selectedPocket = SelectedChoiceId(BagPocketTabs) ?? 0;
-            if (selectedPocket <= 0)
-                selectedPocket = CurrentBagEditPocket();
-            if (selectedPocket <= 0)
-                throw new InvalidOperationException("请先切换到具体背包分类，或先选中一个背包槽。");
-            var item = ParseBagItemRequired(selectedPocket, allowEmpty: false);
-            var qty = ParseBagQuantityRequired(item, allowZero: false, selectedPocket);
-            var target = BagScanner.FindAddTarget(
-                ewram, _profile.Memory.EwramBase, _bagBase, _runtime.ScannedBagDefinitions,
-                selectedPocket, item, qty, PocketOfItem,
-                pocket => _runtime.IsKeyItemPocket(pocket, true),
-                pocket => _runtime.BagBatchCapacity(pocket, true),
-                MaxItemId(), MaxBagWriteQuantityForPocket(selectedPocket));
-            WriteLiveBagRange(bridge, target.Address, BagScanner.EncodeSlot(target.ItemId, target.AfterQuantity, target.QuantityKey, quantityXor: true));
-            SetWriteNotice($"背包添加成功：{ItemName(item)} {target.BeforeQuantity} -> {target.AfterQuantity}（{target.Note}）。");
-            LoadBagRows(bridge);
-            BagList.SelectedItem = _bagRows.FirstOrDefault(r => r.Address == target.Address) ?? BagList.SelectedItem;
+            AddFixedLiveBagItem(bridge);
         });
     }
 
@@ -2107,42 +1830,56 @@ public partial class MainWindow : Window
         var selectedPocket = SelectedChoiceId(BagPocketTabs) ?? 0;
         if (!IsConcreteBagPocket(selectedPocket))
             selectedPocket = CurrentBagEditPocket();
-        var area = ProfileLiveBagArea(selectedPocket)
-                   ?? throw new InvalidOperationException("请先切换到具体背包分类。");
+        var areas = ProfileLiveBagAreas(selectedPocket);
+        if (areas.Count == 0)
+            throw new InvalidOperationException("请先切换到具体背包分类。");
         var item = ParseBagItemRequired(selectedPocket, allowEmpty: false);
         var quantity = ParseBagQuantityRequired(item, allowZero: false, selectedPocket);
         var key = ReadProfileQuantityKey(bridge);
-        var raw = bridge.Read(area.Address, area.Capacity * 4);
-        var targetIndex = -1;
-        var lastUsedIndex = -1;
-        ushort beforeQuantity = 0;
-        for (var i = 0; i < area.Capacity; i++)
+        var segments = areas.Select(area =>
         {
-            var existing = ReadU16(raw, i * 4);
-            if (existing == item)
+            var address = ResolveProfileLiveBagAreaAddress(bridge, area);
+            return (Area: area, Address: address, Raw: bridge.Read(address, area.Capacity * 4));
+        }).ToArray();
+        uint? targetAddress = null;
+        ushort beforeQuantity = 0;
+        foreach (var segment in segments)
+        {
+            for (var i = 0; i < segment.Area.Capacity; i++)
             {
-                targetIndex = i;
-                beforeQuantity = (ushort)(ReadU16(raw, i * 4 + 2) ^ key);
-                quantity = (ushort)Math.Min(MaxBagWriteQuantityForPocket(selectedPocket), beforeQuantity + quantity);
+                if (ReadU16(segment.Raw, i * 4) != item) continue;
+                targetAddress = segment.Address + (uint)(i * 4);
+                beforeQuantity = DecodeProfileLiveBagQuantity(
+                    selectedPocket, item, ReadU16(segment.Raw, i * 4 + 2), key);
+                quantity = (ushort)Math.Min(
+                    MaxBagWriteQuantityForPocket(selectedPocket), beforeQuantity + quantity);
                 break;
             }
-            if (existing != 0 && existing <= MaxItemId())
-                lastUsedIndex = i;
+            if (targetAddress.HasValue) break;
         }
-        if (targetIndex < 0)
+
+        if (!targetAddress.HasValue)
         {
-            for (var i = lastUsedIndex + 1; i < area.Capacity; i++)
+            foreach (var segment in segments)
             {
-                if (ReadU16(raw, i * 4) == 0)
+                var lastUsedIndex = -1;
+                for (var i = 0; i < segment.Area.Capacity; i++)
                 {
-                    targetIndex = i;
-                    break;
+                    var existing = ReadU16(segment.Raw, i * 4);
+                    if (existing != 0 && existing <= MaxItemId()) lastUsedIndex = i;
                 }
+                for (var i = lastUsedIndex + 1; i < segment.Area.Capacity; i++)
+                    if (ReadU16(segment.Raw, i * 4) == 0)
+                    {
+                        targetAddress = segment.Address + (uint)(i * 4);
+                        break;
+                    }
+                if (targetAddress.HasValue) break;
             }
         }
-        if (targetIndex < 0) throw new InvalidOperationException("当前口袋已满。");
-        var address = area.Address + (uint)(targetIndex * 4);
-        WriteLiveBagRange(bridge, address, EncodeBagOverwriteSlot(item, quantity, key, quantityXor: true));
+        if (!targetAddress.HasValue) throw new InvalidOperationException("当前口袋已满。");
+        var address = targetAddress.Value;
+        WriteLiveBagRange(bridge, address, EncodeProfileLiveBagSlot(selectedPocket, item, quantity, key));
         LoadFixedBagRows(bridge);
         BagList.SelectedItem = _bagRows.FirstOrDefault(row => row.Address == address) ?? BagList.SelectedItem;
         SetWriteNotice($"背包添加成功：{ItemName(item)} {beforeQuantity} -> {quantity}。");
@@ -2237,27 +1974,25 @@ public partial class MainWindow : Window
         await RunUiTask(label, () =>
         {
             using var bridge = ConnectBridge();
-            _bagBase = UsesFixedLiveBag
-                ? _profile.Runtime.LiveBag.BaseAddress
-                : BagScanner.LocateSaveBlockBase(bridge, _profile, _runtime.ScannedBagDefinitions);
+            _bagBase = LiveBagAccess.ResolveBaseAddress(bridge, _profile);
             var ewram = PartyScanner.ReadEwram(bridge, _profile);
-            var fixedArea = ProfileLiveBagArea(MachinePocket);
-            var definition = UsesFixedLiveBag
-                ? new BagPocketDefinition(MachinePocket, fixedArea?.Name ?? "招式机器", 0, fixedArea?.Capacity ?? 0, true, 0)
-                : BagScanner.DefinitionForPocket(_runtime.ScannedBagDefinitions, MachinePocket)
-                  ?? throw new InvalidOperationException("缺少招式机器/秘传机器口袋定义。");
-            var startAddress = UsesFixedLiveBag
-                ? fixedArea?.Address ?? throw new InvalidOperationException("当前 Profile 缺少实时机器口袋地址。")
-                : _bagBase.Value + definition.Offset;
+            var fixedArea = ProfileLiveBagArea(MachinePocket)
+                            ?? throw new InvalidOperationException("当前 Profile 缺少实时机器口袋地址。");
+            var definition = new BagPocketDefinition(
+                MachinePocket, fixedArea.Name, 0, fixedArea.Capacity, true, 0);
+            var startAddress = LiveBagAccess.ResolveAreaAddress(_profile, fixedArea, _bagBase.Value);
             var startOffset = checked((int)(startAddress - _profile.Memory.EwramBase));
             var endOffset = startOffset + definition.SlotCount * 4;
             if (startOffset < 0 || endOffset > ewram.Length)
-                throw new InvalidOperationException("招式机器/秘传机器口袋地址无效。请先读取或校准背包。");
+                throw new InvalidOperationException("招式机器/秘传机器口袋地址超出当前 Profile 的 EWRAM 范围。");
 
-            var quantityKey = UsesFixedLiveBag
-                ? ReadProfileQuantityKey(bridge)
-                : BagScanner.InferQuantityKey(ewram);
-            var machines = ReadMachinePocketQuantities(ewram, startOffset, definition.SlotCount, quantityKey);
+            var quantityKey = ReadProfileQuantityKey(bridge);
+            var machines = ReadMachinePocketQuantities(
+                ewram,
+                startOffset,
+                definition.SlotCount,
+                quantityKey,
+                MachinePocket);
             var existingBefore = items.Count(machines.ContainsKey);
             var skipped = 0;
             foreach (var item in items)
@@ -2274,7 +2009,12 @@ public partial class MainWindow : Window
             if (machines.Count > definition.SlotCount)
                 throw new InvalidOperationException($"机器口袋容量不足：需要 {machines.Count} 格，容量 {definition.SlotCount} 格。");
 
-            var rewritten = EncodeMachinePocket(machines, definition.SlotCount, quantityKey, MaxBagWriteQuantityForPocket(MachinePocket));
+            var rewritten = EncodeMachinePocket(
+                machines,
+                definition.SlotCount,
+                quantityKey,
+                MaxBagWriteQuantityForPocket(MachinePocket),
+                MachinePocket);
             WriteLiveBagRange(bridge, startAddress, rewritten);
             var added = Math.Max(0, items.Count - existingBefore - skipped);
 
@@ -2305,125 +2045,60 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (UsesFixedLiveBag)
-        {
-            await GiveFixedLiveBagPocketItemsAsync(label, pocket, items);
-            return;
-        }
-
-        await RunUiTask(label, () =>
-        {
-            using var bridge = ConnectBridge();
-            _bagBase = TryLocateBagBase(bridge);
-            var ewram = PartyScanner.ReadEwram(bridge, _profile);
-            var quantityKey = BagScanner.InferQuantityKey(ewram);
-            _ = BagScanner.FindLivePockets(
-                    ewram, _profile.Memory.EwramBase, _bagBase,
-                    _runtime.BagPockets(true).Select(candidate => candidate.Id).ToArray(),
-                    PocketOfItem, candidate => _runtime.IsKeyItemPocket(candidate, true),
-                    candidate => _runtime.BagBatchCapacity(candidate, true), MaxItemId(), MaxBagScanQuantity())
-                .FirstOrDefault(candidate => candidate.Pocket == pocket)
-                ?? throw new InvalidOperationException($"当前{PocketNameZh(pocket)}尚未定位。请先读取背包，或在游戏内至少获得该分类一个道具后再试。");
-            var saveBlockBase = _bagBase
-                                ?? throw new InvalidOperationException("没有定位到当前存档的背包基址，已拒绝批量写入。");
-            var (startOffset, endOffset) = BagScanner.ConfiguredPocketRange(
-                ewram.Length,
-                _profile.Memory.EwramBase,
-                saveBlockBase,
-                _runtime.ScannedBagDefinitions,
-                pocket,
-                BagBatchCapacity(pocket));
-            var existing = new Dictionary<ushort, int>();
-            var emptyOffsets = new List<int>();
-            for (var offset = startOffset; offset <= endOffset - 4; offset += 4)
-            {
-                var item = ReadU16(ewram, offset);
-                var rawQuantity = ReadU16(ewram, offset + 2);
-                if (item == 0 && (rawQuantity == 0 || rawQuantity == quantityKey))
-                {
-                    emptyOffsets.Add(offset);
-                    continue;
-                }
-
-                if (items.Contains(item) && !existing.ContainsKey(item))
-                    existing[item] = offset;
-            }
-
-            var missing = items.Where(item => !existing.ContainsKey(item)).ToArray();
-            if (missing.Length > emptyOffsets.Count)
-                throw new InvalidOperationException($"{PocketNameZh(pocket)}容量不足：缺少 {missing.Length} 个道具，但只找到 {emptyOffsets.Count} 个空槽。未写入。");
-
-            var updated = 0;
-            foreach (var (item, offset) in existing)
-            {
-                var bytes = EncodeBatchBagSlot(pocket, item, quantityKey);
-                WriteLiveBagRange(bridge, _profile.Memory.EwramBase + (uint)offset, bytes);
-                updated++;
-            }
-
-            var added = 0;
-            for (var i = 0; i < missing.Length; i++)
-            {
-                var offset = emptyOffsets[i];
-                var bytes = EncodeBatchBagSlot(pocket, missing[i], quantityKey);
-                WriteLiveBagRange(bridge, _profile.Memory.EwramBase + (uint)offset, bytes);
-                added++;
-            }
-
-            LoadBagRows(bridge);
-            BagPocketTabs.SelectedItem = _bagPocketChoices.FirstOrDefault(choice => choice.Id == pocket) ?? BagPocketTabs.SelectedItem;
-            BagList.SelectedItem = _bagRows.FirstOrDefault(row => items.Contains(row.ItemId)) ?? BagList.SelectedItem;
-            SetWriteNotice($"{label}完成：新增 {added} 个，更新数量 {updated} 个，数量设置为 {BatchQuantityForPocket(pocket)}。请回游戏确认后手动保存。");
-        });
+        await GiveFixedLiveBagPocketItemsAsync(label, pocket, items);
     }
 
     private async Task GiveFixedLiveBagPocketItemsAsync(string label, int pocket, IReadOnlyList<ushort> items)
     {
         await RunUiTask(label, () =>
         {
-            var area = ProfileLiveBagArea(pocket)
-                       ?? throw new InvalidOperationException("当前 Profile 没有配置该实时背包口袋。");
+            var areas = ProfileLiveBagAreas(pocket);
+            if (areas.Count == 0)
+                throw new InvalidOperationException("当前 Profile 没有配置该实时背包口袋。");
             using var bridge = ConnectBridge();
             var quantityKey = ReadProfileQuantityKey(bridge);
-            var raw = bridge.Read(area.Address, area.Capacity * 4);
-            var wanted = items.ToHashSet();
-            var existing = new Dictionary<ushort, int>();
-            var lastUsedIndex = -1;
-
-            for (var i = 0; i < area.Capacity; i++)
+            var segments = areas.Select(area =>
             {
-                var offset = i * 4;
-                var item = ReadU16(raw, offset);
-                if (item != 0 && item <= MaxItemId())
-                    lastUsedIndex = i;
-                if (wanted.Contains(item) && !existing.ContainsKey(item))
-                    existing[item] = i;
+                var address = ResolveProfileLiveBagAreaAddress(bridge, area);
+                return (Area: area, Address: address, Raw: bridge.Read(address, area.Capacity * 4));
+            }).ToArray();
+            var wanted = items.ToHashSet();
+            var existing = new Dictionary<ushort, uint>();
+            var emptyAddresses = new List<uint>();
+
+            foreach (var segment in segments)
+            {
+                var lastUsedIndex = -1;
+                for (var i = 0; i < segment.Area.Capacity; i++)
+                {
+                    var item = ReadU16(segment.Raw, i * 4);
+                    if (item != 0 && item <= MaxItemId()) lastUsedIndex = i;
+                    if (wanted.Contains(item) && !existing.ContainsKey(item))
+                        existing[item] = segment.Address + (uint)(i * 4);
+                }
+                for (var i = lastUsedIndex + 1; i < segment.Area.Capacity; i++)
+                    if (ReadU16(segment.Raw, i * 4) == 0)
+                        emptyAddresses.Add(segment.Address + (uint)(i * 4));
             }
 
             var missing = items.Where(item => !existing.ContainsKey(item)).ToArray();
-            var emptyIndexes = new List<int>();
-            for (var i = lastUsedIndex + 1; i < area.Capacity; i++)
-            {
-                if (ReadU16(raw, i * 4) == 0) emptyIndexes.Add(i);
-                if (emptyIndexes.Count >= missing.Length) break;
-            }
-            if (missing.Length > emptyIndexes.Count)
-                throw new InvalidOperationException($"{area.Name}容量不足：缺少 {missing.Length} 个道具，但只找到 {emptyIndexes.Count} 个空槽。未写入。");
+            if (missing.Length > emptyAddresses.Count)
+                throw new InvalidOperationException(
+                    $"{PocketNameZh(pocket)}容量不足：缺少 {missing.Length} 个道具，但只找到 {emptyAddresses.Count} 个空槽。未写入。");
 
             var quantity = BatchQuantityForPocket(pocket);
             var updated = 0;
-            foreach (var (item, index) in existing)
+            foreach (var (item, address) in existing)
             {
-                var address = area.Address + (uint)(index * 4);
-                WriteLiveBagRange(bridge, address, BagScanner.EncodeSlot(item, quantity, quantityKey, quantityXor: true));
+                WriteLiveBagRange(bridge, address, EncodeProfileLiveBagSlot(pocket, item, quantity, quantityKey));
                 updated++;
             }
 
             var added = 0;
             for (var i = 0; i < missing.Length; i++)
             {
-                var address = area.Address + (uint)(emptyIndexes[i] * 4);
-                WriteLiveBagRange(bridge, address, BagScanner.EncodeSlot(missing[i], quantity, quantityKey, quantityXor: true));
+                var address = emptyAddresses[i];
+                WriteLiveBagRange(bridge, address, EncodeProfileLiveBagSlot(pocket, missing[i], quantity, quantityKey));
                 added++;
             }
 
@@ -5578,7 +5253,6 @@ public partial class MainWindow : Window
     {
         var name = itemId == 0 ? "无" : ItemName(itemId);
         var pocket = pocketOverride ?? PocketOfItem(itemId);
-        definition ??= BagScanner.DefinitionForPocket(_runtime.ScannedBagDefinitions, pocket);
         var pocketName = PocketNameZh(pocket);
         var prefix = slotNumber is null ? "" : $"{slotNumber.Value:00}. ";
         var title = itemId == 0
@@ -5603,53 +5277,7 @@ public partial class MainWindow : Window
     private void LoadBagRows(MgbaBridgeClient bridge)
     {
         _runtime.EnsureCanRead(GameDataSurface.Bag, live: true);
-        if (UsesFixedLiveBag)
-        {
-            LoadFixedBagRows(bridge);
-            return;
-        }
-
-        _bagBase = TryLocateBagBase(bridge);
-        var ewram = PartyScanner.ReadEwram(bridge, _profile);
-        var pockets = BagScanner.FindLivePockets(
-                ewram, _profile.Memory.EwramBase, _bagBase,
-                _runtime.BagPockets(true).Select(candidate => candidate.Id).ToArray(),
-                PocketOfItem, candidate => _runtime.IsKeyItemPocket(candidate, true),
-                candidate => _runtime.BagBatchCapacity(candidate, true), MaxItemId(), MaxBagScanQuantity())
-            .ToArray();
-        var quantityKey = BagScanner.InferQuantityKey(ewram);
-        _allBagRows.Clear();
-        foreach (var pocket in pockets)
-        {
-            var definition = new BagPocketDefinition(
-                pocket.Pocket,
-                PocketNameZh(pocket.Pocket),
-                0,
-                pocket.SlotCount,
-                true,
-                quantityKey);
-            for (var i = 0; i < pocket.Slots.Count; i++)
-            {
-                var slot = pocket.Slots[i];
-                _allBagRows.Add(ToBagRow(
-                    slot.Address,
-                    slot.ItemId,
-                    slot.Quantity,
-                    $"第 {i + 1} 格 / 口袋起始 0x{pocket.StartAddress:X8} / 数量密钥 0x{definition.QuantityKey:X4}",
-                    pocket.Pocket,
-                    i + 1,
-                    definition));
-            }
-        }
-
-        ApplyBagPocketFilter();
-        if (_bagRows.Count > 0 && BagList.SelectedItem is null) BagList.SelectedIndex = 0;
-        var nonEmpty = pockets.Sum(p => p.NonEmptyCount);
-        Log($"已自动定位背包口袋：基址 {(_bagBase is null ? "未知" : $"0x{_bagBase:X8}")}，数量密钥 0x{quantityKey:X4}，非空 {nonEmpty} 格，当前筛选显示 {_bagRows.Count} 格。");
-        if (_bagRows.Count == 0 && SelectedChoiceId(BagPocketTabs) is { } selected && selected > 0)
-            Log($"{PocketNameZh(selected)} 当前未定位到道具，按空口袋处理。");
-        if (nonEmpty == 0)
-            Log("没有读到可信背包槽：当前画面可能不是可读状态，或该存档需要用“校准背包”重新定位。");
+        LoadFixedBagRows(bridge);
     }
 
     private void LoadFixedBagRows(MgbaBridgeClient bridge)
@@ -5657,24 +5285,34 @@ public partial class MainWindow : Window
         _runtime.EnsureCanRead(GameDataSurface.Bag, live: true);
         var areas = _profile.Runtime.LiveBag.Areas;
         var quantityKey = ReadProfileQuantityKey(bridge);
-        _bagBase = _profile.Runtime.LiveBag.BaseAddress;
+        _bagBase = LiveBagAccess.ResolveBaseAddress(bridge, _profile);
         _allBagRows.Clear();
+        var displaySlots = new Dictionary<int, int>();
         foreach (var area in areas)
         {
-            var raw = bridge.Read(area.Address, area.Capacity * 4);
-            var displaySlot = 0;
+            var areaAddress = LiveBagAccess.ResolveAreaAddress(_profile, area, _bagBase.Value);
+            var raw = bridge.Read(areaAddress, area.Capacity * 4);
+            var sharedPhysicalArea = _profile.Runtime.LiveBag.Mode == "save-block1" &&
+                                     areas.Count(candidate => candidate.Offset == area.Offset) > 1;
             for (var i = 0; i < area.Capacity; i++)
             {
                 var item = ReadU16(raw, i * 4);
                 if (item == 0) continue;
                 if (item > MaxItemId()) continue;
-                var quantity = (ushort)(ReadU16(raw, i * 4 + 2) ^ quantityKey);
-                if (quantity == 0) quantity = 1;
+                if (sharedPhysicalArea && PocketOfItem(item) != area.Pocket) continue;
+                var quantity = DecodeProfileLiveBagQuantity(
+                    area.Pocket,
+                    item,
+                    ReadU16(raw, i * 4 + 2),
+                    quantityKey);
+                if (quantity > MaxBagWriteQuantityForPocket(area.Pocket)) continue;
                 var definition = new BagPocketDefinition(area.Pocket, area.Name, 0, area.Capacity, true, quantityKey);
+                var displaySlot = displaySlots.GetValueOrDefault(area.Pocket) + 1;
+                displaySlots[area.Pocket] = displaySlot;
                 _allBagRows.Add(ToBagRow(
-                    area.Address + (uint)(i * 4), item, quantity,
+                    areaAddress + (uint)(i * 4), item, quantity,
                     $"第 {i + 1} 格 / 当前版本固定口袋 / 数量密钥 0x{quantityKey:X4}",
-                    area.Pocket, ++displaySlot, definition));
+                    area.Pocket, displaySlot, definition));
             }
         }
         ApplyBagPocketFilter();
@@ -5692,6 +5330,39 @@ public partial class MainWindow : Window
 
     private GameProfileLiveBagArea? ProfileLiveBagArea(int pocket)
         => _runtime.LiveBagArea(pocket);
+
+    private IReadOnlyList<GameProfileLiveBagArea> ProfileLiveBagAreas(int pocket)
+        => _profile.Runtime.LiveBag.Areas.Where(area => area.Pocket == pocket).ToArray();
+
+    private uint ResolveProfileLiveBagAreaAddress(MgbaBridgeClient bridge, GameProfileLiveBagArea area)
+    {
+        _bagBase = LiveBagAccess.ResolveBaseAddress(bridge, _profile);
+        return LiveBagAccess.ResolveAreaAddress(_profile, area, _bagBase.Value);
+    }
+
+    private ushort DecodeProfileLiveBagQuantity(int pocket, ushort item, ushort rawQuantity, ushort quantityKey)
+        => LiveBagAccess.DecodeQuantity(
+            _profile,
+            item,
+            rawQuantity,
+            quantityKey,
+            _runtime.IsKeyItemPocket(pocket, live: true));
+
+    private byte[] EncodeProfileLiveBagSlot(int pocket, ushort item, ushort quantity, ushort quantityKey)
+        => LiveBagAccess.EncodeSlot(
+            _profile,
+            item,
+            quantity,
+            quantityKey,
+            _runtime.IsKeyItemPocket(pocket, live: true));
+
+    private BagSlot ReadProfileLiveBagSlot(MgbaBridgeClient bridge, uint address, int pocket, ushort quantityKey)
+    {
+        var raw = bridge.Read(address, 4);
+        var item = ReadU16(raw, 0);
+        var quantity = DecodeProfileLiveBagQuantity(pocket, item, ReadU16(raw, 2), quantityKey);
+        return new BagSlot(address, item, quantity, $"按 Profile 固定口袋 {PocketNameZh(pocket)} 解析");
+    }
 
     private void LoadSaveBagRows(IEnumerable<Gen3SaveBagEntry> entries, int? selectedOffset = null)
     {
@@ -6089,7 +5760,7 @@ public partial class MainWindow : Window
         var pocket = selectedPocket ?? SelectedChoiceId(BagPocketTabs) ?? 0;
         var isConcretePocket = IsConcreteBagPocket(pocket);
         var isMachinePocket = pocket == MachinePocket;
-        if (UsesFixedLiveBag && _dataSourceMode == DataSourceMode.Live)
+        if (_dataSourceMode == DataSourceMode.Live)
         {
             BagGiveAllCurrentPocketButton.IsVisible = isConcretePocket;
             BagGiveAllTmsButton.IsVisible = isMachinePocket;
@@ -6333,9 +6004,6 @@ public partial class MainWindow : Window
     private bool IsKeyItemPocket(int pocket)
         => _runtime.IsKeyItemPocket(pocket, _dataSourceMode == DataSourceMode.Live);
 
-    private int MaxBagScanQuantity()
-        => _profile.Limits.MaxBagQuantity;
-
     private ushort MaxBagWriteQuantityForPocket(int pocket)
         => (ushort)_profile.Limits.MaxBagQuantityForPocket(pocket);
 
@@ -6393,22 +6061,6 @@ public partial class MainWindow : Window
         if (quantity > maxQuantity)
             throw new InvalidOperationException($"背包道具数量最多只能写入 {maxQuantity}。");
         return quantity;
-    }
-
-    private static byte[] EncodeBagOverwriteSlot(ushort item, ushort quantity, ushort quantityKey, bool quantityXor)
-    {
-        var bytes = new byte[4];
-        PutU16(bytes, 0, item);
-        // Live empty slots in this ROM often store the quantity key rather than 0.
-        var rawQuantity = quantityXor ? (ushort)(quantity ^ quantityKey) : quantity;
-        PutU16(bytes, 2, rawQuantity);
-        return bytes;
-    }
-
-    private static void PutU16(Span<byte> bytes, int offset, ushort value)
-    {
-        bytes[offset] = (byte)(value & 0xFF);
-        bytes[offset + 1] = (byte)(value >> 8);
     }
 
     private int MaxItemId()
@@ -7856,39 +7508,21 @@ public partial class MainWindow : Window
 
     private void EnsureBagSelectionFresh(MgbaBridgeClient bridge)
     {
-        if (UsesFixedLiveBag) return;
-        var liveBase = TryLocateBagBase(bridge);
-        if (_bagBase is not null && liveBase is not null && liveBase.Value != _bagBase.Value)
+        var fixedLiveBase = LiveBagAccess.ResolveBaseAddress(bridge, _profile);
+        if (_bagBase is not null && fixedLiveBase != _bagBase.Value)
         {
             LoadBagRows(bridge);
-            throw new InvalidOperationException("背包位置已变化，已刷新背包列表。请重新选择槽位后再写入。");
+            throw new InvalidOperationException("背包基址已变化，已刷新背包列表。请重新选择槽位后再写入。");
         }
-        _bagBase = liveBase;
-    }
-
-    private bool BagMachineExists(ReadOnlySpan<byte> ewram, uint saveBlockBase, ushort item)
-    {
-        var definition = BagScanner.DefinitionForPocket(_runtime.ScannedBagDefinitions, MachinePocket)
-                         ?? throw new InvalidOperationException("缺少招式机器/秘传机器口袋定义。");
-        var start = checked((int)(saveBlockBase + definition.Offset - _profile.Memory.EwramBase));
-        var end = start + definition.SlotCount * 4;
-        if (start < 0 || end > ewram.Length)
-            throw new InvalidOperationException("招式机器/秘传机器口袋地址无效。请先读取或校准背包。");
-
-        for (var offset = start; offset <= end - 4; offset += 4)
-        {
-            if (ReadU16(ewram, offset) == item)
-                return true;
-        }
-
-        return false;
+        _bagBase = fixedLiveBase;
     }
 
     private Dictionary<ushort, ushort> ReadMachinePocketQuantities(
         ReadOnlySpan<byte> ewram,
         int startOffset,
         int slotCount,
-        ushort quantityKey)
+        ushort quantityKey,
+        int pocket)
     {
         var machines = new Dictionary<ushort, ushort>();
         for (var i = 0; i < slotCount; i++)
@@ -7897,13 +7531,18 @@ public partial class MainWindow : Window
             var item = ReadU16(ewram, offset);
             if (!IsBagMachineItem(item)) continue;
             var rawQuantity = ReadU16(ewram, offset + 2);
-            machines[item] = DecodeMachineQuantity(rawQuantity, quantityKey, MaxBagWriteQuantityForPocket(MachinePocket));
+            machines[item] = DecodeProfileLiveBagQuantity(pocket, item, rawQuantity, quantityKey);
         }
 
         return machines;
     }
 
-    private static byte[] EncodeMachinePocket(IReadOnlyDictionary<ushort, ushort> machines, int slotCount, ushort quantityKey, ushort maxQuantity)
+    private byte[] EncodeMachinePocket(
+        IReadOnlyDictionary<ushort, ushort> machines,
+        int slotCount,
+        ushort quantityKey,
+        ushort maxQuantity,
+        int pocket)
     {
         var bytes = new byte[slotCount * 4];
         var index = 0;
@@ -7912,7 +7551,7 @@ public partial class MainWindow : Window
             var safeQuantity = quantity;
             if (safeQuantity == 0) safeQuantity = 1;
             if (safeQuantity > maxQuantity) safeQuantity = maxQuantity;
-            var slot = BagScanner.EncodeSlot(item, safeQuantity, quantityKey, quantityXor: true);
+            var slot = EncodeProfileLiveBagSlot(pocket, item, safeQuantity, quantityKey);
             slot.CopyTo(bytes.AsSpan(index * 4, 4));
             index++;
         }
@@ -7920,27 +7559,8 @@ public partial class MainWindow : Window
         return bytes;
     }
 
-    private static ushort DecodeMachineQuantity(ushort rawQuantity, ushort quantityKey, ushort maxQuantity)
-    {
-        if (quantityKey != 0)
-        {
-            var decoded = (ushort)(rawQuantity ^ quantityKey);
-            if (decoded > 0 && decoded <= maxQuantity)
-                return decoded;
-        }
-
-        return rawQuantity > 0 && rawQuantity <= maxQuantity ? rawQuantity : (ushort)1;
-    }
-
     private int BagBatchCapacity(int pocket)
         => _runtime.BagBatchCapacity(pocket, _dataSourceMode == DataSourceMode.Live);
-
-    private byte[] EncodeBatchBagSlot(int pocket, ushort item, ushort quantityKey)
-        => UsesFixedLiveBag
-            ? BagScanner.EncodeSlot(item, BatchQuantityForPocket(pocket), quantityKey, quantityXor: true)
-            : IsKeyItemPocket(pocket)
-            ? BagScanner.EncodeSlot(item, 0, quantityKey, quantityXor: false)
-            : BagScanner.EncodeSlot(item, BatchQuantityForPocket(pocket), quantityKey, quantityXor: true);
 
     private BoxPokemon ReadSelectedBoxMon(MgbaBridgeClient bridge, BoxSlotRow row)
     {
@@ -8027,32 +7647,23 @@ public partial class MainWindow : Window
         if (BagList.SelectedItem is BagSlotRow row && row.Address == address)
             return new BagPocketDefinition(row.Pocket, PocketNameZh(row.Pocket), 0, 0, row.QuantityXor, row.QuantityKey);
 
-        try
+        var baseAddress = LiveBagAccess.ResolveBaseAddress(bridge, _profile);
+        foreach (var area in _profile.Runtime.LiveBag.Areas)
         {
-            _bagBase ??= BagScanner.LocateSaveBlockBase(bridge, _profile, _runtime.ScannedBagDefinitions);
-            var ewram = PartyScanner.ReadEwram(bridge, _profile);
-            var definition = BagScanner.DefinitionForAddress(
-                _runtime.ScannedBagDefinitions,
-                _bagBase.Value,
-                address,
-                _profile.Memory.EwramBase,
-                ewram.Length,
-                pocket => _runtime.BagBatchCapacity(pocket, true));
-            return definition is null
-                ? null
-                : definition with { QuantityKey = BagScanner.InferQuantityKey(ewram) };
+            var start = LiveBagAccess.ResolveAreaAddress(_profile, area, baseAddress);
+            var end = start + checked((uint)area.Capacity * 4U);
+            if (address < start || address >= end || ((address - start) & 3U) != 0) continue;
+            var key = ReadProfileQuantityKey(bridge);
+            return new BagPocketDefinition(area.Pocket, area.Name, 0, area.Capacity, true, key);
         }
-        catch
-        {
-            return null;
-        }
+        return null;
     }
 
     private uint? TryLocateBagBase(MgbaBridgeClient bridge)
     {
         try
         {
-            return BagScanner.LocateSaveBlockBase(bridge, _profile, _runtime.ScannedBagDefinitions);
+            return LiveBagAccess.ResolveBaseAddress(bridge, _profile);
         }
         catch
         {
@@ -8133,11 +7744,8 @@ public partial class MainWindow : Window
         bool IsWithin(uint start, int slotCount)
             => address >= start && end <= (ulong)start + checked((uint)slotCount * 4U);
 
-        var allowed = UsesFixedLiveBag
-            ? _profile.Runtime.LiveBag.Areas.Any(area => IsWithin(area.Address, area.Capacity))
-            : _bagBase is { } bagBase &&
-              _runtime.ScannedBagDefinitions.Any(definition =>
-                  IsWithin(bagBase + checked((uint)definition.Offset), definition.SlotCount));
+        var allowed = _profile.Runtime.LiveBag.Areas.Any(area =>
+            IsWithin(ResolveProfileLiveBagAreaAddress(bridge, area), area.Capacity));
         if (!allowed)
             throw new InvalidOperationException("背包写入范围不属于当前 Profile 已验证的口袋区域，已拒绝写入。");
 

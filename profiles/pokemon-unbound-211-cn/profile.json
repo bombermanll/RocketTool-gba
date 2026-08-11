@@ -167,8 +167,7 @@
         { "pocket": 3, "name": "精灵球", "address": "0x0203C354", "capacity": 50 },
         { "pocket": 4, "name": "招式机器", "address": "0x0203C41C", "capacity": 128 },
         { "pocket": 5, "name": "树果", "address": "0x0203C61C", "capacity": 75 }
-      ],
-      "scannedAreas": []
+      ]
     },
     "liveBagPockets": [
       { "id": 1, "name": "道具", "isKeyItem": false, "batchCapacity": 450 },

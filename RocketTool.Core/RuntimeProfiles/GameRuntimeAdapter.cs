@@ -16,8 +16,6 @@ public interface IGameRuntimeAdapter
     PokemonDataLayout PartyLayout { get; }
     PokemonDataLayout LiveBoxLayout { get; }
     IReadOnlyList<int> MoveTypeIds { get; }
-    bool UsesFixedLiveBag { get; }
-    bool UsesScannedLiveBag { get; }
     int MachinePocket { get; }
     string BridgeExperimentProfile { get; }
     string? SpeciesFormLabel(int species);
@@ -37,7 +35,6 @@ public interface IGameRuntimeAdapter
     int RemapItemPocket(int pocket);
     int FallbackPocketOfItem(int item);
     GameProfileLiveBagArea? LiveBagArea(int pocket);
-    IReadOnlyList<BagPocketDefinition> ScannedBagDefinitions { get; }
     void InitializeImportedParty(PartyPokemon mon, byte level, byte trainerGender);
     void InitializeImportedBox(BoxPokemon mon, byte level, byte trainerGender);
 }
@@ -63,8 +60,6 @@ public abstract class GameRuntimeAdapterBase : IGameRuntimeAdapter
     protected abstract string ExpectedSaveStrategy { get; }
     protected virtual bool SupportsCaughtBall => false;
 
-    public bool UsesFixedLiveBag => Profile.Runtime.LiveBag.Mode == "fixed";
-    public bool UsesScannedLiveBag => Profile.Runtime.LiveBag.Mode == "scanned";
     public int MachinePocket => Profile.Runtime.Machines.Pocket;
     public string BridgeExperimentProfile => Profile.Runtime.BridgeExperimentProfile;
     public virtual string? SpeciesFormLabel(int species) => null;
@@ -138,11 +133,6 @@ public abstract class GameRuntimeAdapterBase : IGameRuntimeAdapter
 
     public GameProfileLiveBagArea? LiveBagArea(int pocket)
         => Profile.Runtime.LiveBag.Areas.FirstOrDefault(area => area.Pocket == pocket);
-
-    public IReadOnlyList<BagPocketDefinition> ScannedBagDefinitions
-        => Profile.Runtime.LiveBag.ScannedAreas
-            .Select(area => new BagPocketDefinition(area.Pocket, area.Name, area.Offset, area.Capacity, true, checked((ushort)area.QuantityKey)))
-            .ToArray();
 
     private GameProfileFeatureAccess Access(GameDataSurface surface, bool live)
         => (surface, live) switch
