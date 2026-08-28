@@ -40,7 +40,7 @@
     "pcBoxStoragePointerAddress": "0x03005254",
     "pcBoxDataOffset": 4,
     "livePcBoxWritableSlotCount": 420,
-    "savePcBoxWritableSlotCount": 420,
+    "savePcBoxWritableSlotCount": 408,
     "pcBoxRegions": []
   },
   "romTables": {

@@ -1,6 +1,12 @@
 namespace RocketTool.Core;
 
 public sealed record Gen3SaveBoxEntry(int GlobalSlot, int BoxNumber, int SlotInBox, int SaveOffset, BoxPokemon Mon);
+public sealed record Gen3SaveCorruptBoxEntry(
+    int GlobalSlot,
+    int BoxNumber,
+    int SlotInBox,
+    int SaveOffset,
+    string Reason);
 
 public sealed record Gen3SaveBagEntry(
     int SaveOffset,
@@ -24,7 +30,11 @@ public sealed record Gen3SaveReadResult(
     IReadOnlyList<Gen3SaveBagEntry> Bag,
     IReadOnlyList<Gen3SaveBoxEntry> Boxes,
     Gen3SaveTrainerInfo? Trainer,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings)
+{
+    // Malformed records are exposed for read-only diagnostics and explicit cleanup.
+    public IReadOnlyList<Gen3SaveCorruptBoxEntry> CorruptBoxes { get; init; } = [];
+}
 
 public static class Gen3SaveReader
 {
@@ -1057,7 +1067,8 @@ public static class Gen3SaveReader
         var pcStorage = BuildBlock(best, 5, 13, warnings, "PC 箱子");
         var partyRead = ReadParty(saveBlock1, warnings);
         var bag = ReadBag(saveBlock1, warnings);
-        var boxes = ReadBoxes(pcStorage, warnings);
+        var corruptBoxes = new List<Gen3SaveCorruptBoxEntry>();
+        var boxes = ReadBoxes(pcStorage, warnings, corruptBoxes);
 
         if (partyRead.Party.Count == 0)
             warnings.Add("没有在存档中识别到队伍宝可梦。");
@@ -1074,7 +1085,10 @@ public static class Gen3SaveReader
             bag,
             boxes,
             null,
-            warnings);
+            warnings)
+        {
+            CorruptBoxes = corruptBoxes
+        };
         var sections = best.ValidSections.ToDictionary(
             pair => pair.Key,
             pair => new Gen3SaveSectionLayout(pair.Key, pair.Value.Offset, pair.Value.SaveIndex, pair.Value.ChecksumMode));
@@ -1216,7 +1230,10 @@ public static class Gen3SaveReader
             else if (f24 == checksum)
                 sections.Add(new SaveSection((int)id, offset, saveIndex, section[..SectionDataSize].ToArray(), "f24"));
             else if (extended == checksum)
-                sections.Add(new SaveSection((int)id, offset, saveIndex, section[..SectionDataSize].ToArray(), "extended"));
+                // Some versions use the bytes between 0xF80 and the trailer as
+                // real SaveBlock/PC data. Keep them so logical offsets do not
+                // jump backwards at the section boundary.
+                sections.Add(new SaveSection((int)id, offset, saveIndex, section[..0xFF4].ToArray(), "extended"));
         }
 
         return sections;
@@ -1291,16 +1308,24 @@ public static class Gen3SaveReader
 
     private static byte[] BuildBlock(SaveSlot slot, int firstSection, int lastSection, List<string> warnings, string label)
     {
-        var output = new byte[(lastSection - firstSection + 1) * SectionDataSize];
+        var lengths = Enumerable.Range(firstSection, lastSection - firstSection + 1)
+            .Select(id => slot.ValidSections.TryGetValue(id, out var section)
+                ? section.Data.Length
+                : SectionDataSize)
+            .ToArray();
+        var output = new byte[lengths.Sum()];
+        var outputOffset = 0;
         for (var id = firstSection; id <= lastSection; id++)
         {
             if (!slot.ValidSections.TryGetValue(id, out var section))
             {
                 warnings.Add($"{label} 缺少 section {id}。");
+                outputOffset += SectionDataSize;
                 continue;
             }
 
-            section.Data.CopyTo(output.AsSpan((id - firstSection) * SectionDataSize));
+            section.Data.CopyTo(output.AsSpan(outputOffset));
+            outputOffset += section.Data.Length;
         }
 
         return output;
@@ -1591,7 +1616,10 @@ public static class Gen3SaveReader
         return rows;
     }
 
-    private static IReadOnlyList<Gen3SaveBoxEntry> ReadBoxes(ReadOnlySpan<byte> pcStorage, List<string> warnings)
+    private static IReadOnlyList<Gen3SaveBoxEntry> ReadBoxes(
+        ReadOnlySpan<byte> pcStorage,
+        List<string> warnings,
+        List<Gen3SaveCorruptBoxEntry>? corruptBoxes = null)
     {
         var required = StandardPcBoxesOffset + BoxScanner.MaxBoxes * BoxScanner.BoxSlots * BoxPokemon.Size;
         if (pcStorage.Length < required)
@@ -1601,7 +1629,7 @@ public static class Gen3SaveReader
         }
 
         var entries = new List<Gen3SaveBoxEntry>();
-        var rejected = new List<string>();
+        var rejected = new List<Gen3SaveCorruptBoxEntry>();
         for (var globalSlot = 0; globalSlot < BoxScanner.MaxBoxes * BoxScanner.BoxSlots; globalSlot++)
         {
             var offset = StandardPcBoxesOffset + globalSlot * BoxPokemon.Size;
@@ -1611,14 +1639,22 @@ public static class Gen3SaveReader
             var slotInBox = globalSlot % BoxScanner.BoxSlots + 1;
             if (!IsValidBoxMon(mon))
             {
-                rejected.Add(BoxRejectReason(mon, boxNumber, slotInBox));
+                var reason = BoxRejectReason(mon, boxNumber, slotInBox);
+                var entry = new Gen3SaveCorruptBoxEntry(
+                    globalSlot + 1,
+                    boxNumber,
+                    slotInBox,
+                    offset,
+                    reason);
+                rejected.Add(entry);
+                corruptBoxes?.Add(entry);
                 continue;
             }
             entries.Add(new Gen3SaveBoxEntry(globalSlot + 1, boxNumber, slotInBox, offset, mon));
         }
 
         if (rejected.Count > 0)
-            warnings.Add($"箱子读取：发现 {rejected.Count} 个非空但无效的槽位：{string.Join("；", rejected.Take(20))}" +
+            warnings.Add($"箱子读取：发现 {rejected.Count} 个非空但无效的槽位：{string.Join("；", rejected.Take(20).Select(entry => entry.Reason))}" +
                          (rejected.Count > 20 ? "；其余已省略。" : ""));
 
         return entries;

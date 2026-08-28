@@ -44,7 +44,16 @@ public sealed record SaveBagEditableRow(
     public bool IsQuantityEditable => Row.Pocket != 8;
 }
 public sealed record BoxSlotRow(int Slot, uint Address, BoxPokemon Mon, BoxMonInfo Info, string Title, string Detail, Bitmap? Sprite);
-public sealed record BoxGridCell(int GlobalSlot, int SlotInBox, BoxSlotRow? Row, Bitmap? Sprite, string Title, bool HasPokemon, bool IsWritable)
+public sealed record BoxGridCell(
+    int GlobalSlot,
+    int SlotInBox,
+    BoxSlotRow? Row,
+    Bitmap? Sprite,
+    string Title,
+    bool HasPokemon,
+    bool IsWritable,
+    bool IsCorrupt = false,
+    string Detail = "")
 {
     public bool CanInteract => HasPokemon || IsWritable;
 }
@@ -494,6 +503,7 @@ public partial class MainWindow : Window
         ExportSaveButton.IsVisible = !live && _profile.Features.SaveEditing;
         SaveAsButton.IsVisible = !live && _profile.Features.SaveEditing;
         UpdateSaveButtons();
+        UpdateCorruptBoxNotice();
 
         PartyDeleteButton.IsVisible = partyWrite && (live || _loadedSave?.CanWrite == true);
         PartyDeleteButton.Content = live ? "删除队伍精灵" : "从待保存队伍删除";
@@ -577,7 +587,8 @@ public partial class MainWindow : Window
     {
         var enabled = _dataSourceMode == DataSourceMode.SaveFile &&
                       _profile.Features.SaveEditing &&
-                      _loadedSave is { CanWrite: true, HasChanges: true };
+                      _loadedSave is { CanWrite: true } loaded &&
+                      (loaded.HasChanges || loaded.CurrentCorruptBoxes.Count > 0);
         ExportSaveButton.IsEnabled = enabled;
         SaveAsButton.IsEnabled = enabled;
     }
@@ -837,6 +848,11 @@ public partial class MainWindow : Window
     private async void OnSaveInPlaceClicked(object? sender, RoutedEventArgs e)
     {
         if (!TryGetPendingSaveDocument(out var document)) return;
+        if (!await ClearCorruptBoxesAsync(document, fromSavePrompt: true))
+        {
+            UpdateSaveButtons();
+            return;
+        }
         if (!await ConfirmSaveInPlaceAsync(document)) return;
 
         var sourcePath = document.SourcePath;
@@ -860,6 +876,11 @@ public partial class MainWindow : Window
     private async void OnExportSaveClicked(object? sender, RoutedEventArgs e)
     {
         if (!TryGetPendingSaveDocument(out var document)) return;
+        if (!await ClearCorruptBoxesAsync(document, fromSavePrompt: true))
+        {
+            UpdateSaveButtons();
+            return;
+        }
 
         var extension = Path.GetExtension(document.SourcePath);
         if (!string.Equals(extension, ".srm", StringComparison.OrdinalIgnoreCase))
@@ -912,7 +933,7 @@ public partial class MainWindow : Window
             ShowToast(loaded.WriteBlockReason ?? "当前存档不能安全写回。", success: false);
             return false;
         }
-        if (!loaded.HasChanges)
+        if (!loaded.HasChanges && loaded.CurrentCorruptBoxes.Count == 0)
         {
             document = null!;
             ShowToast("当前存档没有待保存的修改。", success: false);
@@ -975,6 +996,46 @@ public partial class MainWindow : Window
         var confirmed = false;
         cancel.Click += (_, _) => dialog.Close();
         save.Click += (_, _) =>
+        {
+            confirmed = true;
+            dialog.Close();
+        };
+        await dialog.ShowDialog(this);
+        return confirmed;
+    }
+
+    private async Task<bool> ConfirmActionAsync(string title, string message, string confirmText)
+    {
+        var dialog = new Window
+        {
+            Title = title,
+            Width = 560,
+            Height = 240,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner
+        };
+        var root = new StackPanel { Margin = new Thickness(18), Spacing = 14 };
+        root.Children.Add(new TextBlock
+        {
+            Text = message,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = new SolidColorBrush(Color.FromRgb(150, 43, 43)),
+            FontWeight = FontWeight.SemiBold
+        });
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 10
+        };
+        var cancel = new Button { Content = "取消" };
+        var confirm = new Button { Content = confirmText, Classes = { "primary" } };
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(confirm);
+        root.Children.Add(buttons);
+        dialog.Content = root;
+        var confirmed = false;
+        cancel.Click += (_, _) => dialog.Close();
+        confirm.Click += (_, _) =>
         {
             confirmed = true;
             dialog.Close();
@@ -1127,6 +1188,8 @@ public partial class MainWindow : Window
             _boxRows.Add(new BoxSlotRow(entry.GlobalSlot, (uint)entry.SaveOffset, entry.Mon, info, title, "存档待保存副本", BoxDisplaySprite(info)));
         }
 
+        UpdateCorruptBoxNotice();
+
         _boxGridShowAllBoxes = true;
         RefreshBoxGridGroups();
         BoxList.SelectedIndex = _boxRows.Count > 0 ? 0 : -1;
@@ -1143,7 +1206,7 @@ public partial class MainWindow : Window
             ? "当前来源：存档编辑副本；队伍、背包和箱子可修改，原文件不会被覆盖。"
             : $"当前来源：存档只读预览；{_loadedSave.WriteBlockReason}";
         Log($"已读取存档：{save.FileName}，大小 {save.FileSize} 字节，使用副本 {save.SaveSlot}，save index {save.SaveIndex}，有效 section {save.ValidSectionCount}/14。");
-        Log($"存档内容：队伍 {save.Party.Count} 只，背包可显示 {save.Bag.Count} 格，箱子非空 {save.Boxes.Count} 格。支持 .sav/.srm 原始电池存档。");
+        Log($"存档内容：队伍 {save.Party.Count} 只，背包可显示 {save.Bag.Count} 格，箱子正常记录 {save.Boxes.Count} 格，损坏记录 {save.CorruptBoxes.Count} 格。支持 .sav/.srm 原始电池存档。");
         foreach (var warning in save.Warnings)
             Log("存档提示：" + warning);
         if (!_loadedSave.CanWrite)
@@ -1426,6 +1489,7 @@ public partial class MainWindow : Window
 
         var evs = BuildByteStats(EvHpBox, EvAtkBox, EvDefBox, EvSpeBox, EvSpaBox, EvSpdBox);
         var before = mon.GetInfo();
+        var hatchCounter = IsEgg(before) ? ParseHatchCounter(EggHatchStepsBox.Text) : (byte?)null;
         var originalOtName = PokemonOtName(mon.Raw);
         var species = ParseSpeciesOrNull(SpeciesBox);
         var experience = ResolvePartyExperience(before, species);
@@ -1441,7 +1505,7 @@ public partial class MainWindow : Window
             species,
             ParseItemOrNull(ItemBox),
             experience.Exp,
-            ParsePartyFriendshipOrHatchCounter(before),
+            hatchCounter ?? ParseByteOrNull(FriendshipBox.Text),
             BuildPpBonuses(PpUp1Box, PpUp2Box, PpUp3Box, PpUp4Box));
         if (_runtime.CanWriteCaughtBall(
                 GameDataSurface.Party,
@@ -1455,6 +1519,8 @@ public partial class MainWindow : Window
         mon.SetIvs(ivs);
         mon.SetEvs(evs);
         RecalculateLiveStats(mon);
+        if (hatchCounter is byte hatch)
+            mon.SetGrowth(friendship: hatch);
         return evs.Values.Sum(x => x);
     }
 
@@ -2118,6 +2184,171 @@ public partial class MainWindow : Window
         });
     }
 
+    private void UpdateCorruptBoxNotice()
+    {
+        var corrupt = _loadedSave?.CurrentCorruptBoxes ?? [];
+        var isSave = _dataSourceMode == DataSourceMode.SaveFile;
+        var canWrite = isSave && _loadedSave?.CanWrite == true && corrupt.Count > 0;
+        var writableLimit = WritableBoxSlotCount(live: false);
+        var safeCount = corrupt.Count(entry => entry.GlobalSlot <= writableLimit);
+        var unsafeCount = corrupt.Count - safeCount;
+        ClearCorruptBoxesButton.IsVisible = canWrite;
+        ClearCorruptBoxesButton.IsEnabled = canWrite;
+        CorruptBoxesNoticeText.IsVisible = isSave && corrupt.Count > 0;
+        CorruptBoxesNoticeText.Text = isSave && corrupt.Count > 0
+            ? unsafeCount > 0
+                ? $"检测到 {corrupt.Count} 个损坏槽位（可安全清除 {safeCount} 个，另有 {unsafeCount} 个需外部处理）"
+                : $"检测到 {corrupt.Count} 个损坏槽位；保存前必须处理"
+            : string.Empty;
+    }
+
+    private async void OnClearCorruptBoxesClicked(object? sender, RoutedEventArgs e)
+    {
+        if (_dataSourceMode != DataSourceMode.SaveFile || _loadedSave is not { } document)
+            return;
+        await ClearCorruptBoxesAsync(document, fromSavePrompt: false);
+    }
+
+    private async Task<bool> ClearCorruptBoxesAsync(Gen3SaveDocument document, bool fromSavePrompt)
+    {
+        var corrupt = document.CurrentCorruptBoxes.ToArray();
+        if (corrupt.Length == 0) return true;
+
+        var writableLimit = WritableBoxSlotCount(live: false);
+        var safe = corrupt.Where(entry => entry.GlobalSlot <= writableLimit).ToArray();
+        var unsafeEntries = corrupt.Where(entry => entry.GlobalSlot > writableLimit).ToArray();
+        var details = unsafeEntries.Length == 0
+            ? "这些槽位会被清零，并在保存时重新计算存档校验。"
+            : $"其中 {unsafeEntries.Length} 个槽位超出安全写入范围（例如箱{unsafeEntries[0].BoxNumber:00}-{unsafeEntries[0].SlotInBox:00}），可能与箱名/墙纸数据重叠，程序不会盲目清除。";
+        var dialog = new Window
+        {
+            Title = fromSavePrompt ? "保存前处理损坏记录" : "清除损坏记录",
+            Width = 620,
+            Height = unsafeEntries.Length == 0 ? 290 : 350,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner
+        };
+        var root = new StackPanel { Margin = new Thickness(18), Spacing = 14 };
+        root.Children.Add(new TextBlock
+        {
+            Text = $"检测到 {corrupt.Length} 个损坏槽位。可安全清除 {safe.Length} 个。",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = new SolidColorBrush(Color.FromRgb(150, 43, 43)),
+            FontWeight = FontWeight.SemiBold
+        });
+        root.Children.Add(new TextBlock
+        {
+            Text = details + "\n损坏记录不能恢复为正常宝可梦；如需恢复，请先使用外部备份或 mGBA 即时存档。",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = new SolidColorBrush(Color.FromRgb(108, 98, 85))
+        });
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 10
+        };
+        var cancel = new Button { Content = "取消" };
+        var clear = new Button
+        {
+            Content = fromSavePrompt && unsafeEntries.Length == 0
+                ? "清除安全项并继续保存"
+                : "确认清除安全项",
+            Classes = { "primary" },
+            IsEnabled = safe.Length > 0
+        };
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(clear);
+        Button? preserve = null;
+        if (fromSavePrompt && unsafeEntries.Length > 0 && safe.Length == 0)
+        {
+            preserve = new Button { Content = "保留未处理项并继续保存" };
+            buttons.Children.Add(preserve);
+        }
+        root.Children.Add(buttons);
+        dialog.Content = root;
+
+        var confirmed = false;
+        cancel.Click += (_, _) => dialog.Close();
+        clear.Click += (_, _) =>
+        {
+            confirmed = true;
+            dialog.Close();
+        };
+        if (preserve is not null)
+            preserve.Click += (_, _) =>
+            {
+                confirmed = true;
+                dialog.Close();
+            };
+        await dialog.ShowDialog(this);
+        if (!confirmed)
+        {
+            if (fromSavePrompt) ShowToast("已取消保存，损坏记录未处理。", success: false);
+            return false;
+        }
+
+        // With no safe entries left, an explicit save-time choice may preserve
+        // the unsafe raw bytes unchanged instead of blocking the whole save.
+        if (preserve is not null)
+        {
+            SetWriteNotice($"将原样保留 {unsafeEntries.Length} 个无法安全处理的损坏槽位；保存不会改写这些槽位。", success: true);
+            return true;
+        }
+
+        try
+        {
+            foreach (var entry in safe)
+                document.ClearBoxPokemon(entry.GlobalSlot);
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"清除损坏记录时中止：{ex.Message}", success: false);
+            return false;
+        }
+        RefreshBoxGridGroups();
+        UpdateCorruptBoxNotice();
+        UpdateSaveButtons();
+        SetWriteNotice($"已清除 {safe.Length} 个安全范围内的损坏槽位。", success: true);
+        if (unsafeEntries.Length > 0)
+        {
+            var keep = await ConfirmActionAsync(
+                "保留无法安全处理的记录",
+                $"仍有 {unsafeEntries.Length} 个损坏槽位无法安全清除。程序不会改写这些槽位，只保存刚才清除的安全项。\n是否保留这些原始字节并继续保存？",
+                "保留并继续保存");
+            if (!keep)
+            {
+                ShowToast("已取消保存，未处理的损坏记录仍保留。", success: false);
+                return false;
+            }
+            SetWriteNotice($"将原样保留 {unsafeEntries.Length} 个无法安全处理的损坏槽位；保存不会改写这些槽位。", success: true);
+        }
+        return true;
+    }
+
+    private async Task ClearSingleCorruptBoxAsync(int globalSlot)
+    {
+        if (_dataSourceMode != DataSourceMode.SaveFile || _loadedSave is not { } document)
+            return;
+        var entry = document.CurrentCorruptBoxes.FirstOrDefault(candidate => candidate.GlobalSlot == globalSlot);
+        if (entry is null) return;
+        var confirmed = await ConfirmActionAsync(
+            "清除损坏记录",
+            $"确定清除箱{entry.BoxNumber:00}-{entry.SlotInBox:00} 的损坏记录吗？\n该操作只会清空当前待保存副本，保存前仍可取消。",
+            "确认清除");
+        if (!confirmed) return;
+        try
+        {
+            document.ClearBoxPokemon(globalSlot);
+            RefreshBoxGridGroups();
+            UpdateCorruptBoxNotice();
+            SetWriteNotice($"已清除箱{entry.BoxNumber:00}-{entry.SlotInBox:00} 的损坏记录。完成后请保存存档。", success: true);
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"清除失败：{ex.Message}", success: false);
+        }
+    }
+
     private void OnBoxSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (BoxList.SelectedItem is not BoxSlotRow row) return;
@@ -2171,13 +2402,42 @@ public partial class MainWindow : Window
 
     private void OnBoxGridSlotClicked(object? sender, RoutedEventArgs e)
     {
-        if (sender is Button { Tag: BoxGridCell { Row: { } row } })
+        if (sender is not Button { Tag: BoxGridCell cell }) return;
+        if (cell.Row is { } row)
+        {
             BoxList.SelectedItem = row;
+            return;
+        }
+        if (cell.IsCorrupt)
+        {
+            BoxList.SelectedItem = null;
+            BoxSelectedTitleText.Text = cell.Title;
+            BoxModeHintText.Text = cell.Detail + "。该槽位只能清除，不能编辑。";
+            SetPokemonSprite(BoxDetailSpriteImage, 0);
+            UpdateBoxHeaderInfo(0, null);
+            UpdateBoxEggHatchEditor(null);
+        }
     }
 
     private void OnBoxGridSlotContextRequested(object? sender, ContextRequestedEventArgs e)
     {
-        if (sender is not Button { Tag: BoxGridCell { Row: { } row } } button) return;
+        if (sender is not Button { Tag: BoxGridCell cell } button) return;
+        if (cell.Row is null && cell.IsCorrupt)
+        {
+            var canWriteCorrupt = CanWriteBoxesInCurrentMode() &&
+                                  cell.GlobalSlot <= WritableBoxSlotCount(_dataSourceMode == DataSourceMode.Live);
+            var deleteCorrupt = new MenuItem
+            {
+                Header = "清除该损坏记录",
+                IsEnabled = canWriteCorrupt
+            };
+            deleteCorrupt.Click += async (_, _) => await ClearSingleCorruptBoxAsync(cell.GlobalSlot);
+            var corruptMenu = new ContextMenu { Items = { deleteCorrupt } };
+            corruptMenu.Open(button);
+            e.Handled = true;
+            return;
+        }
+        if (cell.Row is not { } row) return;
         BoxList.SelectedItem = row;
         var live = _dataSourceMode == DataSourceMode.Live;
         var canWrite = CanWriteBoxesInCurrentMode() && row.Slot <= WritableBoxSlotCount(live);
@@ -2596,6 +2856,7 @@ public partial class MainWindow : Window
     private (ushort Species, int EvTotal) ApplyBoxEditor(BoxPokemon mon)
     {
         var before = mon.GetInfo();
+        var hatchCounter = IsEgg(before) ? ParseHatchCounter(BoxEggHatchStepsBox.Text) : (byte?)null;
         var originalOtName = PokemonOtName(mon.Raw);
         var species = ParseSpeciesRequired(BoxSpeciesBox, "箱子宝可梦");
         var experience = ResolveBoxExperience(before, species);
@@ -2606,7 +2867,7 @@ public partial class MainWindow : Window
             species: species,
             item: item,
             exp: experience,
-            friendship: ParseBoxFriendshipOrHatchCounter(before),
+            friendship: hatchCounter ?? ParseByteOrNull(BoxFriendshipBox.Text),
             ppBonuses: BuildPpBonuses(BoxPpUp1Box, BoxPpUp2Box, BoxPpUp3Box, BoxPpUp4Box));
         if (_runtime.CanWriteCaughtBall(
                 GameDataSurface.Boxes,
@@ -2640,6 +2901,9 @@ public partial class MainWindow : Window
                 ParseByteOrNull(BoxPp3Box.Text),
                 ParseByteOrNull(BoxPp4Box.Text)
             ]);
+        // Egg hatch counters share growth[8] bits with the nature override.
+        if (hatchCounter is byte hatch)
+            mon.SetGrowth(friendship: hatch);
         return (species, evs.Values.Sum(x => x));
     }
 
@@ -3876,9 +4140,14 @@ public partial class MainWindow : Window
     private Bitmap? LoadEggSpriteBitmap()
     {
         if (!UsesVerifiedSpriteAssets || _profile.Graphics.EggSpeciesId <= 0) return null;
+        // Egg artwork is stored as egg.png; keep the species-id fallback for profiles
+        // that provide an explicitly numbered egg asset.
         _eggSpriteCache ??= LoadSpriteBitmapCore(
-            _profile.Graphics.EggSpeciesId,
-            _profile.Graphics.SpriteAssetRoot);
+                "egg",
+                _profile.Graphics.SpriteAssetRoot)
+            ?? LoadSpriteBitmapCore(
+                _profile.Graphics.EggSpeciesId,
+                _profile.Graphics.SpriteAssetRoot);
         return _eggSpriteCache;
     }
 
@@ -5666,6 +5935,9 @@ public partial class MainWindow : Window
         var canWriteBoxes = CanWriteBoxesInCurrentMode();
         var rowsByBox = _boxRows.GroupBy(row => (row.Slot - 1) / _profile.Memory.PcBoxSlots + 1)
             .ToDictionary(group => group.Key, group => group.ToArray());
+        var corruptBySlot = _dataSourceMode == DataSourceMode.SaveFile && _loadedSave is not null
+            ? _loadedSave.CurrentCorruptBoxes.ToDictionary(entry => entry.GlobalSlot)
+            : new Dictionary<int, Gen3SaveCorruptBoxEntry>();
         var boxNumbers = _boxGridShowAllBoxes
             ? Enumerable.Range(1, _profile.Memory.PcBoxCount)
             : rowsByBox.Keys.OrderBy(x => x);
@@ -5682,6 +5954,17 @@ public partial class MainWindow : Window
                                    globalSlot <= WritableBoxSlotCount(_dataSourceMode == DataSourceMode.Live);
                     if (bySlot.TryGetValue(slotInBox, out var row))
                         return new BoxGridCell(globalSlot, slotInBox, row, row.Sprite, row.Title, true, writable);
+                    if (corruptBySlot.TryGetValue(globalSlot, out var corrupt))
+                        return new BoxGridCell(
+                            globalSlot,
+                            slotInBox,
+                            null,
+                            null,
+                            $"箱{corrupt.BoxNumber:00}-{corrupt.SlotInBox:00} 损坏记录",
+                            true,
+                            writable,
+                            IsCorrupt: true,
+                            Detail: corrupt.Reason);
                     return new BoxGridCell(
                         globalSlot,
                         slotInBox,

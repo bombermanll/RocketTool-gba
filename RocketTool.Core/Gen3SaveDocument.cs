@@ -40,6 +40,7 @@ public sealed class Gen3SaveDocument
     private readonly HashSet<int> _touchedSectionIds = [];
     private readonly Dictionary<int, byte[]> _expectedParty = [];
     private readonly Dictionary<int, byte[]> _expectedBoxes = [];
+    private readonly List<Gen3SaveCorruptBoxEntry> _currentCorruptBoxes;
     private readonly Dictionary<int, (ushort ItemId, ushort Quantity)> _expectedBag = [];
     private byte[]? _expectedTrainerName;
     private uint? _expectedMoney;
@@ -69,6 +70,7 @@ public sealed class Gen3SaveDocument
         Snapshot = snapshot;
         CurrentPartyCount = snapshot.Party.Count;
         _currentBag = snapshot.Bag.ToList();
+        _currentCorruptBoxes = snapshot.CorruptBoxes.ToList();
         _profile = profile ?? throw new ArgumentNullException(nameof(profile));
         _itemPockets = itemPockets ?? new Dictionary<int, int>();
         _strategy = strategy ?? throw new ArgumentNullException(nameof(strategy));
@@ -92,6 +94,7 @@ public sealed class Gen3SaveDocument
     public int ModifiedBagCount => _expectedBag.Count;
     public bool TrainerModified => _expectedTrainerName is not null || _expectedMoney.HasValue;
     public IReadOnlyList<Gen3SaveBagEntry> CurrentBag => _currentBag;
+    public IReadOnlyList<Gen3SaveCorruptBoxEntry> CurrentCorruptBoxes => _currentCorruptBoxes;
     internal GameProfile Profile => _profile;
     internal IReadOnlyDictionary<int, int> ItemPockets => _itemPockets;
 
@@ -191,6 +194,13 @@ public sealed class Gen3SaveDocument
         var boxSlots = _profile.Memory.PcBoxSlots;
         if (globalSlot < 1 || globalSlot > boxCount * boxSlots)
             throw new ArgumentOutOfRangeException(nameof(globalSlot), "箱子槽位超出范围。");
+        var writableSlots = _profile.Memory.SavePcBoxWritableSlotCount > 0
+            ? Math.Min(_profile.Memory.SavePcBoxWritableSlotCount, boxCount * boxSlots)
+            : boxCount * boxSlots;
+        if (globalSlot > writableSlots)
+            throw new InvalidOperationException(
+                $"存档箱{(globalSlot - 1) / boxSlots + 1:00}-{(globalSlot - 1) % boxSlots + 1:00}" +
+                "与箱名/墙纸元数据重叠，已拒绝写回以保护箱子标题。");
         ValidateBoxPokemon(mon);
         _strategy.WriteBoxPokemon(this, globalSlot, mon.Raw);
         _expectedBoxes[globalSlot] = mon.Raw.ToArray();
@@ -203,9 +213,17 @@ public sealed class Gen3SaveDocument
         var totalSlots = _profile.Memory.PcBoxCount * _profile.Memory.PcBoxSlots;
         if (globalSlot < 1 || globalSlot > totalSlots)
             throw new ArgumentOutOfRangeException(nameof(globalSlot), "箱子槽位超出范围。");
+        var writableSlots = _profile.Memory.SavePcBoxWritableSlotCount > 0
+            ? Math.Min(_profile.Memory.SavePcBoxWritableSlotCount, totalSlots)
+            : totalSlots;
+        if (globalSlot > writableSlots)
+            throw new InvalidOperationException(
+                $"存档箱{(globalSlot - 1) / _profile.Memory.PcBoxSlots + 1:00}-{(globalSlot - 1) % _profile.Memory.PcBoxSlots + 1:00}" +
+                "与箱名/墙纸元数据重叠，已拒绝清空以保护箱子标题。");
         var empty = new byte[_profile.Memory.PcBoxRecordSize];
         _strategy.WriteBoxPokemon(this, globalSlot, empty);
         _expectedBoxes[globalSlot] = empty;
+        _currentCorruptBoxes.RemoveAll(entry => entry.GlobalSlot == globalSlot);
     }
 
     public Gen3SaveBagEntry? ReplaceBagEntry(int saveOffset, ushort itemId, ushort quantity)
@@ -516,13 +534,11 @@ public sealed class Gen3SaveDocument
         var sourceOffset = 0;
         while (sourceOffset < data.Length)
         {
-            var sectionIndex = logicalOffset / SectionDataSize;
-            var sectionId = firstSectionId + sectionIndex;
-            var sectionRelativeOffset = logicalOffset % SectionDataSize;
+            var (sectionId, sectionRelativeOffset, sectionLength) = LocateLogicalOffset(firstSectionId, logicalOffset);
             if (!_sections.TryGetValue(sectionId, out var section))
                 throw new InvalidOperationException($"写回需要 section {sectionId}，但当前存档中不存在。");
 
-            var count = Math.Min(data.Length - sourceOffset, SectionDataSize - sectionRelativeOffset);
+            var count = Math.Min(data.Length - sourceOffset, sectionLength - sectionRelativeOffset);
             data.Slice(sourceOffset, count).CopyTo(_raw.AsSpan(section.FileOffset + sectionRelativeOffset, count));
             _touchedSectionIds.Add(sectionId);
             logicalOffset += count;
@@ -1043,17 +1059,44 @@ public sealed class Gen3SaveDocument
         var destinationOffset = 0;
         while (destinationOffset < destination.Length)
         {
-            var sectionIndex = logicalOffset / SectionDataSize;
-            var sectionId = firstSectionId + sectionIndex;
-            var sectionRelativeOffset = logicalOffset % SectionDataSize;
+            var (sectionId, sectionRelativeOffset, sectionLength) = LocateLogicalOffset(firstSectionId, logicalOffset);
             if (!_sections.TryGetValue(sectionId, out var section))
                 throw new InvalidOperationException($"读取需要 section {sectionId}，但当前存档中不存在。");
-            var count = Math.Min(destination.Length - destinationOffset, SectionDataSize - sectionRelativeOffset);
+            var count = Math.Min(destination.Length - destinationOffset, sectionLength - sectionRelativeOffset);
             _raw.AsSpan(section.FileOffset + sectionRelativeOffset, count)
                 .CopyTo(destination.Slice(destinationOffset, count));
             logicalOffset += count;
             destinationOffset += count;
         }
+    }
+
+    private (int SectionId, int RelativeOffset, int SectionLength) LocateLogicalOffset(int firstSectionId, int logicalOffset)
+    {
+        if (logicalOffset < 0)
+            throw new ArgumentOutOfRangeException(nameof(logicalOffset));
+
+        var remaining = logicalOffset;
+        for (var sectionId = firstSectionId; sectionId < 14; sectionId++)
+        {
+            if (!_sections.TryGetValue(sectionId, out var section))
+                throw new InvalidOperationException($"定位需要 section {sectionId}，但当前存档中不存在。");
+            var length = SectionPayloadLength(section.ChecksumMode);
+            if (remaining < length)
+                return (sectionId, remaining, length);
+            remaining -= length;
+        }
+
+        throw new InvalidOperationException($"逻辑偏移 0x{logicalOffset:X} 超出 section 范围。");
+    }
+
+    private static int SectionPayloadLength(string checksumMode)
+    {
+        if (checksumMode == "extended") return 0xFF4;
+        if (checksumMode.StartsWith("unbound-", StringComparison.Ordinal))
+            return Convert.ToInt32(checksumMode["unbound-".Length..], 16);
+        if (checksumMode.StartsWith("radical-red-", StringComparison.Ordinal))
+            return Convert.ToInt32(checksumMode["radical-red-".Length..], 16);
+        return SectionDataSize;
     }
 
     private void ReindexBagEntries()

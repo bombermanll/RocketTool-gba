@@ -1706,7 +1706,7 @@ static int SaveProbe(string[] args)
     var result = Gen3SaveReader.Read(path, profile);
     Console.WriteLine($"Save: {result.FileName}");
     Console.WriteLine($"  size={result.FileSize} slot={result.SaveSlot} saveIndex={result.SaveIndex} sections={result.ValidSectionCount}/14");
-    Console.WriteLine($"  party={result.Party.Count} bag={result.Bag.Count} boxes={result.Boxes.Count}");
+    Console.WriteLine($"  party={result.Party.Count} bag={result.Bag.Count} boxes={result.Boxes.Count} corruptBoxes={result.CorruptBoxes.Count}");
     if (result.Trainer is { } trainer)
         Console.WriteLine($"  trainerId={(ushort)trainer.OtId} secretId={(ushort)(trainer.OtId >> 16)} money={trainer.Money}");
 
@@ -1771,6 +1771,8 @@ static int SaveVerifyWrite(string[] args)
     byte? expectedPartyBall = null;
     byte? expectedBoxBall = null;
     int? expectedBoxSlot = null;
+    int? expectedCrossSectionBoxSlot = null;
+    byte? expectedCrossSectionFriendship = null;
     byte NextCaughtBall(byte current)
     {
         var choices = profile.Features.CaughtBall.Choices;
@@ -1802,6 +1804,23 @@ static int SaveVerifyWrite(string[] args)
 
     ProfileSaveScenarioCatalog.ForProfile(profile).ApplyVerificationChanges(document, info);
 
+    // Spanish Rocket stores the first PC records past the 0xF80 boundary in
+    // extended section data. Exercise that boundary so a save round-trip
+    // cannot silently regress to fixed-size section arithmetic.
+    if (profile.Strategies.Save == "spanish-rocket-save-v1")
+    {
+        var crossSection = document.Snapshot.Boxes.FirstOrDefault(entry => entry.GlobalSlot >= 50);
+        if (crossSection is not null)
+        {
+            var clone = new BoxPokemon(crossSection.Mon.Raw, crossSection.Mon.Layout);
+            var before = clone.GetInfo();
+            expectedCrossSectionBoxSlot = crossSection.GlobalSlot;
+            expectedCrossSectionFriendship = (byte)(before.Friendship == 255 ? 254 : before.Friendship + 1);
+            clone.SetGrowth(friendship: expectedCrossSectionFriendship);
+            document.ReplaceBoxPokemon(crossSection.GlobalSlot, clone);
+        }
+    }
+
     // Profile scenarios may deliberately replace or clear their first test box.
     // Apply the caught-ball probe last so its exact record is the one verified.
     if (runtime.CanWriteCaughtBall(GameDataSurface.Boxes, live: false) &&
@@ -1825,6 +1844,9 @@ static int SaveVerifyWrite(string[] args)
         if (expectedBoxBall is { } boxBall &&
             result.Boxes.FirstOrDefault(entry => entry.GlobalSlot == expectedBoxSlot)?.Mon.GetInfo().CaughtBallCode != boxBall)
             throw new InvalidOperationException("存档箱子球种 round-trip 读回不一致。");
+        if (expectedCrossSectionBoxSlot is { } crossSlot &&
+            result.Boxes.FirstOrDefault(entry => entry.GlobalSlot == crossSlot)?.Mon.GetInfo().Friendship != expectedCrossSectionFriendship)
+            throw new InvalidOperationException("存档跨 section 箱子记录 round-trip 读回不一致。");
         if (expectedPartyBall is not null || expectedBoxBall is not null)
             Console.WriteLine($"Caught-ball round-trip OK: party={expectedPartyBall?.ToString() ?? "n/a"} box={expectedBoxBall?.ToString() ?? "n/a"}");
     }

@@ -465,6 +465,8 @@
                                 <Grid RowDefinitions="Auto,*" RowSpacing="8">
                                     <WrapPanel>
                                         <Button x:Name="BoxReadButton" Content="读取箱子" Margin="0,0,6,4" Click="OnBoxScanClicked" Classes="primary" />
+                                        <Button x:Name="ClearCorruptBoxesButton" Content="清除损坏记录" Margin="0,0,6,4" Click="OnClearCorruptBoxesClicked" IsVisible="False" />
+                                        <TextBlock x:Name="CorruptBoxesNoticeText" TextWrapping="Wrap" VerticalAlignment="Center" Foreground="#9D2B2B" FontWeight="SemiBold" IsVisible="False" />
                                     </WrapPanel>
                                     <Grid Grid.Row="1">
                                         <ListBox x:Name="BoxList" IsVisible="False" SelectionChanged="OnBoxSelectionChanged" />
@@ -499,6 +501,17 @@
                                                                                            Height="38"
                                                                                            Stretch="Uniform"
                                                                                            RenderOptions.BitmapInterpolationMode="None" />
+                                                                                    <Border IsVisible="{Binding IsCorrupt}"
+                                                                                            Background="#B52F3D"
+                                                                                            CornerRadius="8"
+                                                                                            Padding="3"
+                                                                                            HorizontalAlignment="Center"
+                                                                                            VerticalAlignment="Center">
+                                                                                        <TextBlock Text="坏"
+                                                                                                   Foreground="White"
+                                                                                                   FontWeight="Bold"
+                                                                                                   FontSize="16" />
+                                                                                    </Border>
                                                                                 </Grid>
                                                                             </Button>
                                                                         </DataTemplate>
