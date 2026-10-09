@@ -9,6 +9,11 @@ public sealed record GameProfile
     public required string Id { get; init; }
     public required string DisplayName { get; init; }
     public string Description { get; init; } = string.Empty;
+    public string Platform { get; init; } = "gba";
+
+    [JsonIgnore]
+    public bool IsNds => string.Equals(Platform, "nds", StringComparison.OrdinalIgnoreCase);
+
     public required GameProfileRomIdentity RomIdentity { get; init; }
     public required GameProfileStrategies Strategies { get; init; }
     public required GameProfileMemory Memory { get; init; }
@@ -162,6 +167,7 @@ public sealed record GameProfileGraphics
     public string BackSpriteAssetRoot { get; init; } = "";
     public string ShinyBackSpriteAssetRoot { get; init; } = "";
     public string IconAssetRoot { get; init; } = "";
+    public bool MenuIconsVerified { get; init; }
     public bool ItemIconsVerified { get; init; }
     public string ItemIconAssetRoot { get; init; } = "";
 
@@ -437,13 +443,15 @@ public static class GameProfileCatalog
             throw new InvalidOperationException("版本配置 ID 只能包含英文字母、数字、短横线和下划线。");
         if (string.IsNullOrWhiteSpace(profile.DisplayName))
             throw new InvalidOperationException($"版本配置 {profile.Id} 缺少 displayName。");
+        if (profile.Platform is not ("gba" or "nds"))
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的 platform 只能是 gba 或 nds。");
         if (profile.RomIdentity is null || profile.Strategies is null || profile.Memory is null || profile.RomTables is null || profile.Graphics is null || profile.Limits is null || profile.DataVerification is null || profile.Features is null || profile.Runtime is null)
             throw new InvalidOperationException($"版本配置 {profile.Id} 缺少必需的配置分组。");
         if (profile.Features.CaughtBall is null)
             throw new InvalidOperationException($"版本配置 {profile.Id} 缺少球种能力分组。");
         if (profile.DataVerification.VisibleSpeciesCount <= 0 || profile.DataVerification.VisibleSpeciesCount > profile.Limits.MaxSpecies)
             throw new InvalidOperationException($"版本配置 {profile.Id} 的可见物种校验数量无效。");
-        if (profile.DataVerification.VerifiedMenuIconCount < 0 || profile.DataVerification.VerifiedMenuIconCount > profile.DataVerification.VisibleSpeciesCount)
+        if (profile.DataVerification.VerifiedMenuIconCount < 0 || profile.DataVerification.VerifiedMenuIconCount > profile.DataVerification.VisibleSpeciesCount + 1)
             throw new InvalidOperationException($"版本配置 {profile.Id} 的菜单图标校验数量无效。");
         if (profile.RomIdentity.RomSize <= 0 ||
             profile.RomIdentity.Sha256.Length != 64 ||
@@ -458,9 +466,9 @@ public static class GameProfileCatalog
                 !fingerprint.Hex.All(Uri.IsHexDigit))
                 throw new InvalidOperationException($"版本配置 {profile.Id} 的实时 ROM 指纹无效。");
         }
-        if (profile.Memory.EwramSize <= 0 || profile.Memory.DefaultPartyBase == 0)
+        if (!profile.IsNds && (profile.Memory.EwramSize <= 0 || profile.Memory.DefaultPartyBase == 0))
             throw new InvalidOperationException($"版本配置 {profile.Id} 的实时内存参数无效。");
-        if (profile.Memory.PcBoxCount <= 0 || profile.Memory.PcBoxSlots <= 0 || profile.Memory.PcBoxRecordSize <= 0)
+        if (!profile.IsNds && (profile.Memory.PcBoxCount <= 0 || profile.Memory.PcBoxSlots <= 0 || profile.Memory.PcBoxRecordSize <= 0))
             throw new InvalidOperationException($"版本配置 {profile.Id} 的箱子参数无效。");
         foreach (var region in profile.Memory.PcBoxRegions)
         {
@@ -493,7 +501,8 @@ public static class GameProfileCatalog
             if (pocket <= 0 || max <= 0 || max > ushort.MaxValue)
                 throw new InvalidOperationException($"版本配置 {profile.Id} 的口袋 {pocket} 背包数量上限无效。");
         }
-        if (!profile.Features.LiveEditing && !profile.Features.SaveEditing)
+        if (!profile.Features.LiveEditing && !profile.Features.SaveEditing &&
+            !(profile.Features.BuiltInDex || profile.Features.MoveDex))
             throw new InvalidOperationException($"版本配置 {profile.Id} 没有启用任何编辑模式。");
         foreach (var (name, access) in new[]
                  {
@@ -550,7 +559,7 @@ public static class GameProfileCatalog
             new[] { profile.Features.LiveParty, profile.Features.LiveBoxes, profile.Features.LiveBag, profile.Features.LiveTrainer }.Any(access => access.Read || access.Write))
             throw new InvalidOperationException($"版本配置 {profile.Id} 已关闭实时模式，但仍启用了实时能力。");
         if (!profile.Features.SaveEditing &&
-            new[] { profile.Features.SaveParty, profile.Features.SaveBoxes, profile.Features.SaveBag, profile.Features.SaveTrainer }.Any(access => access.Read || access.Write))
+            new[] { profile.Features.SaveParty, profile.Features.SaveBoxes, profile.Features.SaveBag, profile.Features.SaveTrainer }.Any(access => access.Write || !profile.IsNds && access.Read))
             throw new InvalidOperationException($"版本配置 {profile.Id} 已关闭存档模式，但仍启用了存档能力。");
         if (profile.Features.ImportToParty && !profile.Features.LiveParty.Write)
             throw new InvalidOperationException($"版本配置 {profile.Id} 启用了导入队伍，但未启用实时队伍写入。");
@@ -636,13 +645,18 @@ public static class GameProfileCatalog
             throw new InvalidOperationException($"版本配置 {profile.Id} 缺少运行时隔离参数。");
         if (profile.Runtime.LiveBag.Mode is not ("disabled" or "fixed" or "save-block1"))
             throw new InvalidOperationException($"版本配置 {profile.Id} 的 liveBag.mode 无效。");
+        if (profile.IsNds)
+        {
+            ValidateNdsProfile(profile);
+            return;
+        }
         if (profile.Runtime.LiveBag.Mode == "fixed" &&
             (profile.Runtime.LiveBag.BaseAddress == 0 || profile.Runtime.LiveBag.Areas.Count == 0))
             throw new InvalidOperationException($"版本配置 {profile.Id} 的固定实时背包区域为空。");
         if (profile.Runtime.LiveBag.Mode == "save-block1" &&
             (profile.Memory.SaveBlock1PointerAddress == 0 || profile.Runtime.LiveBag.Areas.Count == 0))
             throw new InvalidOperationException($"版本配置 {profile.Id} 的 SaveBlock1 实时背包区域为空。");
-        if (profile.Runtime.LiveBag.QuantityEncoding is not ("xor" or "minus-one-xor"))
+        if (profile.Runtime.LiveBag.QuantityEncoding is not ("plain" or "xor" or "minus-one-xor"))
             throw new InvalidOperationException($"版本配置 {profile.Id} 的实时背包数量编码无效。");
         var ewramEnd = profile.Memory.EwramBase + checked((uint)profile.Memory.EwramSize);
         var totalBoxSlots = checked(profile.Memory.PcBoxCount * profile.Memory.PcBoxSlots);
@@ -685,9 +699,49 @@ public static class GameProfileCatalog
         if (profile.RomTables.LevelMoves is { } levelMoves &&
             (levelMoves.Offset < 0 || levelMoves.EntrySize <= 0 || levelMoves.Count <= 0 || levelMoves.EntriesPerRecord <= 0))
             throw new InvalidOperationException($"版本配置 {profile.Id} 的 ROM 表 levelMoves 无效。");
+        if (profile.RomTables.EggMoves is { } eggMoves &&
+            (eggMoves.Offset < 0 || eggMoves.EntrySize <= 0 || eggMoves.Count <= 0 || eggMoves.EntriesPerRecord <= 0))
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的 ROM 表 eggMoves 无效。");
+        if (profile.RomTables.TutorMoves is { } tutorMoves &&
+            (tutorMoves.Offset < 0 || tutorMoves.EntrySize <= 0 || tutorMoves.Count <= 0 || tutorMoves.EntriesPerRecord <= 0))
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的 ROM 表 tutorMoves 无效。");
         if (profile.RomTables.SpeciesAbilities is { } speciesAbilities &&
             (speciesAbilities.Offset < 0 || speciesAbilities.EntrySize <= 0 || speciesAbilities.Count <= 0 || speciesAbilities.EntriesPerRecord <= 0))
             throw new InvalidOperationException($"版本配置 {profile.Id} 的 ROM 表 speciesAbilities 无效。");
+    }
+
+    private static void ValidateNdsProfile(GameProfile profile)
+    {
+        if (profile.Features.LiveEditing || profile.Features.LiveParty.Read || profile.Features.LiveBoxes.Read || profile.Features.LiveBag.Read || profile.Features.LiveTrainer.Read)
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的 NDS 实时模式必须保持关闭。");
+        if (profile.Runtime.LiveBag.Mode != "disabled" ||
+            profile.Runtime.Machines.Mode != "disabled" ||
+            !string.Equals(profile.Runtime.BridgeExperimentProfile, "disabled", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的 NDS 运行时隔离参数必须全部为 disabled。");
+        if (profile.Strategies.Pokemon != "disabled" ||
+            profile.Strategies.PartyScanner != "disabled" ||
+            profile.Strategies.BoxScanner != "disabled" ||
+            profile.Strategies.Bag != "disabled" ||
+            profile.Strategies.Save != OriginHeartGold40SaveStrategy.StrategyId)
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的 NDS 策略组合不是起源心金专用组合，已拒绝加载。");
+        foreach (var (name, table) in new[]
+                 {
+                     ("baseStats", profile.RomTables.BaseStats),
+                     ("moves", profile.RomTables.Moves),
+                     ("items", profile.RomTables.Items),
+                     ("evolutions", profile.RomTables.Evolutions),
+                     ("experience", profile.RomTables.Experience)
+                 })
+        {
+            if (table is null || table.EntrySize <= 0 || table.Count <= 0 || table.EntriesPerRecord <= 0)
+                throw new InvalidOperationException($"版本配置 {profile.Id} 的 ROM 表 {name} 无效。");
+        }
+        if (profile.RomTables.EggMoves is { } eggMoves &&
+            (eggMoves.EntrySize <= 0 || eggMoves.Count <= 0 || eggMoves.EntriesPerRecord <= 0))
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的 ROM 表 eggMoves 无效。");
+        if (profile.RomTables.TutorMoves is { } tutorMoves &&
+            (tutorMoves.EntrySize <= 0 || tutorMoves.Count <= 0 || tutorMoves.EntriesPerRecord <= 0))
+            throw new InvalidOperationException($"版本配置 {profile.Id} 的 ROM 表 tutorMoves 无效。");
     }
 
     private static string NormalizeResourceName(string name) => name.Replace('\\', '.').Replace('/', '.');

@@ -3,11 +3,13 @@ namespace RocketTool.Core;
 internal interface IGen3SaveStrategy
 {
     string Id { get; }
+    bool RefreshMgbaRtcFooter => true;
     Gen3SaveDocument Open(string path, GameProfile profile);
     void ReplaceTrainerName(Gen3SaveDocument document, ReadOnlySpan<byte> nameBytes);
     void ReplaceTrainerMoney(Gen3SaveDocument document, uint money);
     void WriteBoxPokemon(Gen3SaveDocument document, int globalSlot, ReadOnlySpan<byte> data);
     ushort EncodeStoredQuantity(ushort quantity, ushort quantityKey);
+    ushort? AuthoritativeQuantityKey(Gen3SaveDocument document) => null;
     IEnumerable<Gen3SaveBagPhysicalPocket> CandidatePhysicalPockets(int pocket);
     int? PocketOfItem(Gen3SaveDocument document, ushort itemId);
     string PocketName(int pocket);
@@ -24,7 +26,9 @@ internal static class Gen3SaveStrategyCatalog
             UnboundCfruSaveStrategy.StrategyId => UnboundCfruSaveStrategy.Instance,
             DestinyFireRedSaveStrategy.StrategyId => DestinyFireRedSaveStrategy.Instance,
             RadicalRedCfruSaveStrategy.StrategyId => RadicalRedCfruSaveStrategy.Instance,
+            Shuiyin12SaveStrategy.StrategyId => Shuiyin12SaveStrategy.Instance,
             UltimateEmerald55SaveStrategy.StrategyId => UltimateEmerald55SaveStrategy.Instance,
+            OriginHeartGold40SaveStrategy.StrategyId => OriginHeartGold40SaveStrategy.Instance,
             DisabledSaveStrategy.StrategyId => DisabledSaveStrategy.Instance,
             var id => throw new NotSupportedException($"当前程序不支持存档策略：{id}")
         };

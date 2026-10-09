@@ -34,6 +34,10 @@ public sealed record Gen3SaveReadResult(
 {
     // Malformed records are exposed for read-only diagnostics and explicit cleanup.
     public IReadOnlyList<Gen3SaveCorruptBoxEntry> CorruptBoxes { get; init; } = [];
+
+    // Set when party parsing could not explain the on-disk structure. Writing a
+    // truncated party back would drop unparsed slots, so party writes are refused.
+    public string? PartyWriteBlockReason { get; init; }
 }
 
 public static class Gen3SaveReader
@@ -58,6 +62,10 @@ public static class Gen3SaveReader
     private const int UnboundParasiteSize = 0x2E38;
     private const int RadicalRedSectionDataSize = 0xFF0;
     private const int RadicalRedExtensionSize = 0x2EA4;
+    private const int Shuiyin12SectionDataSize = 0xFF0;
+    private const int Shuiyin12ExtensionSize = 0x2EA4;
+    private const int Shuiyin12PartyCountOffset = 0x34;
+    private const int Shuiyin12PartyOffset = 0x38;
     private const int MaxSpecies = 2000;
     private const int MaxItem = 922;
     private const int StandardPartyCountOffset = 0x234;
@@ -434,6 +442,72 @@ public static class Gen3SaveReader
         return new Gen3SaveDocument(path, raw, sections, UnboundPartyCountOffset, UnboundPartyOffset, snapshot, profile, itemPockets, UnboundCfruSaveStrategy.Instance);
     }
 
+    internal static Gen3SaveDocument OpenShuiyin12(string path, GameProfile profile)
+    {
+        if (profile.Id != "pokemon-shuiyin-12-cn")
+            throw new InvalidOperationException("水银存档读取器只能用于 pokemon-shuiyin-12-cn。");
+
+        var raw = File.ReadAllBytes(path);
+        if (raw.Length is not (0x20000 or 0x20010))
+            throw new InvalidOperationException("水银只支持已验证的 0x20000 字节 Flash 存档及附带 16 字节尾部的格式；带前缀、拼接或截断文件已拒绝解析。");
+        var warnings = new List<string>();
+        var slots = FindShuiyin12Slots(raw).ToArray();
+        if (slots.Length == 0)
+            throw new InvalidOperationException("没有识别到有效的《宝可梦水银》存档 section（签名 0x08012025）。");
+
+        var best = slots
+            .OrderByDescending(slot => slot.ValidSections.Count)
+            .ThenByDescending(slot => slot.SaveIndex)
+            .First();
+        if (best.ValidSections.Count < SectionsPerSlot)
+            throw new InvalidOperationException(
+                $"只识别到 {best.ValidSections.Count}/{SectionsPerSlot} 个有效 section；" +
+                "水银存档的 SaveBlock、箱子和扩展区横跨全部 14 段，缺失时无法安全重组，已停止读取。");
+
+        var saveBlock2 = RequiredShuiyin12Section(best, 0).Data.AsSpan(0, 0xF24).ToArray();
+        var saveBlock1 = new byte[0x3D68];
+        CopyShuiyin12Section(best, 1, saveBlock1, 0x0000, 0xFF0, warnings);
+        CopyShuiyin12Section(best, 2, saveBlock1, 0x0FF0, 0xFF0, warnings);
+        CopyShuiyin12Section(best, 3, saveBlock1, 0x1FE0, 0xFF0, warnings);
+        CopyShuiyin12Section(best, 4, saveBlock1, 0x2FD0, 0xD98, warnings);
+
+        var pcStorage = new byte[0x83D0];
+        for (var id = 5; id <= 12; id++)
+            CopyShuiyin12Section(best, id, pcStorage, (id - 5) * Shuiyin12SectionDataSize, Shuiyin12SectionDataSize, warnings);
+        CopyShuiyin12Section(best, 13, pcStorage, 0x7F80, 0x450, warnings);
+
+        var extension = BuildShuiyin12Extension(raw, best);
+        var party = ReadShuiyin12Party(saveBlock1, profile, warnings, out var partyWriteBlockReason);
+        var boxes = ReadShuiyin12Boxes(saveBlock2, saveBlock1, pcStorage, extension, profile, warnings);
+        var itemPockets = ReadProfileItemPockets(profile);
+        var bag = ReadShuiyin12Bag(extension, saveBlock2, itemPockets, profile, warnings);
+
+        var trainerName = saveBlock2.AsSpan(0, profile.Memory.PlayerNameLength).ToArray();
+        var trainerOtId = ReadU32(saveBlock2, profile.Memory.SaveBlock2PlayerOtIdOffset);
+        var moneyKey = ReadU32(saveBlock2, (int)profile.Memory.SaveBlock2EncryptionKeyOffset);
+        var money = ReadU32(saveBlock1, (int)profile.Memory.SaveBlock1MoneyOffset) ^ moneyKey;
+        if (money > profile.Runtime.MaxTrainerMoney)
+            throw new InvalidOperationException($"水银存档金钱字段解密为 {money}，超出当前 ROM 已确认范围。已停止读取，避免误写。");
+        var trainer = new Gen3SaveTrainerInfo(trainerName, trainerOtId, money);
+
+        warnings.Add($"水银存档：使用 save index {best.SaveIndex}；队伍为 100 字节明文结构，箱子为 58 字节压缩结构，共 {profile.Memory.PcBoxCount} 箱。");
+        warnings.Add("section 描述按当前 ROM 0x080DA1D4 / 0x0804C160 重组：SaveBlock2 0xF24、SaveBlock1 0x3D68、PC 0x83D0。");
+        warnings.Add("扩展区按当前 ROM 0x0203B174 和长度 0x2EA4 重组：section 0/4/13 尾部与原始扇区 30/31；未知尾部和 RTC 原样保留。");
+        warnings.Add("水银背包按当前 ROM 0x081D40CF4 的五个物理口袋读取；数量为明文半字（0x1D41010 直接 ldrh，无密钥异或）。");
+        var snapshot = new Gen3SaveReadResult(
+            Path.GetFileName(path), raw.Length, best.Ordinal + 1, best.SaveIndex,
+            best.ValidSections.Count, party, bag, boxes, trainer, warnings)
+        {
+            PartyWriteBlockReason = partyWriteBlockReason
+        };
+        var sections = best.ValidSections.ToDictionary(
+            pair => pair.Key,
+            pair => new Gen3SaveSectionLayout(pair.Key, pair.Value.Offset, pair.Value.SaveIndex, pair.Value.ChecksumMode));
+        return new Gen3SaveDocument(
+            path, raw, sections, Shuiyin12PartyCountOffset, Shuiyin12PartyOffset,
+            snapshot, profile, itemPockets, Shuiyin12SaveStrategy.Instance);
+    }
+
     internal static Gen3SaveDocument OpenRadicalRed(string path, GameProfile profile)
     {
         var raw = File.ReadAllBytes(path);
@@ -487,6 +561,221 @@ public static class Gen3SaveReader
         return new Gen3SaveDocument(
             path, raw, sections, UnboundPartyCountOffset, UnboundPartyOffset,
             snapshot, profile, itemPockets, RadicalRedCfruSaveStrategy.Instance);
+    }
+
+    private static IEnumerable<SaveSlot> FindShuiyin12Slots(byte[] raw)
+    {
+        var sections = new List<SaveSection>();
+        for (var offset = 0; offset + SectionSize <= Math.Min(raw.Length, 0x1C000); offset += SectionSize)
+        {
+            var data = raw.AsSpan(offset, SectionSize);
+            var id = ReadU16(data, 0xFF4);
+            if (id >= SectionsPerSlot || ReadU32(data, 0xFF8) != SectionSignature) continue;
+            var length = Shuiyin12ChecksumLength(id);
+            if (Checksum(data[..length]) != ReadU16(data, 0xFF6)) continue;
+            sections.Add(new SaveSection(id, offset, ReadU32(data, 0xFFC), data[..0xFF4].ToArray(), $"shuiyin-12-{length:X}"));
+        }
+
+        var ordinal = 0;
+        foreach (var group in sections.GroupBy(section => section.SaveIndex).OrderBy(group => group.Min(section => section.Offset)))
+        {
+            var byId = group.GroupBy(section => section.Id)
+                .ToDictionary(sameId => sameId.Key, sameId => sameId.OrderBy(section => section.Offset).First());
+            if (byId.Count > 0)
+                yield return new SaveSlot(ordinal++, byId.Values.Min(section => section.Offset), byId);
+        }
+    }
+
+    private static int Shuiyin12ChecksumLength(int sectionId) => sectionId switch
+    {
+        0 => 0xF24,
+        4 => 0xD98,
+        13 => 0x450,
+        _ => Shuiyin12SectionDataSize
+    };
+
+    private static SaveSection RequiredShuiyin12Section(SaveSlot slot, int id)
+        => slot.ValidSections.TryGetValue(id, out var section)
+            ? section
+            : throw new InvalidOperationException($"水银存档缺少 section {id}。");
+
+    private static void CopyShuiyin12Section(
+        SaveSlot slot,
+        int id,
+        Span<byte> destination,
+        int destinationOffset,
+        int count,
+        List<string> warnings)
+    {
+        if (!slot.ValidSections.TryGetValue(id, out var section))
+        {
+            warnings.Add($"水银存档缺少 section {id}，对应区域已按空数据只读解析；保存写回已禁用。");
+            destination.Slice(destinationOffset, count).Clear();
+            return;
+        }
+        section.Data.AsSpan(0, count).CopyTo(destination[destinationOffset..]);
+    }
+
+    private static byte[] BuildShuiyin12Extension(byte[] raw, SaveSlot slot)
+    {
+        // Extra sectors are shared by both 14-sector save generations,
+        // and are relative to the Flash container, NOT SaveSlot.Offset.
+        if (raw.Length < 0x20000)
+            throw new InvalidOperationException("水银存档缺少完整 Flash 容器。");
+        var extension = new byte[Shuiyin12ExtensionSize];
+        RequiredShuiyin12Section(slot, 0).Data.AsSpan(0xF24, 0xCC).CopyTo(extension.AsSpan(0x0000));
+        RequiredShuiyin12Section(slot, 4).Data.AsSpan(0xD98, 0x258).CopyTo(extension.AsSpan(0x00CC));
+        RequiredShuiyin12Section(slot, 13).Data.AsSpan(0x450, 0xBA0).CopyTo(extension.AsSpan(0x0324));
+        raw.AsSpan(0x1E000, 0xFF0).CopyTo(extension.AsSpan(0x0EC4));
+        raw.AsSpan(0x1F000, 0xFF0).CopyTo(extension.AsSpan(0x1EB4));
+        return extension;
+    }
+
+    private static IReadOnlyList<PartyPokemon> ReadShuiyin12Party(
+        ReadOnlySpan<byte> saveBlock1,
+        GameProfile profile,
+        List<string> warnings,
+        out string? writeBlockReason)
+    {
+        writeBlockReason = null;
+        var count = saveBlock1[Shuiyin12PartyCountOffset];
+        if (count > Gen3Constants.PartySlots)
+        {
+            warnings.Add($"水银队伍数量异常：{count}。");
+            writeBlockReason = $"水银队伍数量字段为 {count}，超出 6 槽；未解析的队伍槽位可能仍然有效，已拒绝队伍写回。";
+            return [];
+        }
+        var result = new List<PartyPokemon>();
+        for (var slot = 0; slot < count; slot++)
+        {
+            var mon = new PartyPokemon(
+                saveBlock1.Slice(Shuiyin12PartyOffset + slot * PartyPokemon.Size, PartyPokemon.Size),
+                PokemonDataLayout.UnboundCfruPlainParty);
+            var info = mon.GetInfo();
+            if (mon.IsEmpty || info.Species == 0 || info.Species > profile.Limits.MaxSpecies || info.Level is < 1 or > 100)
+            {
+                warnings.Add($"水银队伍槽 {slot + 1} 数据无效，已停止读取后续槽位。");
+                writeBlockReason =
+                    $"水银队伍槽 {slot + 1} 数据无效，存档中仍有 {count - slot} 个未解析槽位；已拒绝队伍写回以免丢失数据。";
+                break;
+            }
+            result.Add(mon);
+        }
+        return result;
+    }
+
+    private static IReadOnlyList<Gen3SaveBoxEntry> ReadShuiyin12Boxes(
+        ReadOnlySpan<byte> saveBlock2,
+        ReadOnlySpan<byte> saveBlock1,
+        ReadOnlySpan<byte> pcStorage,
+        ReadOnlySpan<byte> extension,
+        GameProfile profile,
+        List<string> warnings)
+    {
+        var entries = new List<Gen3SaveBoxEntry>();
+        for (var box = 1; box <= profile.Memory.PcBoxCount; box++)
+        {
+            ReadOnlySpan<byte> region;
+            int syntheticOffset;
+            if (box <= 19)
+            {
+                var offset = 4 + (box - 1) * UnboundBoxSlots * UnboundBoxRecordSize;
+                region = pcStorage.Slice(offset, UnboundBoxSlots * UnboundBoxRecordSize);
+                syntheticOffset = offset;
+            }
+            else if (box <= 22)
+            {
+                var offset = box switch { 20 => 0x19D0, 21 => 0x209C, _ => 0x2768 };
+                region = extension.Slice(offset, UnboundBoxSlots * UnboundBoxRecordSize);
+                syntheticOffset = Gen3SaveDocument.Shuiyin12ExtensionOffsetMarker + offset;
+            }
+            else if (box <= 24)
+            {
+                var offset = box == 23 ? 0x1F08 : 0x25D4;
+                region = saveBlock1.Slice(offset, UnboundBoxSlots * UnboundBoxRecordSize);
+                syntheticOffset = 0x400000 + offset;
+            }
+            else
+            {
+                region = saveBlock2.Slice(0xB0, UnboundBoxSlots * UnboundBoxRecordSize);
+                syntheticOffset = 0x5000B0;
+            }
+
+            for (var slot = 0; slot < UnboundBoxSlots; slot++)
+            {
+                var mon = new BoxPokemon(
+                    region.Slice(slot * UnboundBoxRecordSize, UnboundBoxRecordSize),
+                    PokemonDataLayout.UnboundCfruPlainParty);
+                if (mon.IsEmpty) continue;
+                var info = mon.GetInfo();
+                // Shuiyin expansion at 0x081D58644 shifts header +0x13 right
+                // by three before decoding it; only the low three bits are sanity.
+                // The upper five bits are meaningful and are not corruption.
+                var header = mon.Raw;
+                if (info.Species < 1 || info.Species > profile.Limits.MaxSpecies ||
+                    header[0x12] is < 1 or > 7 || (header[0x13] & 0x02) == 0)
+                {
+                    warnings.Add($"水银箱{box:00}-{slot + 1:00}存在无效非空记录（物种 {info.Species}），已忽略。");
+                    continue;
+                }
+                var globalSlot = (box - 1) * UnboundBoxSlots + slot + 1;
+                entries.Add(new Gen3SaveBoxEntry(
+                    globalSlot, box, slot + 1,
+                    syntheticOffset + slot * UnboundBoxRecordSize, mon));
+            }
+        }
+        return entries;
+    }
+
+    private static IReadOnlyList<Gen3SaveBagEntry> ReadShuiyin12Bag(
+        ReadOnlySpan<byte> extension,
+        ReadOnlySpan<byte> saveBlock2,
+        IReadOnlyDictionary<int, int> itemPockets,
+        GameProfile profile,
+        List<string> warnings)
+    {
+        // 当前 ROM 的背包数量是明文半字：0x1D41010 等取用点直接 ldrh，
+        // 全 ROM 唯一与密钥异或的半字辅助函数（0x99DA4/0x99DC0）没有任何引用。
+        const ushort quantityKey = 0;
+        var physical = new[]
+        {
+            (Pocket: 1, Offset: 0x09AC, Capacity: 450, Name: "道具"),
+            (Pocket: 2, Offset: 0x10B4, Capacity: 75, Name: "重要物品"),
+            (Pocket: 3, Offset: 0x11E0, Capacity: 50, Name: "精灵球"),
+            (Pocket: 4, Offset: 0x12A8, Capacity: 128, Name: "招式机器"),
+            (Pocket: 5, Offset: 0x14A8, Capacity: 75, Name: "树果")
+        };
+        var entries = new List<Gen3SaveBagEntry>();
+        foreach (var area in physical)
+        {
+            var displaySlot = 0;
+            for (var i = 0; i < area.Capacity; i++)
+            {
+                var offset = area.Offset + i * 4;
+                var item = ReadU16(extension, offset);
+                if (item == 0) continue;
+                if (item > profile.Limits.MaxItem)
+                {
+                    warnings.Add($"水银{area.Name}槽 {i + 1} 的道具 {item} 超过当前 Profile 上限，已忽略。");
+                    continue;
+                }
+                if (itemPockets.TryGetValue(item, out var mappedPocket) && mappedPocket != area.Pocket)
+                    warnings.Add($"水银{area.Name}槽 {i + 1} 的道具 {item} 按物理口袋读取；数据表口袋为 {mappedPocket}。");
+                var quantity = ReadU16(extension, offset + 2);
+                if (quantity == 0) quantity = 1;
+                var maxQuantity = profile.Limits.MaxBagQuantityForPocket(area.Pocket);
+                if (quantity > maxQuantity)
+                {
+                    warnings.Add($"水银{area.Name}槽 {i + 1} 的数量 {quantity} 超过已确认上限 {maxQuantity}，已忽略。");
+                    continue;
+                }
+                entries.Add(new Gen3SaveBagEntry(
+                    Gen3SaveDocument.Shuiyin12ExtensionOffsetMarker + offset,
+                    area.Pocket, ++displaySlot, item, quantity, quantityKey, true,
+                    $"水银扩展区；{area.Name} {i + 1}"));
+            }
+        }
+        return entries;
     }
 
     private static IEnumerable<SaveSlot> FindRadicalRedSlots(byte[] raw)

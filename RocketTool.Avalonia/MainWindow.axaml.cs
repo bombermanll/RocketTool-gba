@@ -15,6 +15,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using RocketTool.Nds;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -43,7 +44,7 @@ public sealed record SaveBagEditableRow(
     public string SlotLabel => Row.SlotInPocket > 0 ? Row.SlotInPocket.ToString("00") : "--";
     public bool IsQuantityEditable => Row.Pocket != 8;
 }
-public sealed record BoxSlotRow(int Slot, uint Address, BoxPokemon Mon, BoxMonInfo Info, string Title, string Detail, Bitmap? Sprite);
+public sealed record BoxSlotRow(int Slot, uint Address, BoxPokemon Mon, BoxMonInfo Info, string Title, string Detail, Bitmap? Sprite, bool ReadOnlySummary = false);
 public sealed record BoxGridCell(
     int GlobalSlot,
     int SlotInBox,
@@ -55,7 +56,7 @@ public sealed record BoxGridCell(
     bool IsCorrupt = false,
     string Detail = "")
 {
-    public bool CanInteract => HasPokemon || IsWritable;
+    public bool CanInteract => HasPokemon || IsWritable || IsCorrupt;
 }
 public sealed record BoxGridGroup(int BoxNumber, string Title, IReadOnlyList<BoxGridCell> Cells);
 public sealed record DexSpeciesRow(int Id, string Name, string DisplayName, string Title, Bitmap? Sprite)
@@ -213,6 +214,9 @@ public partial class MainWindow : Window
     private DataSourceMode _dataSourceMode = DataSourceMode.Live;
     private string? _loadedSavePath;
     private Gen3SaveDocument? _loadedSave;
+    private OriginHeartGoldSaveProbe? _loadedNdsSave;
+    private byte[]? _ndsPendingSave;
+    private bool _ndsSaveDirty;
     private bool _boxGridShowAllBoxes;
     private int? _abilitySpecies;
     private int? _boxAbilitySpecies;
@@ -424,7 +428,9 @@ public partial class MainWindow : Window
         Log($"已载入列表：宝可梦 {_speciesChoices.Length} 项，道具 {_itemChoices.Length} 项，招式 {_moveChoices.Length} 项。");
         if (!UsesVerifiedSpriteAssets)
             Log("当前版本尚未验证宝可梦图片素材，已暂时隐藏旧版本图片，避免显示错误。");
-        Log("界面已就绪。请先在 mGBA 加载 bridge 脚本，然后点击“连接 mGBA”。");
+        Log(profile.IsNds
+            ? "当前是 NDS 版本：不连接 mGBA；图鉴和已验证存档字段可在待保存副本中编辑，只有保存或另存为才写出文件。"
+            : "界面已就绪。请先在 mGBA 加载 bridge 脚本，然后点击“连接 mGBA”。");
     }
 
     private static GameProfile MissingSelectedProfile()
@@ -459,9 +465,37 @@ public partial class MainWindow : Window
     private void SetDataSourceMode(DataSourceMode mode)
     {
         if (mode == DataSourceMode.Live && !_profile.Features.LiveEditing)
+        {
+            if (_profile.IsNds && !_profile.Features.SaveEditing)
+            {
+                _dataSourceMode = DataSourceMode.SaveFile;
+                ApplyCatalogOnlyUi();
+                return;
+            }
             throw new InvalidOperationException($"版本 {_profile.DisplayName} 暂不支持实时编辑。");
+        }
         if (mode == DataSourceMode.SaveFile && !_profile.Features.SaveEditing)
+        {
+            if (!_profile.Features.LiveEditing)
+            {
+                _dataSourceMode = DataSourceMode.SaveFile;
+                ApplyCatalogOnlyUi();
+                return;
+            }
+            if (_profile.IsNds && _runtime.CanRead(GameDataSurface.Party, live: false))
+            {
+                _dataSourceMode = DataSourceMode.SaveFile;
+                ApplyNdsSaveReadUi();
+                return;
+            }
+            if (_profile.IsNds)
+            {
+                _dataSourceMode = DataSourceMode.SaveFile;
+                ApplyCatalogOnlyUi();
+                return;
+            }
             throw new InvalidOperationException($"版本 {_profile.DisplayName} 暂不支持存档编辑。");
+        }
 
         _dataSourceMode = mode;
         var live = mode == DataSourceMode.Live;
@@ -477,7 +511,7 @@ public partial class MainWindow : Window
         ModeSwitchButton.IsVisible = _profile.Features.LiveEditing && _profile.Features.SaveEditing;
         ModeSwitchButton.Content = live ? "切换到存档模式" : "切换到实时模式";
         ScanButton.IsVisible = live && _profile.Features.LiveEditing;
-        LoadSaveButton.IsVisible = !live && _profile.Features.SaveEditing;
+        LoadSaveButton.IsVisible = !live && (_profile.Features.SaveEditing || _profile.IsNds && partyRead);
         ReadPartyButton.IsVisible = live && partyRead;
         PartyTab.IsVisible = partyRead;
         BagTab.IsVisible = bagRead;
@@ -533,7 +567,7 @@ public partial class MainWindow : Window
         BagAddButton.IsVisible = bagWrite && (live || _loadedSave?.CanWrite == true);
         BagApplyButton.IsVisible = bagWrite && (live || _loadedSave?.CanWrite == true);
         BagApplyButton.Content = live ? "写入当前槽" : "应用到当前槽";
-        BagList.IsVisible = live;
+        BagList.IsVisible = live || _profile.IsNds;
         SaveBagList.IsVisible = !live;
         BagEditorTitleText.Text = live ? "背包槽编辑" : "添加道具与详情";
         BagEditorDescriptionText.Text = live
@@ -551,7 +585,10 @@ public partial class MainWindow : Window
         DexImportPartyButton.IsEnabled = DexImportPartyButton.IsVisible;
         DexImportBoxButton.IsEnabled = dexImportBoxVisible;
         DexImportBoxNumberBox.IsEnabled = dexImportBoxVisible;
-        ConfigureDexImportBoxChoices(live);
+        if (_profile.IsNds)
+            ConfigureDexImportBoxChoices(false);
+        else
+            ConfigureDexImportBoxChoices(live);
         _bagPocketChoices = BuildBagPocketChoices(live);
         BagPocketTabs.ItemsSource = _bagPocketChoices;
         BagPocketTabs.SelectedIndex = 0;
@@ -573,6 +610,123 @@ public partial class MainWindow : Window
 
         if (!live && MainTabs.SelectedItem == ExperimentTab)
             MainTabs.SelectedItem = PartyTab;
+        if (_profile.IsNds && !live)
+            ApplyNdsSaveReadChrome();
+        else
+            ApplyCatalogOnlyChrome();
+    }
+
+    private void ApplyNdsSaveReadUi()
+    {
+        _dataSourceMode = DataSourceMode.SaveFile;
+        NdsSaveTab.IsVisible = false;
+        PartyTab.IsVisible = _runtime.CanRead(GameDataSurface.Party, live: false);
+        BoxTab.IsVisible = _runtime.CanRead(GameDataSurface.Boxes, live: false);
+        BagTab.IsVisible = _runtime.CanRead(GameDataSurface.Bag, live: false);
+        TrainerTab.IsVisible = _runtime.CanRead(GameDataSurface.Trainer, live: false);
+        DexTab.IsVisible = _profile.Features.BuiltInDex;
+        MoveDexTab.IsVisible = _profile.Features.MoveDex;
+        ExperimentTab.IsVisible = false;
+        ReadPartyButton.IsVisible = false;
+        BoxReadButton.IsVisible = false;
+        BagReadButton.IsVisible = false;
+        TrainerReadButton.IsVisible = false;
+        TrainerMoneyReadButton.IsVisible = false;
+        var ndsSaveWrite = _profile.Features.SaveEditing && _loadedNdsSave is not null;
+        PartyDeleteButton.IsVisible = ndsSaveWrite && _profile.Features.SaveParty.Write;
+        PartyApplyButton.IsVisible = ndsSaveWrite && _profile.Features.SaveParty.Write;
+        BoxDeleteButton.IsVisible = ndsSaveWrite && _profile.Features.SaveBoxes.Write;
+        BoxApplyButton.IsVisible = ndsSaveWrite && _profile.Features.SaveBoxes.Write;
+        BagAddButton.IsVisible = ndsSaveWrite && _profile.Features.SaveBag.Write;
+        BagApplyButton.IsVisible = ndsSaveWrite && _profile.Features.SaveBag.Write;
+        TrainerApplyNameButton.IsVisible = ndsSaveWrite && _profile.Features.SaveTrainer.Write;
+        TrainerMoneyApplyButton.IsVisible = ndsSaveWrite && _profile.Features.SaveTrainer.Write;
+        DexImportPartyButton.IsVisible = ndsSaveWrite && _profile.Features.ImportToSaveParty;
+        DexImportBoxPanel.IsVisible = ndsSaveWrite && _profile.Features.ImportToSaveBoxes;
+        DexImportBoxButton.IsVisible = ndsSaveWrite && _profile.Features.ImportToSaveBoxes;
+        BagList.IsVisible = true;
+        SaveBagList.IsVisible = false;
+        ApplyNdsSaveReadChrome();
+        if (_loadedNdsSave is not null && PartyTab.IsVisible)
+            MainTabs.SelectedItem = PartyTab;
+        else if (DexTab.IsVisible)
+            MainTabs.SelectedItem = DexTab;
+        ConnectionStatusText.Text = _loadedNdsSave is null
+            ? "NDS 存档；尚未选择存档"
+            : $"NDS 存档：{_loadedNdsSave.FileName}";
+        LastWriteText.Text = _profile.Features.SaveEditing
+            ? "NDS 修改先进入待保存副本，只有保存或另存为才写出文件。实时连接未启用。"
+            : "NDS 当前只开放已验证字段读取；存档写入尚未正式启用。实时连接未启用。";
+        UpdateSaveButtons();
+    }
+
+    private void ApplyNdsSaveReadChrome()
+    {
+        ModeSummaryText.Text = "NDS 图鉴 / NDS 存档";
+        ScanButton.IsVisible = false;
+        ModeSwitchButton.IsVisible = false;
+        LoadSaveButton.IsVisible = true;
+        ExportSaveButton.IsVisible = _profile.Features.SaveEditing && _loadedNdsSave is not null;
+        ExportSaveButton.IsEnabled = _profile.Features.SaveEditing && _loadedNdsSave is not null;
+        SaveAsButton.IsVisible = _profile.Features.SaveEditing && _loadedNdsSave is not null;
+        SaveAsButton.IsEnabled = _profile.Features.SaveEditing && _loadedNdsSave is not null;
+    }
+
+    private void ApplyCatalogOnlyUi()
+    {
+        ModeSwitchButton.IsVisible = false;
+        ScanButton.IsVisible = false;
+        LoadSaveButton.IsVisible = false;
+        ReadPartyButton.IsVisible = false;
+        PartyTab.IsVisible = false;
+        BagTab.IsVisible = false;
+        BoxTab.IsVisible = false;
+        BoxReadButton.IsVisible = false;
+        TrainerTab.IsVisible = false;
+        ExperimentTab.IsVisible = false;
+        ExportSaveButton.IsVisible = false;
+        SaveAsButton.IsVisible = false;
+        PartyDeleteButton.IsVisible = false;
+        PartyApplyButton.IsVisible = false;
+        BoxDeleteButton.IsVisible = false;
+        BoxApplyButton.IsVisible = false;
+        PartyOtSyncButton.IsVisible = false;
+        BoxOtSyncButton.IsVisible = false;
+        TrainerReadButton.IsVisible = false;
+        TrainerApplyNameButton.IsVisible = false;
+        TrainerMoneyReadButton.IsVisible = false;
+        TrainerMoneyApplyButton.IsVisible = false;
+        BagReadButton.IsVisible = false;
+        BagAddButton.IsVisible = false;
+        BagApplyButton.IsVisible = false;
+        DexImportPartyButton.IsVisible = false;
+        DexImportBoxPanel.IsVisible = false;
+        DexImportBoxButton.IsVisible = false;
+        DexTab.IsVisible = _profile.Features.BuiltInDex;
+        MoveDexTab.IsVisible = _profile.Features.MoveDex;
+        ApplyCatalogOnlyChrome();
+        if (DexTab.IsVisible)
+            MainTabs.SelectedItem = DexTab;
+        else if (MoveDexTab.IsVisible)
+            MainTabs.SelectedItem = MoveDexTab;
+        ConnectionStatusText.Text = _profile.IsNds ? "当前模式：NDS 只读图鉴" : "当前模式：只读图鉴";
+        LastWriteText.Text = $"{_profile.DisplayName} 目前只开放本 ROM 验证过的图鉴数据。实时修改和存档写入尚未启用。";
+        UpdateSaveButtons();
+    }
+
+    private void ApplyCatalogOnlyChrome()
+    {
+        if (!_profile.IsNds)
+        {
+            ModeSummaryText.Text = "只读图鉴";
+            return;
+        }
+        ModeSummaryText.Text = "NDS 只读图鉴";
+        ScanButton.IsVisible = false;
+        ModeSwitchButton.IsVisible = false;
+        LoadSaveButton.IsVisible = _profile.Features.SaveEditing || _runtime.CanRead(GameDataSurface.Party, live: false);
+        ExportSaveButton.IsVisible = _profile.Features.SaveEditing;
+        SaveAsButton.IsVisible = _profile.Features.SaveEditing;
     }
 
     private ChoiceRow[] BuildBagPocketChoices(bool live)
@@ -585,10 +739,12 @@ public partial class MainWindow : Window
 
     private void UpdateSaveButtons()
     {
-        var enabled = _dataSourceMode == DataSourceMode.SaveFile &&
-                      _profile.Features.SaveEditing &&
-                      _loadedSave is { CanWrite: true } loaded &&
-                      (loaded.HasChanges || loaded.CurrentCorruptBoxes.Count > 0);
+        var enabled = _profile.IsNds
+            ? _ndsSaveDirty && _ndsPendingSave is not null
+            : _dataSourceMode == DataSourceMode.SaveFile &&
+              _profile.Features.SaveEditing &&
+              _loadedSave is { CanWrite: true } loaded &&
+              (loaded.HasChanges || loaded.CurrentCorruptBoxes.Count > 0);
         ExportSaveButton.IsEnabled = enabled;
         SaveAsButton.IsEnabled = enabled;
     }
@@ -642,6 +798,11 @@ public partial class MainWindow : Window
 
     private async void OnScanClicked(object? sender, RoutedEventArgs e)
     {
+        if (_profile.IsNds)
+        {
+            ShowToast($"{_profile.DisplayName} 是 NDS 改版，当前不支持 mGBA 实时连接。", success: false);
+            return;
+        }
         SetDataSourceMode(DataSourceMode.Live);
         _loadedSavePath = null;
         _loadedSave = null;
@@ -657,6 +818,11 @@ public partial class MainWindow : Window
 
     private async void OnModeSwitchClicked(object? sender, RoutedEventArgs e)
     {
+        if (_profile.IsNds)
+        {
+            ShowToast($"{_profile.DisplayName} 当前只有只读图鉴，实时和存档模式都尚未启用。", success: false);
+            return;
+        }
         if (_dataSourceMode == DataSourceMode.SaveFile &&
             _loadedSave is { HasChanges: true } &&
             !await ConfirmDiscardSaveChangesAsync())
@@ -823,13 +989,26 @@ public partial class MainWindow : Window
 
     private async void OnLoadSaveClicked(object? sender, RoutedEventArgs e)
     {
+        if (_profile.IsNds)
+        {
+            if (!_runtime.CanRead(GameDataSurface.Party, live: false))
+            {
+                ShowToast($"{_profile.DisplayName} 尚未验证存档结构，不能读取 .sav。", success: false);
+                return;
+            }
+        }
+        else if (!_profile.Features.SaveEditing)
+        {
+            ShowToast($"{_profile.DisplayName} 尚未验证存档结构，不能读取 .sav。", success: false);
+            return;
+        }
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "读取 GBA 存档",
+            Title = _profile.IsNds ? "读取 NDS 存档" : "读取 GBA 存档",
             AllowMultiple = false,
             FileTypeFilter =
             [
-                new FilePickerFileType("GBA 存档") { Patterns = ["*.sav", "*.srm"] },
+                new FilePickerFileType(_profile.IsNds ? "NDS 存档" : "GBA 存档") { Patterns = ["*.sav", "*.srm"] },
                 FilePickerFileTypes.All
             ]
         });
@@ -842,11 +1021,20 @@ public partial class MainWindow : Window
             return;
         }
 
-        await RunUiTask("读取存档", () => LoadSaveFile(path));
+        await RunUiTask("读取存档", () =>
+        {
+            if (_profile.IsNds) LoadNdsSaveFile(path);
+            else LoadSaveFile(path);
+        });
     }
 
     private async void OnSaveInPlaceClicked(object? sender, RoutedEventArgs e)
     {
+        if (_profile.IsNds)
+        {
+            await SaveNdsInPlaceAsync();
+            return;
+        }
         if (!TryGetPendingSaveDocument(out var document)) return;
         if (!await ClearCorruptBoxesAsync(document, fromSavePrompt: true))
         {
@@ -873,8 +1061,144 @@ public partial class MainWindow : Window
         });
     }
 
+    private void ApplyNdsEditor(OriginHeartGoldSave.OriginHeartGoldSaveEditor editor)
+    {
+        if (!uint.TryParse(TrainerMoneyCurrentBox.Text, out var money) || money > 999_999)
+            throw new InvalidOperationException("金钱必须是 0 到 999999 的整数。");
+        editor.Money = money;
+
+        if (PartyList.SelectedItem is PartySlotRow party)
+            editor.SetParty(party.Slot, data => ApplyNdsPokemonEditor(data, party: true));
+        if (BoxList.SelectedItem is BoxSlotRow box
+            && _loadedNdsSave?.BoxMons.FirstOrDefault(mon => mon.Offset == box.Address) is { } boxMon)
+            editor.SetBox(boxMon.Box, boxMon.Slot, data => ApplyNdsPokemonEditor(data, party: false));
+
+        if (BagList.SelectedItem is BagSlotRow bag
+            && _loadedNdsSave?.BagPockets.FirstOrDefault(candidate => NdsPocketId(candidate.Name) == bag.Pocket) is { } pocket)
+        {
+            var item = ParseChoiceUShortOrNull(BagItemBox, _itemChoices) ?? bag.ItemId;
+            var quantity = ParseBagQuantityRequired(item, allowZero: item == 0, bag.Pocket);
+            if (item == 0)
+                editor.RemoveBagItem(pocket.Name, bag.SlotInPocket);
+            else
+                editor.SetBagItem(pocket.Name, bag.SlotInPocket, item, quantity);
+        }
+
+        if (_pendingNdsBagAdd is { } added)
+            editor.AddBagItem(added.Pocket, added.Item, added.Quantity);
+    }
+
+    private (string Pocket, ushort Item, ushort Quantity)? _pendingNdsBagAdd;
+
+    private void ApplyNdsPokemonEditor(byte[] data, bool party)
+    {
+        var speciesBox = party ? SpeciesBox : BoxSpeciesBox;
+        var itemBox = party ? ItemBox : BoxItemBox;
+        var friendshipBox = party ? FriendshipBox : BoxFriendshipBox;
+        var expBox = party ? ExpBox : BoxExpBox;
+        var levelText = party ? LevelBox.Text : null;
+        var moveBoxes = party
+            ? new[] { Move1Box, Move2Box, Move3Box, Move4Box }
+            : new[] { BoxMove1Box, BoxMove2Box, BoxMove3Box, BoxMove4Box };
+        var ppBoxes = party
+            ? new[] { Pp1Box, Pp2Box, Pp3Box, Pp4Box }
+            : new[] { BoxPp1Box, BoxPp2Box, BoxPp3Box, BoxPp4Box };
+        var ivBoxes = party
+            ? new[] { IvHpBox, IvAtkBox, IvDefBox, IvSpeBox, IvSpaBox, IvSpdBox }
+            : new[] { BoxIvHpBox, BoxIvAtkBox, BoxIvDefBox, BoxIvSpeBox, BoxIvSpaBox, BoxIvSpdBox };
+        var evBoxes = party
+            ? new[] { EvHpBox, EvAtkBox, EvDefBox, EvSpeBox, EvSpaBox, EvSpdBox }
+            : new[] { BoxEvHpBox, BoxEvAtkBox, BoxEvDefBox, BoxEvSpeBox, BoxEvSpaBox, BoxEvSpdBox };
+
+        var species = ParseChoiceUShortOrNull(speciesBox, _speciesChoices) ?? BitConverter.ToUInt16(data, 8);
+        if (species == 0) throw new InvalidOperationException("宝可梦不能为空。");
+        BitConverter.GetBytes(species).CopyTo(data, 8);
+        BitConverter.GetBytes(ParseChoiceUShortOrNull(itemBox, _itemChoices) ?? 0).CopyTo(data, 0x0A);
+        if (byte.TryParse(friendshipBox.Text, out var friendship)) data[0x14] = friendship;
+        if (uint.TryParse(expBox.Text, out var experience)) BitConverter.GetBytes(experience).CopyTo(data, 0x10);
+        if (levelText is not null && byte.TryParse(levelText, out var level)) data[0x8C] = level;
+
+        for (var i = 0; i < 4; i++)
+        {
+            var move = ParseChoiceUShortOrNull(moveBoxes[i], _moveChoices) ?? 0;
+            BitConverter.GetBytes(move).CopyTo(data, 0x28 + i * 2);
+            if (byte.TryParse(ppBoxes[i].Text, out var pp)) data[0x30 + i] = pp;
+        }
+        for (var i = 0; i < 6; i++)
+            if (byte.TryParse(evBoxes[i].Text, out var ev)) data[0x18 + i] = ev;
+
+        var ivWord = BitConverter.ToUInt32(data, 0x38);
+        for (var i = 0; i < 6; i++)
+        {
+            if (!int.TryParse(ivBoxes[i].Text, out var iv)) continue;
+            iv = Math.Clamp(iv, 0, 31);
+            ivWord = (ivWord & ~(31u << (5 * i))) | ((uint)iv << (5 * i));
+        }
+        BitConverter.GetBytes(ivWord).CopyTo(data, 0x38);
+    }
+
+    private void StageNdsEdit(Action<OriginHeartGoldSave.OriginHeartGoldSaveEditor> extra)
+    {
+        if (!_profile.Features.SaveEditing)
+            throw new InvalidOperationException("当前 NDS Profile 尚未正式开放存档写入；请使用副本做离线 round-trip 验证。 ");
+        if (string.IsNullOrWhiteSpace(_loadedSavePath)) return;
+        var baseBytes = _ndsPendingSave ?? File.ReadAllBytes(_loadedSavePath);
+        var edited = OriginHeartGoldSave.EditBytes(baseBytes, editor =>
+        {
+            ApplyNdsEditor(editor);
+            extra(editor);
+        });
+        _ndsPendingSave = edited;
+        _ndsSaveDirty = true;
+        _loadedNdsSave = OriginHeartGoldSave.OpenBytes(edited);
+        FillNdsSaveViews(_loadedNdsSave);
+        UpdateSaveButtons();
+    }
+
+    private async Task SaveNdsInPlaceAsync()
+    {
+        if (_ndsPendingSave is null || string.IsNullOrWhiteSpace(_loadedSavePath) || !_ndsSaveDirty) return;
+        var source = _loadedSavePath;
+        var pending = _ndsPendingSave;
+        await RunUiTask("保存 NDS 存档", () =>
+        {
+            var backup = source + ".bak";
+            if (!File.Exists(backup))
+                File.Copy(source, backup, overwrite: false);
+            File.WriteAllBytes(source, pending);
+            LoadNdsSaveFile(source);
+            SetWriteNotice($"已保存并读回 {Path.GetFileName(source)}。首次保存已生成 .bak。", success: true);
+        });
+    }
+
+    private async Task SaveNdsMoneyAsAsync()
+    {
+        if (_loadedNdsSave is null || string.IsNullOrWhiteSpace(_loadedSavePath)) return;
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "将 NDS 存档另存为",
+            SuggestedFileName = Path.GetFileName(_loadedSavePath),
+            DefaultExtension = "sav",
+            FileTypeChoices = [new FilePickerFileType("NDS 存档") { Patterns = ["*.sav"] }]
+        });
+        if (file is null) return;
+        var output = file.Path.LocalPath;
+        var pending = _ndsPendingSave ?? File.ReadAllBytes(_loadedSavePath);
+        await RunUiTask("另存 NDS 存档", () =>
+        {
+            File.WriteAllBytes(output, pending);
+            LoadNdsSaveFile(output);
+            SetWriteNotice($"已另存并读回 {Path.GetFileName(output)}。原存档未改动。", success: true);
+        });
+    }
+
     private async void OnExportSaveClicked(object? sender, RoutedEventArgs e)
     {
+        if (_profile.IsNds)
+        {
+            await SaveNdsMoneyAsAsync();
+            return;
+        }
         if (!TryGetPendingSaveDocument(out var document)) return;
         if (!await ClearCorruptBoxesAsync(document, fromSavePrompt: true))
         {
@@ -1154,6 +1478,191 @@ public partial class MainWindow : Window
         PartyList.SelectedIndex = _partyRows.Count == 0 ? -1 : Math.Clamp(selectSlot - 1, 0, _partyRows.Count - 1);
     }
 
+    private void LoadNdsSaveFile(string path)
+    {
+        var save = OriginHeartGoldSave.Open(path);
+        _loadedNdsSave = save;
+        _loadedSave = null;
+        _loadedSavePath = path;
+        _ndsPendingSave = File.ReadAllBytes(path);
+        _ndsSaveDirty = false;
+        FillNdsSaveViews(save);
+        ApplyNdsSaveReadUi();
+        Log($"已打开 NDS 存档待保存副本：队伍 {save.PartyCount}，箱子 {save.OccupiedBoxSlots}，金钱 {save.Money}。修改不会立即写回，需点击保存或另存为。");
+    }
+
+    private void FillNdsSaveViews(OriginHeartGoldSaveProbe save)
+    {
+        _partyRows.Clear();
+        foreach (var mon in save.Party)
+            _partyRows.Add(ToNdsPartyRow(mon));
+        PartyList.SelectedIndex = _partyRows.Count > 0 ? 0 : -1;
+
+        _bagRows.Clear();
+        _allBagRows.Clear();
+        foreach (var pocket in save.BagPockets)
+        {
+            var pocketId = NdsPocketId(pocket.Name);
+            for (var i = 0; i < pocket.Items.Count; i++)
+            {
+                var slot = pocket.Items[i];
+                _allBagRows.Add(ToBagRow((uint)slot.Offset, slot.ItemId, slot.Quantity, "只读", pocketId, i + 1));
+            }
+        }
+        var selectedPocket = SelectedChoiceId(BagPocketTabs) ?? 1;
+        BagPocketTabs.ItemsSource = BuildBagPocketChoices(live: false);
+        BagPocketTabs.SelectedItem = _bagPocketChoices.FirstOrDefault(choice => choice.Id == selectedPocket)
+            ?? BagPocketTabs.Items.Cast<object>().FirstOrDefault();
+        ApplyBagPocketFilter();
+
+        _boxRows.Clear();
+        _boxGridShowAllBoxes = true;
+        foreach (var mon in save.BoxMons)
+        {
+            var globalSlot = (mon.Box - 1) * OriginHeartGoldSave.BoxSlots + mon.Slot;
+            _boxRows.Add(new BoxSlotRow(
+                globalSlot,
+                (uint)mon.Offset,
+                new BoxPokemon(new byte[BoxPokemon.Size], PokemonDataLayout.Disabled),
+                EmptyBoxInfo(mon.Species, mon.HeldItem, mon.Experience),
+                $"箱{mon.Box:00}-{mon.Slot:00} {NameOf("species", mon.Species)}",
+                "只读",
+                LoadSpriteBitmap(mon.Species),
+                ReadOnlySummary: true));
+        }
+        RefreshBoxGridGroups();
+
+        var trainerName = DecodeGlyphCodes(save.TrainerOtCodes);
+        TrainerNameBox.Text = trainerName;
+        TrainerNameBox.IsReadOnly = !_profile.Features.SaveTrainer.Write;
+        TrainerOtIdText.Text = $"{save.TrainerTid} / {save.TrainerSid}";
+        TrainerMoneyCurrentBox.Text = save.Money.ToString();
+        TrainerMoneyCurrentBox.IsReadOnly = false;
+        TrainerStatusText.Text = trainerName.Contains('□')
+            ? "当前名字含未解码字形；已知“叶”可识别，其他字符请先用副本验证。"
+            : _profile.Features.SaveTrainer.Write
+                ? "训练家名已解析；修改先进入待保存副本，保存或另存为后写入。"
+                : "只读。训练家名由本 ROM 已证明字形解码。";
+        TrainerMoneyStatusText.Text = $"金钱 {save.Money}。写入后需保存或另存为。";
+        NdsSaveText.Text = FormatNdsSave(save);
+    }
+
+    private static BoxMonInfo EmptyBoxInfo(ushort species, ushort item, uint experience)
+        => new(0, 0, 0, 0, species, item, experience, 0, 0, 0, new ushort[4], new byte[4], new byte[6], new Dictionary<string, int>(), 0, 0, 0);
+
+    private static int NdsPocketId(string name) => name switch
+    {
+        "道具" => 1,
+        "回复" => 2,
+        "精灵球" => 3,
+        "技能机" => 4,
+        "树果" => 5,
+        "信件" => 6,
+        "战斗用品" => 7,
+        "重要物品" => 8,
+        _ => -1
+    };
+
+    private PartySlotRow ToNdsPartyRow(OriginHeartGoldPartyMon mon)
+        => new(
+            mon.Slot,
+            (uint)mon.Offset,
+            new PartyPokemon(new byte[PartyPokemon.Size], PokemonDataLayout.Disabled),
+            null,
+            $"{mon.Slot} {NameOf("species", mon.Species)} Lv{mon.Level}",
+            "只读",
+            LoadSpriteBitmap(mon.Species));
+
+    private void FillNdsPartyEditor(OriginHeartGoldPartyMon mon)
+    {
+        SelectedTitleText.Text = $"{NameOf("species", mon.Species)} Lv{mon.Level}";
+        SetPokemonSprite(PartyDetailSpriteImage, mon.Species);
+        UpdatePartyHeaderInfo(mon.Species, mon.Level);
+        SetChoice(SpeciesBox, _speciesChoices, mon.Species);
+        SetChoice(ItemBox, _itemChoices, mon.HeldItem);
+        SetChoice(NatureBox, _natureChoices, (int)(mon.Pid % 25));
+        SetChoice(GenderBox, _genderChoices, GenderChoiceId(mon.Species, mon.Pid));
+        RefreshAbilityChoices(mon.Species, mon.AbilityField);
+        FriendshipBox.Text = mon.Friendship.ToString();
+        PartyOtNameBox.Text = DecodeGlyphCodes(mon.OtCodes);
+        EnsureGameTextMaps();
+        PartyOtIdText.Text = $"{_loadedNdsSave?.TrainerTid} / {_loadedNdsSave?.TrainerSid}";
+        ExpBox.Text = mon.Experience.ToString();
+        LevelBox.Text = mon.Level.ToString();
+        ShowNdsLevelWarning(mon.Species, mon.Experience, mon.Level);
+        MaxHpBox.Text = mon.MaxHp.ToString();
+        CurrentHpStatText.Text = $"{mon.CurrentHp}/{mon.MaxHp}";
+        CurrentAtkStatText.Text = mon.Attack.ToString();
+        CurrentDefStatText.Text = mon.Defense.ToString();
+        CurrentSpeStatText.Text = mon.Speed.ToString();
+        CurrentSpaStatText.Text = mon.SpAttack.ToString();
+        CurrentSpdStatText.Text = mon.SpDefense.ToString();
+        SetChoice(Move1Box, _moveChoices, mon.Moves.ElementAtOrDefault(0));
+        SetChoice(Move2Box, _moveChoices, mon.Moves.ElementAtOrDefault(1));
+        SetChoice(Move3Box, _moveChoices, mon.Moves.ElementAtOrDefault(2));
+        SetChoice(Move4Box, _moveChoices, mon.Moves.ElementAtOrDefault(3));
+        Pp1Box.Text = mon.Pp.ElementAtOrDefault(0).ToString();
+        Pp2Box.Text = mon.Pp.ElementAtOrDefault(1).ToString();
+        Pp3Box.Text = mon.Pp.ElementAtOrDefault(2).ToString();
+        Pp4Box.Text = mon.Pp.ElementAtOrDefault(3).ToString();
+        IvHpBox.Text = mon.Ivs.ElementAtOrDefault(0).ToString();
+        IvAtkBox.Text = mon.Ivs.ElementAtOrDefault(1).ToString();
+        IvDefBox.Text = mon.Ivs.ElementAtOrDefault(2).ToString();
+        IvSpeBox.Text = mon.Ivs.ElementAtOrDefault(3).ToString();
+        IvSpaBox.Text = mon.Ivs.ElementAtOrDefault(4).ToString();
+        IvSpdBox.Text = mon.Ivs.ElementAtOrDefault(5).ToString();
+        EvHpBox.Text = mon.Evs.ElementAtOrDefault(0).ToString();
+        EvAtkBox.Text = mon.Evs.ElementAtOrDefault(1).ToString();
+        EvDefBox.Text = mon.Evs.ElementAtOrDefault(2).ToString();
+        EvSpeBox.Text = mon.Evs.ElementAtOrDefault(3).ToString();
+        EvSpaBox.Text = mon.Evs.ElementAtOrDefault(4).ToString();
+        EvSpdBox.Text = mon.Evs.ElementAtOrDefault(5).ToString();
+    }
+
+    private string FormatNdsSave(OriginHeartGoldSaveProbe save)
+    {
+        var lines = new List<string>
+        {
+            "NDS 存档只读。不使用 GBA 存档 section，也不连接 mGBA。",
+            $"文件：{save.FileName}",
+            $"训练家 ID：{save.TrainerTid} / {save.TrainerSid}",
+            $"金钱：{save.Money}",
+            $"游戏时间：{save.PlayHours}:{save.PlayMinutes:00}:{save.PlaySeconds:00}",
+            "",
+            "队伍"
+        };
+        if (save.Party.Count == 0) lines.Add("  空");
+        foreach (var mon in save.Party)
+        {
+            var moves = string.Join("、", mon.Moves.Where(move => move != 0).Select(move => NameOf("moves", move)));
+            lines.Add($"  {mon.Slot}. {NameOf("species", mon.Species)}  Lv{mon.Level}  携带 {NameOf("items", mon.HeldItem)}");
+            lines.Add($"     招式：{moves}");
+        }
+
+        lines.Add("");
+        lines.Add("箱子");
+        if (save.BoxMons.Count == 0) lines.Add("  空");
+        foreach (var mon in save.BoxMons)
+            lines.Add($"  箱{mon.Box:00}-{mon.Slot:00}  {NameOf("species", mon.Species)}  携带 {NameOf("items", mon.HeldItem)}");
+
+        lines.Add("");
+        lines.Add("背包");
+        foreach (var pocket in save.BagPockets)
+        {
+            lines.Add($"  {pocket.Name}");
+            if (pocket.Items.Count == 0) lines.Add("    空");
+            foreach (var slot in pocket.Items)
+                lines.Add($"    {NameOf("items", slot.ItemId)} x{slot.Quantity}");
+        }
+
+        lines.Add("");
+        lines.Add("写入、另存为和实时连接都未启用。");
+        return string.Join('\n', lines);
+    }
+
+    private string NameOf(string table, int id)
+        => id == 0 ? "无" : _db.NameOf(table, id);
+
     private void LoadSaveFile(string path)
     {
         _loadedSave = Gen3SaveReader.Open(path, _profile);
@@ -1241,6 +1750,12 @@ public partial class MainWindow : Window
     private void OnPartySelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (PartyList.SelectedItem is not PartySlotRow row) return;
+        if (_loadedNdsSave is not null)
+        {
+            var mon = _loadedNdsSave.Party.FirstOrDefault(candidate => candidate.Slot == row.Slot);
+            if (mon is not null) FillNdsPartyEditor(mon);
+            return;
+        }
         FillEditor(row);
     }
 
@@ -1275,6 +1790,19 @@ public partial class MainWindow : Window
         await RunUiTask("写入训练家名字", () =>
         {
             var newName = TrainerNameBox.Text?.Trim() ?? string.Empty;
+            if (_profile.IsNds && _dataSourceMode == DataSourceMode.SaveFile)
+            {
+                var codes = newName.Select(ch =>
+                {
+                    EnsureGameTextMaps();
+                    if (!_gameTextEncodeMap!.TryGetValue(ch, out var raw) || raw.Length < 2)
+                        throw new InvalidOperationException($"训练家姓名包含当前 ROM 尚未验证的字形“{ch}”。");
+                    return BitConverter.ToUInt16(raw, 0);
+                }).ToArray();
+                StageNdsEdit(editor => editor.SetTrainerName(codes));
+                SetWriteNotice($"训练家名字已更新为 {newName}，进入待保存副本；请点击保存或另存为。", success: true);
+                return;
+            }
             var encoded = EncodeGameTextBuffer(newName, _profile.Memory.PlayerNameLength, requireTerminator: true);
             if (_dataSourceMode == DataSourceMode.SaveFile)
             {
@@ -1334,6 +1862,12 @@ public partial class MainWindow : Window
 
     private async void OnTrainerMoneyApplyClicked(object? sender, RoutedEventArgs e)
     {
+        if (_profile.IsNds)
+        {
+            StageNdsEdit(_ => { });
+            SetWriteNotice("金钱修改已记入待保存副本，尚未写回原存档。请点保存修改并备份。", success: true);
+            return;
+        }
         await RunUiTask("写入金钱", () =>
         {
             var money = ParseIntRequired(TrainerMoneyCurrentBox.Text, "当前金钱");
@@ -1437,6 +1971,12 @@ public partial class MainWindow : Window
 
     private async void OnApplyPokemonClicked(object? sender, RoutedEventArgs e)
     {
+        if (_profile.IsNds)
+        {
+            StageNdsEdit(_ => { });
+            SetWriteNotice("队伍修改已记入待保存副本，尚未写回原存档。请点保存修改并备份。", success: true);
+            return;
+        }
         if (SelectedRow() is not { } row) return;
         if (!TryReadCurrentEvTotal("写入当前精灵", out var pendingEvTotal)) return;
         if (!await ConfirmHighEvTotalAsync(pendingEvTotal)) return;
@@ -1526,6 +2066,13 @@ public partial class MainWindow : Window
 
     private async void OnPartyDeleteClicked(object? sender, RoutedEventArgs e)
     {
+        if (_profile.IsNds)
+        {
+            if (SelectedRow() is not { } ndsRow || string.IsNullOrWhiteSpace(_loadedSavePath)) return;
+            StageNdsEdit(editor => editor.RemoveParty(ndsRow.Slot));
+            SetWriteNotice($"已从待保存副本删除队伍第 {ndsRow.Slot} 只，尚未写回原存档。", success: true);
+            return;
+        }
         if (SelectedRow() is not { } row) return;
         if (!await ConfirmPartyDeleteAsync(row)) return;
 
@@ -1813,6 +2360,12 @@ public partial class MainWindow : Window
 
     private async void OnBagApplyClicked(object? sender, RoutedEventArgs e)
     {
+        if (_profile.IsNds)
+        {
+            StageNdsEdit(_ => { });
+            SetWriteNotice("背包修改已记入待保存副本，尚未写回原存档。请点保存修改并备份。", success: true);
+            return;
+        }
         var row = _dataSourceMode == DataSourceMode.SaveFile
             ? (SaveBagList.SelectedItem as SaveBagEditableRow)?.Row
             : BagList.SelectedItem as BagSlotRow;
@@ -1864,6 +2417,20 @@ public partial class MainWindow : Window
 
     private async void OnBagAddClicked(object? sender, RoutedEventArgs e)
     {
+        if (_profile.IsNds)
+        {
+            var selectedPocket = SelectedChoiceId(BagPocketTabs) ?? 0;
+            if (!IsConcreteBagPocket(selectedPocket))
+                throw new InvalidOperationException("请先切换到具体背包分类。");
+            var pocket = _loadedNdsSave?.BagPockets.FirstOrDefault(candidate => NdsPocketId(candidate.Name) == selectedPocket)
+                ?? throw new InvalidOperationException("当前口袋未定位。");
+            var item = ParseBagItemRequired(selectedPocket, allowEmpty: false);
+            var quantity = ParseBagQuantityRequired(item, allowZero: false, selectedPocket);
+            StageNdsEdit(editor => editor.AddBagItem(pocket.Name, item, quantity));
+            _pendingNdsBagAdd = null;
+            SetWriteNotice($"已添加 {ItemName(item)}，尚未写回原存档。请点保存修改并备份。", success: true);
+            return;
+        }
         if (_dataSourceMode == DataSourceMode.SaveFile)
         {
             await RunUiTask("添加存档背包道具", () =>
@@ -2352,6 +2919,11 @@ public partial class MainWindow : Window
     private void OnBoxSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (BoxList.SelectedItem is not BoxSlotRow row) return;
+        if (row.ReadOnlySummary)
+        {
+            FillNdsBoxEditor(row);
+            return;
+        }
         var info = row.Info;
         SetPokemonSprite(
             BoxDetailSpriteImage,
@@ -2403,6 +2975,11 @@ public partial class MainWindow : Window
     private void OnBoxGridSlotClicked(object? sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: BoxGridCell cell }) return;
+        if (cell.Row is { ReadOnlySummary: true } summary)
+        {
+            FillNdsBoxEditor(summary);
+            return;
+        }
         if (cell.Row is { } row)
         {
             BoxList.SelectedItem = row;
@@ -2800,6 +3377,12 @@ public partial class MainWindow : Window
 
     private async void OnBoxApplyClicked(object? sender, RoutedEventArgs e)
     {
+        if (_profile.IsNds)
+        {
+            StageNdsEdit(_ => { });
+            SetWriteNotice("箱子修改已记入待保存副本，尚未写回原存档。请点保存修改并备份。", success: true);
+            return;
+        }
         if (BoxList.SelectedItem is not BoxSlotRow row)
         {
             ShowToast("请先选择一个箱子槽。", success: false);
@@ -2909,6 +3492,15 @@ public partial class MainWindow : Window
 
     private async void OnBoxDeleteClicked(object? sender, RoutedEventArgs e)
     {
+        if (_profile.IsNds)
+        {
+            if (BoxList.SelectedItem is not BoxSlotRow ndsRow || string.IsNullOrWhiteSpace(_loadedSavePath)) return;
+            var mon = _loadedNdsSave?.BoxMons.FirstOrDefault(candidate => candidate.Offset == ndsRow.Address);
+            if (mon is null) return;
+            StageNdsEdit(editor => editor.RemoveBox(mon.Box, mon.Slot));
+            SetWriteNotice($"已从待保存副本删除箱子 {mon.Box}-{mon.Slot}，尚未写回原存档。", success: true);
+            return;
+        }
         if (BoxList.SelectedItem is not BoxSlotRow row)
         {
             ShowToast("请先选择一个箱子槽。", success: false);
@@ -2968,6 +3560,19 @@ public partial class MainWindow : Window
 
     private async void OnDexImportPartyClicked(object? sender, RoutedEventArgs e)
     {
+        if (_profile.IsNds)
+        {
+            if (DexSpeciesList.SelectedItem is not DexSpeciesRow ndsRow || string.IsNullOrWhiteSpace(_loadedSavePath))
+            {
+                ShowToast("请先选择图鉴宝可梦和存档。", success: false);
+                return;
+            }
+            var slot = 0;
+            var imported = NdsDexImport(ndsRow.Id);
+            StageNdsEdit(editor => slot = editor.AppendParty((ushort)ndsRow.Id, imported.Experience, imported.Level, imported.Moves, imported.Pp, imported.Ivs));
+            SetWriteNotice($"已导入待保存队伍第 {slot} 只：{ndsRow.DisplayName}。请点保存修改并备份。", success: true);
+            return;
+        }
         var saveMode = _dataSourceMode == DataSourceMode.SaveFile;
         if (saveMode ? !_profile.Features.ImportToSaveParty : !_profile.Features.ImportToParty)
         {
@@ -3016,6 +3621,19 @@ public partial class MainWindow : Window
 
     private async void OnDexImportBoxClicked(object? sender, RoutedEventArgs e)
     {
+        if (_profile.IsNds)
+        {
+            if (DexSpeciesList.SelectedItem is not DexSpeciesRow ndsRow || string.IsNullOrWhiteSpace(_loadedSavePath))
+            {
+                ShowToast("请先选择图鉴宝可梦和存档。", success: false);
+                return;
+            }
+            var placed = (0, 0);
+            var imported = NdsDexImport(ndsRow.Id);
+            StageNdsEdit(editor => placed = editor.AppendBox((ushort)ndsRow.Id, imported.Experience, imported.Moves, imported.Pp, imported.Ivs));
+            SetWriteNotice($"已导入待保存箱子 {placed.Item1}-{placed.Item2}：{ndsRow.DisplayName}。请点保存修改并备份。", success: true);
+            return;
+        }
         var saveMode = _dataSourceMode == DataSourceMode.SaveFile;
         if (saveMode ? !_profile.Features.ImportToSaveBoxes : !_profile.Features.ImportToBoxes)
         {
@@ -3217,6 +3835,19 @@ public partial class MainWindow : Window
         mon.SetMoves(moves.Select(m => (ushort?)m).ToArray(), pp.Select(x => (byte?)x).ToArray());
         mon.SetIvs(DefaultImportIvs());
         mon.SetEvs(DefaultImportEvs());
+    }
+
+    private (uint Experience, byte Level, ushort[] Moves, byte[] Pp, int[] Ivs) NdsDexImport(int species)
+    {
+        var stats = ReadSpeciesStats(species);
+        var (moves, pp) = DexImportMoves(species);
+        var ivs = DefaultImportIvs();
+        return (
+            ExperienceForLevel(DexImportLevel, stats.GrowthRate),
+            DexImportLevel,
+            moves,
+            pp,
+            [ivs["hp"], ivs["atk"], ivs["def"], ivs["spe"], ivs["spa"], ivs["spd"]]);
     }
 
     private (ushort[] Moves, byte[] Pp) DexImportMoves(int species)
@@ -3590,6 +4221,14 @@ public partial class MainWindow : Window
             decode[value] = text;
             if (text.Length == 1)
                 encode[text[0]] = [(byte)(value >> 8), (byte)value];
+        }
+
+        if (_profile.IsNds)
+        {
+            // Evidence from xinjin4.0.sav: General OT code 0x0399 is the
+            // single trainer-name glyph “叶”. Keep this mapping profile-local.
+            decode[0x0399] = "叶";
+            encode['叶'] = [0x03, 0x99];
         }
 
         _gameTextEncodeMap = encode;
@@ -4102,7 +4741,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private static void SetHeaderSpeciesInfo(SpeciesStats stats, ObservableCollection<DexTypeBadge> target, TextBlock bstText)
+    private void SetHeaderSpeciesInfo(SpeciesStats stats, ObservableCollection<DexTypeBadge> target, TextBlock bstText)
     {
         target.Clear();
         foreach (var badge in TypeBadges(stats.Type1, stats.Type2))
@@ -4130,9 +4769,12 @@ public partial class MainWindow : Window
             (false, true) => _profile.Graphics.BackSpriteAssetRoot,
             _ => _profile.Graphics.SpriteAssetRoot,
         };
-        var sprite = LoadSpriteBitmapCore(speciesId, root)
-                     ?? LoadSpriteBitmapCore(speciesId, _profile.Graphics.SpriteAssetRoot)
-                     ?? LoadIconBitmapCore(speciesId);
+        var sprite = FirstSpriteFrame(LoadSpriteBitmapCore(speciesId, root))
+                     ?? FirstSpriteFrame(LoadSpriteBitmapCore(speciesId, _profile.Graphics.SpriteAssetRoot));
+        if (sprite is null || IsBlankBitmap(sprite))
+            sprite = _profile.Graphics.MenuIconsVerified
+                ? LoadIconBitmapCore(speciesId)
+                : null;
         _spriteCache[key] = sprite;
         return sprite;
     }
@@ -4151,6 +4793,20 @@ public partial class MainWindow : Window
         return _eggSpriteCache;
     }
 
+    private static bool IsBlankBitmap(Bitmap bitmap)
+    {
+        try
+        {
+            using var stream = new MemoryStream();
+            bitmap.Save(stream);
+            return stream.Length < 200;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private Bitmap? LoadSpriteBitmapCore(int speciesId, string root)
         => LoadSpriteBitmapCore($"{speciesId:0000}", root);
 
@@ -4167,6 +4823,84 @@ public partial class MainWindow : Window
         {
             return null;
         }
+    }
+
+    private void FillNdsBoxEditor(BoxSlotRow row)
+    {
+        var mon = _loadedNdsSave?.BoxMons.FirstOrDefault(candidate => candidate.Offset == row.Address);
+        if (mon is null) return;
+        SetPokemonSprite(BoxDetailSpriteImage, mon.Species);
+        UpdateBoxHeaderInfo(mon.Species, mon.Experience);
+        SetChoice(BoxSpeciesBox, _speciesChoices, mon.Species);
+        SetChoice(BoxItemBox, _itemChoices, mon.HeldItem);
+        SetChoice(BoxNatureBox, _natureChoices, (int)(mon.Pid % 25));
+        SetChoice(BoxGenderBox, _genderChoices, GenderChoiceId(mon.Species, mon.Pid));
+        RefreshBoxAbilityChoices(mon.Species, mon.AbilityField);
+        BoxExpBox.Text = mon.Experience.ToString();
+        BoxFriendshipBox.Text = mon.Friendship.ToString();
+        SetChoice(BoxMove1Box, _moveChoices, mon.Moves.ElementAtOrDefault(0));
+        SetChoice(BoxMove2Box, _moveChoices, mon.Moves.ElementAtOrDefault(1));
+        SetChoice(BoxMove3Box, _moveChoices, mon.Moves.ElementAtOrDefault(2));
+        SetChoice(BoxMove4Box, _moveChoices, mon.Moves.ElementAtOrDefault(3));
+        BoxPp1Box.Text = mon.Pp.ElementAtOrDefault(0).ToString();
+        BoxPp2Box.Text = mon.Pp.ElementAtOrDefault(1).ToString();
+        BoxPp3Box.Text = mon.Pp.ElementAtOrDefault(2).ToString();
+        BoxPp4Box.Text = mon.Pp.ElementAtOrDefault(3).ToString();
+        BoxIvHpBox.Text = mon.Ivs.ElementAtOrDefault(0).ToString();
+        BoxIvAtkBox.Text = mon.Ivs.ElementAtOrDefault(1).ToString();
+        BoxIvDefBox.Text = mon.Ivs.ElementAtOrDefault(2).ToString();
+        BoxIvSpeBox.Text = mon.Ivs.ElementAtOrDefault(3).ToString();
+        BoxIvSpaBox.Text = mon.Ivs.ElementAtOrDefault(4).ToString();
+        BoxIvSpdBox.Text = mon.Ivs.ElementAtOrDefault(5).ToString();
+        BoxEvHpBox.Text = mon.Evs.ElementAtOrDefault(0).ToString();
+        BoxEvAtkBox.Text = mon.Evs.ElementAtOrDefault(1).ToString();
+        BoxEvDefBox.Text = mon.Evs.ElementAtOrDefault(2).ToString();
+        BoxEvSpeBox.Text = mon.Evs.ElementAtOrDefault(3).ToString();
+        BoxEvSpaBox.Text = mon.Evs.ElementAtOrDefault(4).ToString();
+        BoxEvSpdBox.Text = mon.Evs.ElementAtOrDefault(5).ToString();
+        BoxAddressText.Text = "只读";
+    }
+
+    private void ShowNdsLevelWarning(int species, uint experience, int storedLevel)
+    {
+        if (species <= 0) return;
+        try
+        {
+            var growth = ReadSpeciesStats(species).GrowthRate;
+            var calculated = LevelFromExp(experience, growth);
+            if (calculated != storedLevel)
+                SetWriteNotice($"等级 {storedLevel} 与经验 {experience} 换算的 {calculated} 级不一致。只显示，不改存档。", success: false);
+        }
+        catch
+        {
+            // Missing growth data stays visible as the stored level.
+        }
+    }
+
+    private string DecodeGlyphCodes(IReadOnlyList<ushort> codes)
+    {
+        EnsureGameTextMaps();
+        var text = new System.Text.StringBuilder();
+        foreach (var code in codes)
+        {
+            if (code is 0 or 0xFFFF) break;
+            text.Append(_gameTextDecodeMap is not null && _gameTextDecodeMap.TryGetValue(code, out var glyph) ? glyph : "□");
+        }
+        return text.Length == 0 ? "字形未解码" : text.ToString();
+    }
+
+    private static Bitmap? FirstSpriteFrame(Bitmap? sprite)
+    {
+        if (sprite is null || sprite.PixelSize.Height < sprite.PixelSize.Width * 2) return sprite;
+        var width = sprite.PixelSize.Width;
+        var height = sprite.PixelSize.Height / 2;
+        var frame = new RenderTargetBitmap(new PixelSize(width, height), sprite.Dpi);
+        using var context = frame.CreateDrawingContext();
+        context.DrawImage(
+            sprite,
+            new Rect(0, 0, width, sprite.PixelSize.Height),
+            new Rect(0, 0, width, height * 2));
+        return frame;
     }
 
     private Bitmap? LoadSpriteBitmapCore(string assetName, string root)
@@ -4500,7 +5234,7 @@ public partial class MainWindow : Window
         foreach (var (index, move) in ReadIndexedSpeciesMoves("species_machine_moves", species))
             AddDexMoveRow(_dexOtherMoveRows, $"机器 {index + 1:000}", move);
         foreach (var (index, move) in ReadIndexedSpeciesMoves("species_tutor_moves", species))
-            AddDexMoveRow(_dexOtherMoveRows, $"教学 {index + 1:000}", move);
+            AddDexMoveRow(_dexOtherMoveRows, "教学招式", move);
         if (_db.Table("species_egg_moves").TryGetValue(species, out var rawEggMoves))
         {
             foreach (var text in rawEggMoves.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -4541,6 +5275,8 @@ public partial class MainWindow : Window
             var parts = entry.Split(':');
             if (parts.Length == 2 && int.TryParse(parts[0], out var index) && int.TryParse(parts[1], out var move))
                 yield return (index, move);
+            else if (parts.Length == 1 && int.TryParse(parts[0], out var plainMove))
+                yield return (0, plainMove);
         }
     }
 
@@ -6363,12 +7099,16 @@ public partial class MainWindow : Window
     private ChoiceRow[] ItemChoiceRows()
         => _db.Table("items")
             .Where(kv => kv.Key != 0 && !string.Equals(kv.Value, "未使用", StringComparison.Ordinal))
+            .Where(kv => !_profile.IsNds || NdsPocketOfItem(kv.Key) > 0)
             .OrderBy(kv => kv.Key)
             .Select(kv =>
             {
                 var machineName = MachineMoveName(kv.Key);
-                var display = machineName ?? kv.Value;
-                return new ChoiceRow(kv.Key, kv.Value, display, LoadItemIconBitmap(kv.Key));
+                var name = kv.Value;
+                var display = machineName ?? name;
+                if (name.Contains('□') || name.StartsWith("道具#", StringComparison.Ordinal))
+                    display = $"{name}（ROM 字形未解析）";
+                return new ChoiceRow(kv.Key, name, display, LoadItemIconBitmap(kv.Key));
             })
             .ToArray();
 
@@ -7084,7 +7824,10 @@ public partial class MainWindow : Window
             ushort U(int index) => ushort.Parse(parts[index]);
             byte B(int index) => byte.Parse(parts[index]);
             uint UI(int index) => uint.Parse(parts[index]);
-            data = new ItemData(item, U(0), U(1), B(2), B(3), UI(4), B(5), B(6), B(7), B(8), UI(9), B(10), UI(11), UI(12), [], []);
+            // item_data.tsv follows FormatItem: id, itemId, price, holdEffect,
+            // holdParam, descriptionPtr, preventToss, selectable, fieldPocket,
+            // battlePocket, battleUsage, fieldUse, secondaryId, reserved.
+            data = new ItemData(item, U(1), U(2), B(3), B(4), UI(5), B(6), B(7), B(8), B(9), UI(10), B(11), UI(12), UI(13), [], []);
             return true;
         }
         catch
@@ -7519,14 +8262,14 @@ public partial class MainWindow : Window
         return type1 == type2 ? first : $"{first} / {second}";
     }
 
-    private static IReadOnlyList<DexTypeBadge> TypeBadges(int type1, int type2)
+    private IReadOnlyList<DexTypeBadge> TypeBadges(int type1, int type2)
     {
         var badges = new List<DexTypeBadge> { TypeBadge(type1) };
         if (type2 != type1) badges.Add(TypeBadge(type2));
         return badges;
     }
 
-    private static DexTypeBadge TypeBadge(int type)
+    private DexTypeBadge TypeBadge(int type)
     {
         var (background, foreground) = TypeBadgeColors(type);
         return new DexTypeBadge(MoveTypeNameZh(type), Brush.Parse(background), Brush.Parse(foreground));
@@ -7543,7 +8286,7 @@ public partial class MainWindow : Window
         6 => ("#A6B91A", "#1F2502"), // 虫
         7 => ("#735797", "#F7F0FF"), // 幽灵
         8 => ("#B7B7CE", "#1B2330"), // 钢
-        9 => ("#6C6255", "#FFF9EE"), // ？？？
+        9 => ("#6C6255", "#FFF9EE"), // 未知
         10 => ("#EE8130", "#2E1200"), // 火
         11 => ("#6390F0", "#F2F7FF"), // 水
         12 => ("#4DBB55", "#06240B"), // 草
@@ -7759,10 +8502,21 @@ public partial class MainWindow : Window
             : 0;
     }
 
+    private int NdsPocketOfItem(int item)
+    {
+        if (!_db.Table("item_data").TryGetValue(item, out var raw)) return -1;
+        var fields = raw.Split('\t');
+        if (fields.Length <= 8 || !int.TryParse(fields[8], out var romPocket)) return -1;
+        return romPocket is >= 0 and <= 7 ? _runtime.RemapItemPocket(romPocket) : -1;
+    }
+
     private int PocketOfItem(int item)
     {
         if (item == 0) return -1;
         if (item < 0 || item > MaxItemId()) return -1;
+        if (_profile.IsNds)
+            return NdsPocketOfItem(item);
+
         if (_profile.Runtime.Machines.Mode == "fixed-ranges" && IsBagMachineItem(item))
             return MachinePocket;
 
@@ -8178,29 +8932,34 @@ public partial class MainWindow : Window
         _ => MoveDataReader.CategoryName(category)
     };
 
-    private static string MoveTypeNameZh(int type) => type switch
+    private string MoveTypeNameZh(int type)
     {
-        0 => "一般",
-        1 => "格斗",
-        2 => "飞行",
-        3 => "毒",
-        4 => "地面",
-        5 => "岩石",
-        6 => "虫",
-        7 => "幽灵",
-        8 => "钢",
-        9 => "？？？",
-        10 => "火",
-        11 => "水",
-        12 => "草",
-        13 => "电",
-        14 => "超能力",
-        15 => "冰",
-        16 => "龙",
-        17 => "恶",
-        18 or 23 => "妖精",
-        _ => MoveDataReader.TypeName(type)
-    };
+        if (_profile.IsNds && _db.Table("types").TryGetValue(type, out var name) && !string.IsNullOrWhiteSpace(name))
+            return name;
+        return type switch
+        {
+            0 => "一般",
+            1 => "格斗",
+            2 => "飞行",
+            3 => "毒",
+            4 => "地面",
+            5 => "岩石",
+            6 => "虫",
+            7 => "幽灵",
+            8 => "钢",
+            9 => "？？？",
+            10 => "火",
+            11 => "水",
+            12 => "草",
+            13 => "电",
+            14 => "超能力",
+            15 => "冰",
+            16 => "龙",
+            17 => "恶",
+            18 or 23 => "妖精",
+            _ => MoveDataReader.TypeName(type)
+        };
+    }
 
     private void SetBusy(string message)
     {

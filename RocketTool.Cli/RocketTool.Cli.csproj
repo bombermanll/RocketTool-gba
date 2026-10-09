@@ -1,7 +1,8 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\RocketTool.Core\RocketTool.Core.csproj" />
+    <ProjectReference Include="..\RocketTool.Nds\RocketTool.Nds.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

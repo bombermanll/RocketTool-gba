@@ -98,10 +98,12 @@ public sealed class SearchableChoiceBox : UserControl
         };
         _listBox = new ListBox
         {
-            MaxHeight = 320,
+            Height = 420,
+            MaxHeight = 420,
             MinWidth = 160,
             ItemTemplate = new FuncDataTemplate<ChoiceRow>((row, _) => ChoiceContent(row))
         };
+        ScrollViewer.SetVerticalScrollBarVisibility(_listBox, ScrollBarVisibility.Auto);
         _emptyText = new TextBlock
         {
             Text = "没有匹配结果",
@@ -309,9 +311,9 @@ public sealed class SearchableChoiceBox : UserControl
         _emptyText.Text = _choices.Count == 0 ? "列表未载入" : "没有匹配结果";
         _emptyText.IsVisible = rows.Count == 0;
         _listBox.IsVisible = rows.Count > 0;
+        // Filtering must not select the first result. Selection only happens
+        // after the user taps a row or confirms with Enter.
         _listBox.SelectedItem = _selected is not null ? rows.FirstOrDefault(c => c.Id == _selected.Id) : null;
-        if (_listBox.SelectedItem is null && rows.Count > 0 && !string.IsNullOrWhiteSpace(term))
-            _listBox.SelectedIndex = 0;
     }
 
     private void FocusListFirst()

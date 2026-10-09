@@ -31,7 +31,7 @@
                         <TextBlock x:Name="SelectedVersionText" Text="尚未选择游戏版本" Foreground="#F7F2E8" FontWeight="SemiBold" VerticalAlignment="Center" />
                         <Button x:Name="SwitchVersionButton" Content="切换版本" Click="OnSwitchVersionClicked" Padding="10,3" FontSize="12" />
                     </StackPanel>
-                    <TextBlock Text="mGBA 实时编辑 / GBA 存档编辑" Foreground="#F7F2E8" Opacity="0.82" />
+                    <TextBlock x:Name="ModeSummaryText" Text="mGBA 实时编辑 / GBA 存档编辑" Foreground="#F7F2E8" Opacity="0.82" />
                 </StackPanel>
                 <Border Classes="card" Grid.Column="1" MinWidth="360">
                     <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="6">
@@ -52,6 +52,17 @@
 
             <Border Grid.Row="1" Classes="card" Padding="0">
                 <TabControl x:Name="MainTabs">
+                    <TabItem x:Name="NdsSaveTab" Header="NDS 存档" IsVisible="False">
+                        <ScrollViewer Margin="20,16,20,16">
+                            <TextBox x:Name="NdsSaveText"
+                                     IsReadOnly="True"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
+                                     MinHeight="520"
+                                     FontFamily="Menlo, Consolas, monospace"
+                                     FontSize="13" />
+                        </ScrollViewer>
+                    </TabItem>
                     <TabItem x:Name="PartyTab" Header="队伍编辑">
                         <Grid ColumnDefinitions="330,*" ColumnSpacing="0" Margin="0">
                             <Border Background="#EFE5D3" Padding="16" CornerRadius="18,0,0,18">
@@ -89,8 +100,8 @@
 
                             <Grid Grid.Column="1" RowDefinitions="Auto,*">
                                 <Border Background="#F7F2E8" Padding="20,18,20,12">
-                                    <Grid ColumnDefinitions="74,*,Auto,Auto" ColumnSpacing="12">
-                                        <Border Width="62" Height="62" Background="#FFF9EE" CornerRadius="10" Padding="5" VerticalAlignment="Center">
+                                    <Grid ColumnDefinitions="80,*,Auto,Auto" ColumnSpacing="12">
+                                        <Border Width="72" Height="72" Background="#FFF9EE" CornerRadius="10" Padding="4" VerticalAlignment="Center">
                                             <Image x:Name="PartyDetailSpriteImage"
                                                    Stretch="Uniform"
                                                    RenderOptions.BitmapInterpolationMode="None"
@@ -529,8 +540,8 @@
 
                             <Grid Grid.Column="1" RowDefinitions="Auto,*">
                                 <Border Background="#F7F2E8" Padding="20,18,36,12">
-                                    <Grid ColumnDefinitions="72,*,Auto,Auto" ColumnSpacing="12">
-                                        <Border Width="62" Height="62" Background="#FFF9EE" CornerRadius="10" Padding="5" VerticalAlignment="Center">
+                                    <Grid ColumnDefinitions="80,*,Auto,Auto" ColumnSpacing="12">
+                                        <Border Width="72" Height="72" Background="#FFF9EE" CornerRadius="10" Padding="4" VerticalAlignment="Center">
                                             <Image x:Name="BoxDetailSpriteImage"
                                                    Stretch="Uniform"
                                                    RenderOptions.BitmapInterpolationMode="None"

@@ -25,6 +25,7 @@ public sealed class Gen3SaveDocument
     internal const int UnboundParasiteOffsetMarker = 0x100000;
     internal const int DestinyExtensionOffsetMarker = 0x200000;
     internal const int RadicalRedExtensionOffsetMarker = 0x300000;
+    internal const int Shuiyin12ExtensionOffsetMarker = 0x500000;
     internal const int UltimateEmerald55BagOffsetMarker = 0x400000;
     internal const int UltimateEmerald55BagSize = 0x5A8;
     internal const int UnboundBoxRecordSize = BoxPokemon.UnboundCompressedSize;
@@ -81,12 +82,14 @@ public sealed class Gen3SaveDocument
             WriteBlockReason = $"存档缺少 section {string.Join(",", missing)}。";
         else if (relaxed.Length > 0)
             WriteBlockReason = $"section {string.Join(",", relaxed)} 仅通过宽松模式读取，不能安全写回。";
+        PartyWriteBlockReason = snapshot.PartyWriteBlockReason;
     }
 
     public string SourcePath { get; }
     public Gen3SaveReadResult Snapshot { get; }
     public bool CanWrite => string.IsNullOrEmpty(WriteBlockReason);
     public string? WriteBlockReason { get; }
+    public string? PartyWriteBlockReason { get; }
     public bool HasChanges => _touchedSectionIds.Count > 0 || _hasRawChanges;
     public int CurrentPartyCount { get; private set; }
     public int ModifiedPartyCount => _expectedParty.Count;
@@ -126,6 +129,7 @@ public sealed class Gen3SaveDocument
     public void ReplacePartyPokemon(int slot, PartyPokemon mon)
     {
         EnsureWritable();
+        EnsurePartyWritable();
         EnsureProfileWrite(GameDataSurface.Party);
         ValidatePartyPokemon(mon);
         var saveOffset = PartySaveOffset(slot);
@@ -136,6 +140,7 @@ public sealed class Gen3SaveDocument
     public int AppendPartyPokemon(PartyPokemon mon)
     {
         EnsureWritable();
+        EnsurePartyWritable();
         EnsureProfileWrite(GameDataSurface.Party);
         if (_partyCountOffset < 0 || _partyOffset < 0)
             throw new InvalidOperationException("存档队伍没有已验证的数量和数组偏移，不能新增宝可梦。");
@@ -155,6 +160,7 @@ public sealed class Gen3SaveDocument
     public void RemovePartyPokemon(int slot)
     {
         EnsureWritable();
+        EnsurePartyWritable();
         EnsureProfileWrite(GameDataSurface.Party);
         if (_partyCountOffset < 0 || _partyOffset < 0)
             throw new InvalidOperationException("存档队伍没有已验证的数量和数组偏移，不能删除宝可梦。");
@@ -289,7 +295,9 @@ public sealed class Gen3SaveDocument
 
             var offset = physical.Offset + slotIndex * 4;
             var quantityXor = physical.HasQuantity && pocket != 8;
-            var quantityKey = quantityXor ? InferQuantityKey() : (ushort)0;
+            var quantityKey = quantityXor
+                ? _strategy.AuthoritativeQuantityKey(this) ?? InferQuantityKey()
+                : (ushort)0;
             var storedQuantity = quantityXor ? _strategy.EncodeStoredQuantity(quantity, quantityKey) : (ushort)0;
             WriteBagRecord(offset, itemId, storedQuantity);
             var entry = new Gen3SaveBagEntry(
@@ -320,6 +328,13 @@ public sealed class Gen3SaveDocument
             .Max();
 
         for (var i = lastUsedIndex + 1; i < physical.Capacity; i++)
+        {
+            var offset = physical.Offset + i * 4;
+            if (ReadBagU16(offset) == 0) return i;
+        }
+
+        // 口袋末尾已占用时继续回收前面的空洞，避免删掉中间道具后误报“口袋已满”。
+        for (var i = 0; i < lastUsedIndex; i++)
         {
             var offset = physical.Offset + i * 4;
             if (ReadBagU16(offset) == 0) return i;
@@ -446,7 +461,8 @@ public sealed class Gen3SaveDocument
         var output = _raw.ToArray();
         foreach (var id in _touchedSectionIds)
             UpdateSectionChecksum(output, _sections[id]);
-        RefreshMgbaRtcFooterIfPresent(output);
+        if (_strategy.RefreshMgbaRtcFooter)
+            RefreshMgbaRtcFooterIfPresent(output);
 
         var temporary = Path.Combine(directory, $".{Path.GetFileName(destination)}.{Guid.NewGuid():N}.tmp");
         try
@@ -594,6 +610,148 @@ public sealed class Gen3SaveDocument
             _touchedSectionIds.Add(sectionId);
             logicalOffset += count;
             sourceOffset += count;
+        }
+    }
+
+    internal void WriteShuiyin12Box(int globalSlot, ReadOnlySpan<byte> data)
+    {
+        if (data.Length != UnboundBoxRecordSize)
+            throw new InvalidOperationException($"水银箱子记录必须为 {UnboundBoxRecordSize} 字节。");
+        var box = (globalSlot - 1) / 30 + 1;
+        var slot = (globalSlot - 1) % 30;
+        if (box <= 19)
+        {
+            var logicalOffset = PcStorageOffset + (box - 1) * 30 * UnboundBoxRecordSize + slot * UnboundBoxRecordSize;
+            WriteShuiyin12LogicalRange(PcFirstSection, logicalOffset, data);
+            return;
+        }
+        if (box <= 22)
+        {
+            var boxOffset = box switch { 20 => 0x19D0, 21 => 0x209C, _ => 0x2768 };
+            WriteShuiyin12ExtensionRange(boxOffset + slot * UnboundBoxRecordSize, data);
+            return;
+        }
+        if (box <= 24)
+        {
+            var boxOffset = box == 23 ? 0x1F08 : 0x25D4;
+            WriteShuiyin12LogicalRange(SaveBlock1FirstSection, boxOffset + slot * UnboundBoxRecordSize, data);
+            return;
+        }
+        if (box == 25)
+        {
+            WriteSectionRange(0, 0xB0 + slot * UnboundBoxRecordSize, data);
+            return;
+        }
+        throw new InvalidOperationException($"水银没有箱子 {box}。");
+    }
+
+    internal void WriteShuiyin12LogicalRange(int firstSectionId, int logicalOffset, ReadOnlySpan<byte> data)
+    {
+        const int sectionDataSize = 0xFF0;
+        var sourceOffset = 0;
+        while (sourceOffset < data.Length)
+        {
+            var sectionIndex = logicalOffset / sectionDataSize;
+            var sectionId = firstSectionId + sectionIndex;
+            var sectionRelativeOffset = logicalOffset % sectionDataSize;
+            if (!_sections.TryGetValue(sectionId, out var section))
+                throw new InvalidOperationException($"水银写回需要 section {sectionId}，但当前存档中不存在。");
+
+            var count = Math.Min(data.Length - sourceOffset, sectionDataSize - sectionRelativeOffset);
+            data.Slice(sourceOffset, count).CopyTo(_raw.AsSpan(section.FileOffset + sectionRelativeOffset, count));
+            _touchedSectionIds.Add(sectionId);
+            logicalOffset += count;
+            sourceOffset += count;
+        }
+    }
+
+    internal void ReadShuiyin12ExtensionRange(int extensionOffset, Span<byte> destination)
+    {
+        var sourceOffset = 0;
+        while (sourceOffset < destination.Length)
+        {
+            var current = extensionOffset + sourceOffset;
+            int length;
+            ReadOnlySpan<byte> source;
+            if (current < 0xCC)
+            {
+                length = Math.Min(destination.Length - sourceOffset, 0xCC - current);
+                if (!_sections.TryGetValue(0, out var section))
+                    throw new InvalidOperationException("水银扩展区读取需要 section 0。");
+                source = _raw.AsSpan(section.FileOffset + 0xF24 + current, length);
+            }
+            else if (current < 0x324)
+            {
+                length = Math.Min(destination.Length - sourceOffset, 0x324 - current);
+                if (!_sections.TryGetValue(4, out var section))
+                    throw new InvalidOperationException("水银扩展区读取需要 section 4。");
+                source = _raw.AsSpan(section.FileOffset + 0xD98 + current - 0xCC, length);
+            }
+            else if (current < 0xEC4)
+            {
+                length = Math.Min(destination.Length - sourceOffset, 0xEC4 - current);
+                if (!_sections.TryGetValue(13, out var section))
+                    throw new InvalidOperationException("水银扩展区读取需要 section 13。");
+                source = _raw.AsSpan(section.FileOffset + 0x450 + current - 0x324, length);
+            }
+            else if (current < 0x1EB4)
+            {
+                length = Math.Min(destination.Length - sourceOffset, 0x1EB4 - current);
+                source = _raw.AsSpan(0x1E000 + current - 0xEC4, length);
+            }
+            else if (current < 0x2EA4)
+            {
+                length = Math.Min(destination.Length - sourceOffset, 0x2EA4 - current);
+                source = _raw.AsSpan(0x1F000 + current - 0x1EB4, length);
+            }
+            else
+            {
+                throw new InvalidOperationException($"水银扩展区偏移 0x{current:X} 超出已验证范围。");
+            }
+            source.CopyTo(destination[sourceOffset..]);
+            sourceOffset += length;
+        }
+    }
+
+    internal void WriteShuiyin12ExtensionRange(int extensionOffset, ReadOnlySpan<byte> data)
+    {
+        var sourceOffset = 0;
+        while (sourceOffset < data.Length)
+        {
+            var current = extensionOffset + sourceOffset;
+            int length;
+            if (current < 0xCC)
+            {
+                length = Math.Min(data.Length - sourceOffset, 0xCC - current);
+                WriteSectionRange(0, 0xF24 + current, data.Slice(sourceOffset, length));
+            }
+            else if (current < 0x324)
+            {
+                length = Math.Min(data.Length - sourceOffset, 0x324 - current);
+                WriteSectionRange(4, 0xD98 + current - 0xCC, data.Slice(sourceOffset, length));
+            }
+            else if (current < 0xEC4)
+            {
+                length = Math.Min(data.Length - sourceOffset, 0xEC4 - current);
+                WriteSectionRange(13, 0x450 + current - 0x324, data.Slice(sourceOffset, length));
+            }
+            else if (current < 0x1EB4)
+            {
+                length = Math.Min(data.Length - sourceOffset, 0x1EB4 - current);
+                data.Slice(sourceOffset, length).CopyTo(_raw.AsSpan(0x1E000 + current - 0xEC4, length));
+                _hasRawChanges = true;
+            }
+            else if (current < 0x2EA4)
+            {
+                length = Math.Min(data.Length - sourceOffset, 0x2EA4 - current);
+                data.Slice(sourceOffset, length).CopyTo(_raw.AsSpan(0x1F000 + current - 0x1EB4, length));
+                _hasRawChanges = true;
+            }
+            else
+            {
+                throw new InvalidOperationException($"水银扩展区偏移 0x{current:X} 超出已验证范围。");
+            }
+            sourceOffset += length;
         }
     }
 
@@ -1096,6 +1254,8 @@ public sealed class Gen3SaveDocument
             return Convert.ToInt32(checksumMode["unbound-".Length..], 16);
         if (checksumMode.StartsWith("radical-red-", StringComparison.Ordinal))
             return Convert.ToInt32(checksumMode["radical-red-".Length..], 16);
+        if (checksumMode.StartsWith("shuiyin-12-", StringComparison.Ordinal))
+            return Convert.ToInt32(checksumMode["shuiyin-12-".Length..], 16);
         return SectionDataSize;
     }
 
@@ -1154,6 +1314,8 @@ public sealed class Gen3SaveDocument
             "f24" => 0xF24,
             var mode when mode.StartsWith("radical-red-", StringComparison.Ordinal) =>
                 Convert.ToInt32(mode["radical-red-".Length..], 16),
+            var mode when mode.StartsWith("shuiyin-12-", StringComparison.Ordinal) =>
+                Convert.ToInt32(mode["shuiyin-12-".Length..], 16),
             "extended" => SectionTrailerOffset,
             var mode when mode.StartsWith("unbound-", StringComparison.Ordinal) =>
                 Convert.ToInt32(mode["unbound-".Length..], 16),
@@ -1196,6 +1358,12 @@ public sealed class Gen3SaveDocument
     {
         if (!CanWrite)
             throw new InvalidOperationException(WriteBlockReason ?? "当前存档不能安全写回。");
+    }
+
+    private void EnsurePartyWritable()
+    {
+        if (!string.IsNullOrEmpty(PartyWriteBlockReason))
+            throw new InvalidOperationException(PartyWriteBlockReason);
     }
 
     private void EnsureProfileWrite(GameDataSurface surface)

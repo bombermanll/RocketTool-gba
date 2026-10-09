@@ -1,0 +1,153 @@
+{
+  "id": "pokemon-shuiyin-12-cn",
+  "displayName": "宝可梦水银1.2",
+  "description": "宝可梦水银1.2独立配置。已启用本 ROM 重新验证的图鉴、正面图、菜单图标、道具图标、存档队伍、存档箱子、存档背包和训练家金钱读写。实时修改、球种和导入仍未完成验证，保持关闭。",
+  "romIdentity": {
+    "fileName": "shuiyin1.2.gba",
+    "romSize": 33554432,
+    "sha256": "b98d9701f4b567810c70221564c348f4482791c614c3f1bb282e96678b7a0896",
+    "headerTitle": "POKEMON FIRE",
+    "gameCode": "BPRE",
+    "liveFingerprints": [
+      { "offset": "0x1000000", "hex": "4379002B48D001A10847C046020054E3" }
+    ]
+  },
+  "strategies": {
+    "runtime": "pokemon-shuiyin-12-runtime-v1",
+    "pokemon": "pokemon-shuiyin-12-pokemon-v1",
+    "partyScanner": "pokemon-shuiyin-12-party-v1",
+    "boxScanner": "pokemon-shuiyin-12-box-v1",
+    "bag": "pokemon-shuiyin-12-bag-v1",
+    "save": "pokemon-shuiyin-12-save-v1"
+  },
+  "memory": {
+    "ewramBase": "0x02000000",
+    "ewramSize": "0x40000",
+    "defaultPartyBase": "0x02024284",
+    "partyCountOffsetFromPartyBase": -603,
+    "saveBlock1PointerAddress": "0x03005008",
+    "saveBlock2PointerAddress": "0x0300500C",
+    "saveBlock1MoneyOffset": "0x290",
+    "saveBlock2EncryptionKeyOffset": "0xF20",
+    "saveBlock2PlayerOtIdOffset": "0x0A",
+    "saveBlock2HeaderLength": "0x0E",
+    "playerNameLength": 8,
+    "pokemonOtNameOffset": "0x14",
+    "pokemonOtNameLength": 7,
+    "pcBoxCount": 25,
+    "pcBoxSlots": 30,
+    "pcBoxRecordSize": 58,
+    "pcBoxStoragePointerAddress": "0x03005010",
+    "pcBoxDataOffset": 4,
+    "livePcBoxWritableSlotCount": 0,
+    "savePcBoxWritableSlotCount": 750,
+    "pcBoxRegions": [
+      { "firstBox": 1, "boxCount": 19, "address": "0x02029318" },
+      { "firstBox": 20, "boxCount": 3, "address": "0x0203CB44" },
+      { "firstBox": 23, "boxCount": 2, "address": "0x02027434" },
+      { "firstBox": 25, "boxCount": 1, "address": "0x02024638" }
+    ]
+  },
+  "romTables": {
+    "baseStats": { "offset": "0x176DFBC", "entrySize": 28, "count": 1294 },
+    "moves": { "offset": "0x1DFD2DF", "entrySize": 12, "count": 1024 },
+    "items": { "offset": "0x7C7E00", "entrySize": 44, "count": 750 },
+    "evolutions": { "offset": "0x1788F5A", "entrySize": 8, "count": 1294, "entriesPerRecord": 16 },
+    "levelMoves": { "offset": "0x17C32BC", "entrySize": 4, "count": 1294 },
+    "experience": { "offset": "0x1E052C8", "entrySize": 404, "count": 6 },
+    "machineMoves": { "offset": "0x17E87BE", "entrySize": 2, "count": 128 }
+  },
+  "graphics": {
+    "spritesVerified": true,
+    "spriteAssetRoot": "Profiles/pokemon-shuiyin-12-cn/Pokemon/front",
+    "shinySpritesVerified": true,
+    "shinySpriteAssetRoot": "Profiles/pokemon-shuiyin-12-cn/Pokemon/front-shiny",
+    "iconAssetRoot": "Profiles/pokemon-shuiyin-12-cn/Pokemon/icon",
+    "itemIconsVerified": true,
+    "itemIconAssetRoot": "Profiles/pokemon-shuiyin-12-cn/Items/icon",
+    "frontSpriteTableOffset": "0x176AF2C",
+    "iconSpriteTableOffset": "0x17BFC18",
+    "menuIconsVerified": true,
+    "itemIconTableOffset": "0x13C8100",
+    "normalPaletteTableOffset": "0x17D64E0",
+    "shinyPaletteTableOffset": "0x17E49E8",
+    "verifiedShinySpriteCount": 1293,
+    "verifiedItemIconCount": 749,
+    "spriteIndexAdjustment": 0,
+    "paletteIndexAdjustment": 0,
+    "eggSpeciesId": 0
+  },
+  "limits": {
+    "maxSpecies": 1293,
+    "maxMove": 1023,
+    "maxItem": 749,
+    "maxAbility": 300,
+    "maxLevel": 100,
+    "maxBagQuantity": 999
+  },
+  "dataVerification": {
+    "visibleSpeciesCount": 1293,
+    "verifiedMenuIconCount": 1294
+  },
+  "features": {
+    "liveEditing": false,
+    "saveEditing": true,
+    "liveParty": { "read": false, "write": false },
+    "saveParty": { "read": true, "write": true },
+    "liveBoxes": { "read": false, "write": false },
+    "saveBoxes": { "read": true, "write": true },
+    "liveBag": { "read": false, "write": false },
+    "saveBag": { "read": true, "write": true },
+    "liveTrainer": { "read": false, "write": false },
+    "saveTrainer": { "read": true, "write": true },
+    "caughtBall": {
+      "liveParty": { "read": false, "write": false },
+      "saveParty": { "read": false, "write": false },
+      "liveBoxes": { "read": false, "write": false },
+      "saveBoxes": { "read": false, "write": false },
+      "choices": [],
+      "defaultItemId": 0,
+      "pocket": 0
+    },
+    "builtInDex": true,
+    "moveDex": true,
+    "importToParty": false,
+    "importToBoxes": false,
+    "importToSaveParty": false,
+    "importToSaveBoxes": false,
+    "experiments": false
+  },
+  "runtime": {
+    "liveBag": { "mode": "disabled", "baseAddress": "0x0", "quantityKeyMode": "none", "quantityEncoding": "plain", "areas": [] },
+    "liveBagPockets": [],
+    "saveBagPockets": [
+      { "id": 1, "name": "道具", "isKeyItem": false, "batchCapacity": 450 },
+      { "id": 2, "name": "重要物品", "isKeyItem": true, "batchCapacity": 75 },
+      { "id": 3, "name": "精灵球", "isKeyItem": false, "batchCapacity": 50 },
+      { "id": 4, "name": "招式机器", "isKeyItem": false, "batchCapacity": 128 },
+      { "id": 5, "name": "树果", "isKeyItem": false, "batchCapacity": 75 }
+    ],
+    "itemPocketFallbackRanges": [],
+    "itemPocketRemap": {},
+    "defaultItemPocket": 1,
+    "machines": {
+      "pocket": 0,
+      "mode": "disabled",
+      "tmStartItem": 0,
+      "tmCount": 0,
+      "hmStartItem": 0,
+      "hmCount": 0,
+      "hmMoveStartIndex": 0,
+      "fallbackMoveIds": []
+    },
+    "shopProbe": { "enabled": false, "shopPriceAddress": "0x0", "shopFirstItemAddress": "0x0", "sellPricePrimaryAddress": "0x0", "sellPriceFallbackAddress": "0x0" },
+    "bridgeExperimentProfile": "disabled",
+    "experimentNeedsSaveBaseForNoEncounter": false,
+    "experimentBattleAssist": false,
+    "experimentTeleport": false,
+    "experimentNoEncounter": false,
+    "experimentWalkThroughWalls": false,
+    "maxTrainerMoney": 999999,
+    "bagBatchQuantity": 0
+  }
+}

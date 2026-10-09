@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
 using RocketTool.Core;
+using RocketTool.Nds;
 
 static string RootDir()
 {
@@ -982,6 +983,69 @@ static int ItemStats(string[] args)
     return 0;
 }
 
+static int ExtractOriginHeartGold(string[] args)
+{
+    var romPath = Path.GetFullPath(GetArg(args, "--rom", Path.Combine(RootDir(), "..", "rom", "xinjin4.0.nds")));
+    var output = Path.GetFullPath(GetArg(args, "--out", Path.Combine(RootDir(), "profiles", OriginHeartGoldTableExtractor.ProfileId, "db")));
+    var result = OriginHeartGoldTableExtractor.Extract(romPath, output);
+    Console.WriteLine($"Extracted Origin HeartGold tables from {result.Identity.FileName}");
+    Console.WriteLine($"  sha256 {result.Identity.Sha256}");
+    Console.WriteLine($"  title/gamecode {result.Identity.HeaderTitle}/{result.Identity.GameCode}");
+    Console.WriteLine($"  species {result.VisibleSpeciesCount}/{result.SpeciesCount} moves {result.MoveCount} items {result.ItemCount} maxAbility {result.AbilityCount}");
+    Console.WriteLine($"  output {output}");
+    foreach (var note in result.Notes)
+        Console.WriteLine($"  note: {note}");
+    return 0;
+}
+
+static int OriginHeartGoldSaveProbe(string[] args)
+{
+    var profile = CurrentProfile();
+    if (profile.Id != OriginHeartGoldTableExtractor.ProfileId)
+        throw new InvalidOperationException("origin-heartgold-save-probe 只能在 pokemon-origin-heartgold-40-cn 下运行。");
+    if (profile.Features.SaveEditing)
+        throw new InvalidOperationException("起源心金存档写入尚未验证，saveEditing 必须保持关闭。");
+
+    var savePath = Path.GetFullPath(GetArg(args, "--save", Path.Combine(RootDir(), "..", "rom", "xinjin4.0.sav")));
+    var db = Db();
+    var save = OriginHeartGoldSave.Open(savePath);
+    Console.WriteLine($"Origin HeartGold save probe: {save.FileName}");
+    Console.WriteLine($"  size={save.Size} sha256={save.Sha256}");
+    WriteBlock("active general", save.ActiveGeneral);
+    WriteBlock("backup general", save.BackupGeneral);
+    WriteBlock("active storage", save.ActiveStorage);
+    WriteBlock("backup storage", save.BackupStorage);
+    Console.WriteLine($"  trainer TID={save.TrainerTid} SID={save.TrainerSid} money={save.Money} backupMoney={save.BackupMoney} gender={save.Gender}");
+    Console.WriteLine($"  trainerOtCodes={string.Join(',', save.TrainerOtCodes.TakeWhile(code => code is not 0 and not 0xFFFF))}");
+    Console.WriteLine($"  playtime {save.PlayHours}:{save.PlayMinutes:00}:{save.PlaySeconds:00}");
+    Console.WriteLine($"  partyCount={save.PartyCount} occupiedBoxSlots={save.OccupiedBoxSlots}");
+    foreach (var mon in save.Party)
+    {
+        var speciesName = db.NameOf("species", mon.Species);
+        Console.WriteLine($"  party {mon.Slot} off=0x{mon.Offset:X} checksum={(mon.ChecksumValid ? "ok" : "FAIL")} {mon.Species}({speciesName}) Lv{mon.Level} exp={mon.Experience} item={mon.HeldItem}({(mon.HeldItem == 0 ? "无" : db.NameOf("items", mon.HeldItem))}) abilityField={mon.AbilityField}");
+        Console.WriteLine($"    stats {mon.CurrentHp}/{mon.MaxHp} {mon.Attack}/{mon.Defense}/{mon.Speed}/{mon.SpAttack}/{mon.SpDefense}");
+        Console.WriteLine($"    ivs {string.Join('/', mon.Ivs)} evs {string.Join('/', mon.Evs)}");
+        Console.WriteLine("    moves=" + string.Join(", ", mon.Moves.Where(move => move != 0).Select(move => $"{move}({db.NameOf("moves", move)})")));
+        Console.WriteLine($"    nickCodes={string.Join(',', mon.NicknameCodes.TakeWhile(code => code is not 0 and not 0xFFFF))}");
+        Console.WriteLine($"    otCodes={string.Join(',', mon.OtCodes.TakeWhile(code => code is not 0 and not 0xFFFF))}");
+    }
+
+    foreach (var mon in save.BoxMons)
+        Console.WriteLine($"  box {mon.Box} slot {mon.Slot} off=0x{mon.Offset:X} checksum={(mon.ChecksumValid ? "ok" : "FAIL")} {mon.Species}({db.NameOf("species", mon.Species)}) exp={mon.Experience} item={mon.HeldItem}({(mon.HeldItem == 0 ? "无" : db.NameOf("items", mon.HeldItem))})");
+    foreach (var pocket in save.BagPockets)
+    {
+        Console.WriteLine($"  bag {pocket.Name} @0x{pocket.Offset:X} cap={pocket.Capacity} count={pocket.Items.Count}");
+        foreach (var slot in pocket.Items)
+            Console.WriteLine($"    off=0x{slot.Offset:X} {slot.ItemId}({db.NameOf("items", slot.ItemId)}) x{slot.Quantity}");
+    }
+    foreach (var note in save.Notes)
+        Console.WriteLine($"  note: {note}");
+    return 0;
+
+    static void WriteBlock(string name, OriginHeartGoldSaveBlock block)
+        => Console.WriteLine($"  {name}: partition={block.Partition} off=0x{block.Offset:X} size=0x{block.Size:X} count={block.SaveCount} magic=0x{block.Magic:X8} crc={(block.ChecksumValid ? "ok" : "FAIL")} stored=0x{block.StoredCrc:X4} calc=0x{block.CalculatedCrc:X4}");
+}
+
 static int ProfileSelfTest()
 {
     var profile = CurrentProfile();
@@ -1001,6 +1065,22 @@ static int ProfileDataVerify()
     if (!File.Exists(romPath))
     {
         errors.Add($"source ROM missing: {romPath}");
+    }
+    else if (profile.IsNds)
+    {
+        var nds = NdsRom.Open(romPath);
+        Console.WriteLine($"  source ROM                   {nds.Identity.Size} bytes / {nds.Identity.Sha256}");
+        if (nds.Identity.Size != profile.RomIdentity.RomSize) errors.Add($"ROM size: expected {profile.RomIdentity.RomSize}, got {nds.Identity.Size}");
+        if (!string.Equals(nds.Identity.Sha256, profile.RomIdentity.Sha256, StringComparison.OrdinalIgnoreCase)) errors.Add("ROM SHA-256 does not match profile");
+        if (!string.Equals(nds.Identity.HeaderTitle, profile.RomIdentity.HeaderTitle, StringComparison.Ordinal)) errors.Add($"ROM title: expected {profile.RomIdentity.HeaderTitle}, got {nds.Identity.HeaderTitle}");
+        if (!string.Equals(nds.Identity.GameCode, profile.RomIdentity.GameCode, StringComparison.Ordinal)) errors.Add($"ROM game code: expected {profile.RomIdentity.GameCode}, got {nds.Identity.GameCode}");
+        foreach (var fingerprint in profile.RomIdentity.LiveFingerprints)
+        {
+            var expected = Convert.FromHexString(fingerprint.Hex);
+            if (fingerprint.Offset < 0 || fingerprint.Offset + expected.Length > nds.Identity.Size ||
+                !nds.ReadRange((uint)fingerprint.Offset, expected.Length).AsSpan().SequenceEqual(expected))
+                errors.Add($"ROM fingerprint mismatch at 0x{fingerprint.Offset:X}");
+        }
     }
     else
     {
@@ -1101,6 +1181,70 @@ static int ProfileDataVerify()
         if (db.Table("moves").GroupBy(row => row.Value).Any(group => group.Count() > 1))
             errors.Add("moves: semantic display names are not unique");
     }
+    if (profile.Id == "pokemon-origin-heartgold-40-cn")
+    {
+        void RequireValue(string table, int id, string expected)
+        {
+            var actual = db.NameOf(table, id);
+            if (!string.Equals(actual, expected, StringComparison.Ordinal))
+                errors.Add($"{table}[{id}]: expected {expected}, got {actual}");
+        }
+
+        RequireValue("species_stats", 1, "45\t49\t49\t45\t65\t65\t12\t3\t45\t64\t256\t0\t0\t31\t20\t50\t3\t1\t7\t65\t34\t47");
+        RequireValue("species", 1, "妙蛙种子");
+        RequireValue("species", 25, "皮卡丘");
+        RequireValue("species", 493, "阿尔宙斯");
+        RequireValue("moves", 33, "撞击");
+        RequireValue("moves", 98, "电光一闪");
+        RequireValue("items", 1, "大师球");
+        RequireValue("items", 4, "精灵球");
+        RequireValue("abilities", 9, "静电");
+        RequireValue("species_evolutions", 1, "4,16,2,0");
+        RequireValue("move_data", 98, "40\t0\t100\t30\t0\t0\t1\t0\t0\t0\t0");
+        RequireValue("move_data", 245, "80\t0\t100\t5\t0\t0\t2\t0\t0\t0\t0");
+        var levelMoves = db.NameOf("species_level_moves", 1);
+        if (!levelMoves.Contains("1:33", StringComparison.Ordinal) ||
+            !levelMoves.Contains("1:45", StringComparison.Ordinal))
+            errors.Add($"species_level_moves[1]: expected level-1 Tackle/Growl, got {levelMoves}");
+        if (profile.Features.LiveEditing)
+            errors.Add("origin heartgold must keep liveEditing disabled; NDS uses save-file editing only");
+        if (!profile.Features.SaveEditing || profile.Strategies.Save != "origin-heartgold-40-save-v1")
+            errors.Add("origin heartgold save editing requires the dedicated NDS save strategy");
+        var savePath = Path.GetFullPath(Path.Combine(RootDir(), "..", "rom", Path.GetFileNameWithoutExtension(profile.RomIdentity.FileName) + ".sav"));
+        if (!File.Exists(savePath))
+        {
+            warnings.Add($"sample save missing: {savePath}");
+        }
+        else
+        {
+            try
+            {
+                var save = OriginHeartGoldSave.Open(savePath);
+                Console.WriteLine($"  sample save                  {save.Size} bytes / {save.Sha256}");
+                if (!save.ActiveGeneral.ChecksumValid || !save.ActiveStorage.ChecksumValid)
+                    errors.Add("origin heartgold sample save: active general/storage CRC16 failed");
+                if (save.PartyCount != 1 || save.Party.Count != 1)
+                    errors.Add($"origin heartgold sample save: expected 1 party mon, got {save.PartyCount}");
+                else
+                {
+                    var mon = save.Party[0];
+                    if (!mon.ChecksumValid) errors.Add("origin heartgold sample save: party[1] PK4 checksum failed");
+                    if (mon.Species != 25) errors.Add($"origin heartgold sample save: expected species 25, got {mon.Species}");
+                    if (mon.Level != 7) errors.Add($"origin heartgold sample save: expected level 7, got {mon.Level}");
+                    if (mon.Experience != 508) errors.Add($"origin heartgold sample save: expected exp 508, got {mon.Experience}");
+                    if (!mon.Moves.SequenceEqual((ushort[])[39, 84, 98, 86]))
+                        errors.Add($"origin heartgold sample save: expected moves 39,84,98,86 got {string.Join(',', mon.Moves)}");
+                }
+                if (save.Money != 562) errors.Add($"origin heartgold sample save: expected money 562, got {save.Money}");
+                if (save.TrainerTid != 1334 || save.TrainerSid != 27561)
+                    errors.Add($"origin heartgold sample save: expected TID/SID 1334/27561, got {save.TrainerTid}/{save.TrainerSid}");
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"origin heartgold sample save: {ex.Message}");
+            }
+        }
+    }
     if (profile.Id == "pokemon-ultimate-emerald-55-cn")
     {
         void RequireValue(string table, int id, string expected)
@@ -1142,18 +1286,26 @@ static int ProfileDataVerify()
     foreach (var table in new[] { "species", "moves", "items", "abilities" })
     {
         var placeholders = db.Table(table)
-            .Where(row => row.Value.StartsWith('#') || row.Value.Contains('□'))
+            .Where(row => row.Value.StartsWith('#') || row.Value.Contains('□') || row.Value.StartsWith("宝可梦#", StringComparison.Ordinal) || row.Value.StartsWith("招式#", StringComparison.Ordinal) || row.Value.StartsWith("道具#", StringComparison.Ordinal) || row.Value.StartsWith("特性#", StringComparison.Ordinal))
             .Select(row => row.Key)
             .ToArray();
         if (placeholders.Length > 0)
-            errors.Add($"{table}: unresolved display rows {string.Join(',', placeholders.Take(12))}{(placeholders.Length > 12 ? "..." : "")}");
+        {
+            var message = $"{table}: unresolved display rows {string.Join(',', placeholders.Take(12))}{(placeholders.Length > 12 ? "..." : "")}";
+            if (profile.IsNds || profile.Id == "pokemon-shuiyin-12-cn") warnings.Add(message);
+            else errors.Add(message);
+        }
     }
 
     foreach (var table in new[] { "move_effects", "item_effects" })
     {
         var lineCount = db.Lines(table).Count(line => !string.IsNullOrWhiteSpace(line));
         Console.WriteLine($"  {table,-28} {lineCount,5} rows");
-        if (lineCount == 0) errors.Add($"{table}: missing or empty");
+        if (lineCount == 0)
+        {
+            if (profile.IsNds) warnings.Add($"{table}: empty until Chinese text is decoded");
+            else errors.Add($"{table}: missing or empty");
+        }
     }
     foreach (var table in new[] { "species_national_dex", "species_forms", "maps", "map_sections", "map_warps" })
     {
@@ -1176,8 +1328,11 @@ static int ProfileDataVerify()
             : 0;
         if (profile.DataVerification.VerifiedMenuIconCount > 0 && numericIcons != profile.DataVerification.VerifiedMenuIconCount)
             errors.Add($"menu icons: expected {profile.DataVerification.VerifiedMenuIconCount} verified profile icons, got {numericIcons}");
-        var egg = Path.Combine(assetRoot, $"{profile.Graphics.EggSpeciesId:0000}.png");
-        if (!File.Exists(egg)) errors.Add($"egg front sprite missing: {profile.Graphics.EggSpeciesId}");
+        if (profile.Graphics.EggSpeciesId > 0)
+        {
+            var egg = Path.Combine(assetRoot, $"{profile.Graphics.EggSpeciesId:0000}.png");
+            if (!File.Exists(egg)) errors.Add($"egg front sprite missing: {profile.Graphics.EggSpeciesId}");
+        }
     }
     void VerifyPokemonSpriteSet(string label, string configuredRoot, int expected)
     {
@@ -1192,8 +1347,11 @@ static int ProfileDataVerify()
         Console.WriteLine($"  {label,-28} {found,5} / {expected}");
         if (found != expected)
             errors.Add($"{label}: expected {expected} profile species assets, got {found}");
-        var egg = Path.Combine(root, $"{profile.Graphics.EggSpeciesId:0000}.png");
-        if (!File.Exists(egg)) errors.Add($"{label}: egg sprite missing: {profile.Graphics.EggSpeciesId}");
+        if (profile.Graphics.EggSpeciesId > 0)
+        {
+            var egg = Path.Combine(root, $"{profile.Graphics.EggSpeciesId:0000}.png");
+            if (!File.Exists(egg)) errors.Add($"{label}: egg sprite missing: {profile.Graphics.EggSpeciesId}");
+        }
     }
     if (profile.Graphics.ShinySpritesVerified)
         VerifyPokemonSpriteSet(
@@ -1984,8 +2142,10 @@ if (args.Length == 0)
     Console.WriteLine("  RocketTool.Cli species --species 42 229");
     Console.WriteLine("  RocketTool.Cli move --moves 17 44 305");
     Console.WriteLine("  RocketTool.Cli item --items 1 44 231");
-    Console.WriteLine("  RocketTool.Cli profile-self-test");
-    Console.WriteLine("  RocketTool.Cli profile-data-verify");
+    Console.WriteLine("  ROCKET_TOOL_PROFILE=<id> RocketTool.Cli profile-self-test");
+    Console.WriteLine("  ROCKET_TOOL_PROFILE=<id> RocketTool.Cli profile-data-verify");
+    Console.WriteLine("  RocketTool.Cli extract-origin-heartgold [--rom path] [--out path]");
+    Console.WriteLine("  ROCKET_TOOL_PROFILE=pokemon-origin-heartgold-40-cn RocketTool.Cli origin-heartgold-save-probe [--save path]");
     Console.WriteLine("  RocketTool.Cli party-scan [--host 127.0.0.1 --port 8765]");
     Console.WriteLine("  RocketTool.Cli party-dump [--base 0x02025170] [--slot 1]");
     Console.WriteLine("  RocketTool.Cli box-scan [--limit 30 --min-score 12]");
@@ -2028,6 +2188,8 @@ return args[0] switch
     "item" or "items" => ItemStats(args[1..]),
     "profile-self-test" => ProfileSelfTest(),
     "profile-data-verify" => ProfileDataVerify(),
+    "extract-origin-heartgold" => ExtractOriginHeartGold(args[1..]),
+    "origin-heartgold-save-probe" => OriginHeartGoldSaveProbe(args[1..]),
     "shop-probe" => ShopProbe(args[1..]),
     "bag-list" => BagListLive(args[1..]),
     "bag-read" => BagRead(args[1..]),

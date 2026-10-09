@@ -1,0 +1,31 @@
+﻿{
+  "profile": "pokemon-origin-heartgold-40-cn",
+  "romSha256": "4807ab2c130581cb9d4f6110fc64b41ca4807b8d28e7622ebd3c9740baed95c8",
+  "counts": {
+    "speciesSlots": 1441,
+    "visibleSpecies": 1440,
+    "moves": 921,
+    "items": 791,
+    "abilities": 328
+  },
+  "narcOffsets": {
+    "personal": "0x7FC6000",
+    "growth": "0x7FDB200",
+    "items": "0x85C7000",
+    "moves": "0xE2C3000",
+    "levelMoves": "0x8EB0C00",
+    "evolutions": "0x8ECAA00",
+    "eggMoves": "0x499200",
+    "tutorMoves": "0x516C400",
+    "messages": "0x8748800"
+  },
+  "text": {
+    "speciesBank": 232,
+    "moveBank": 739,
+    "itemBank": 219,
+    "abilityBank": 711,
+    "mappedGlyphs": 1200,
+    "unresolvedGlyphs": 1046
+  },
+  "evidence": "See ORIGIN_HEARTGOLD_REVERSE_NOTES.md"
+}

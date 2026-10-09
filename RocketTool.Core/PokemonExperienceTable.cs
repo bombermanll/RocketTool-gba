@@ -6,24 +6,28 @@ public sealed class PokemonExperienceTable
     public const uint MaxStoredExperience = 0x007FFFFF;
     private const int GrowthRateCount = 6;
     private readonly uint[][] _thresholds;
+    private readonly int _maxLevel;
 
     public PokemonExperienceTable(ModifierDatabase database)
     {
         ArgumentNullException.ThrowIfNull(database);
-        _thresholds = new uint[GrowthRateCount][];
-
         var rows = database.Table("experience");
+        if (!rows.TryGetValue(0, out var firstRaw))
+            throw new InvalidDataException("经验表缺少成长率 0。");
+        _maxLevel = firstRaw.Split('\t').Length - 1;
+        if (_maxLevel is not (100 or 150))
+            throw new InvalidDataException($"经验表等级数量 {_maxLevel + 1} 不在已验证的 101/151 范围内。");
+
+        _thresholds = new uint[GrowthRateCount][];
         for (var growthRate = 0; growthRate < GrowthRateCount; growthRate++)
         {
             if (!rows.TryGetValue(growthRate, out var raw))
                 throw new InvalidDataException($"经验表缺少成长率 {growthRate}。");
-
             var parts = raw.Split('\t');
-            if (parts.Length != MaxLevel + 1)
-                throw new InvalidDataException($"成长率 {growthRate} 的经验表应有 {MaxLevel + 1} 项，实际为 {parts.Length} 项。");
-
-            var values = new uint[MaxLevel + 1];
-            for (var level = 0; level <= MaxLevel; level++)
+            if (parts.Length != _maxLevel + 1)
+                throw new InvalidDataException($"成长率 {growthRate} 的经验表应有 {_maxLevel + 1} 项，实际为 {parts.Length} 项。");
+            var values = new uint[_maxLevel + 1];
+            for (var level = 0; level <= _maxLevel; level++)
             {
                 if (!uint.TryParse(parts[level], out values[level]) || values[level] > MaxStoredExperience)
                     throw new InvalidDataException($"成长率 {growthRate} 的 {level} 级经验值无效：{parts[level]}。");
@@ -32,11 +36,13 @@ public sealed class PokemonExperienceTable
         }
     }
 
+    public int MaxLevelValue => _maxLevel;
+
     public uint ExperienceForLevel(int level, byte growthRate)
     {
         ValidateGrowthRate(growthRate);
-        if (level is < 0 or > MaxLevel)
-            throw new ArgumentOutOfRangeException(nameof(level), $"level must be 0..{MaxLevel}");
+        if (level is < 0 || level > _maxLevel)
+            throw new ArgumentOutOfRangeException(nameof(level), $"level must be 0..{_maxLevel}");
         return _thresholds[growthRate][level];
     }
 
@@ -44,39 +50,30 @@ public sealed class PokemonExperienceTable
     {
         ValidateGrowthRate(growthRate);
         var level = 1;
-        while (level < MaxLevel && _thresholds[growthRate][level + 1] <= experience)
+        while (level < _maxLevel && _thresholds[growthRate][level + 1] <= experience)
             level++;
         return level;
     }
 
     public bool IsConsistent(uint experience, int level, byte growthRate)
         => experience <= MaxStoredExperience
-           && level is >= 1 and <= MaxLevel
+           && level is >= 1
+           && level <= _maxLevel
            && experience >= ExperienceForLevel(level, growthRate)
            && LevelFromExperience(experience, growthRate) == level;
 
-    public uint RemapPreservingLevelProgress(
-        uint experience,
-        int sourceLevel,
-        byte sourceGrowthRate,
-        int targetLevel,
-        byte targetGrowthRate)
+    public uint RemapPreservingLevelProgress(uint experience, int sourceLevel, byte sourceGrowthRate, int targetLevel, byte targetGrowthRate)
     {
         ValidateGrowthRate(sourceGrowthRate);
         ValidateGrowthRate(targetGrowthRate);
-        if (sourceLevel is < 1 or > MaxLevel)
+        if (sourceLevel is < 1 || sourceLevel > _maxLevel || targetLevel is < 1 || targetLevel > _maxLevel)
             throw new ArgumentOutOfRangeException(nameof(sourceLevel));
-        if (targetLevel is < 1 or > MaxLevel)
-            throw new ArgumentOutOfRangeException(nameof(targetLevel));
-
         var sourceMin = ExperienceForLevel(sourceLevel, sourceGrowthRate);
         var targetMin = ExperienceForLevel(targetLevel, targetGrowthRate);
-        if (targetLevel == MaxLevel) return targetMin;
-
-        var sourceNext = ExperienceForLevel(Math.Min(sourceLevel + 1, MaxLevel), sourceGrowthRate);
+        if (targetLevel == _maxLevel) return targetMin;
+        var sourceNext = ExperienceForLevel(Math.Min(sourceLevel + 1, _maxLevel), sourceGrowthRate);
         var targetNext = ExperienceForLevel(targetLevel + 1, targetGrowthRate);
         if (sourceNext <= sourceMin || targetNext <= targetMin) return targetMin;
-
         var sourceSpan = sourceNext - sourceMin;
         var targetSpan = targetNext - targetMin;
         var sourceProgress = Math.Clamp((long)experience - sourceMin, 0, sourceSpan - 1);

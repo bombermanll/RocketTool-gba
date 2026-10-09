@@ -6,6 +6,7 @@ public static class ProfileIsolationSelfTest
     {
         VerifyMovePriorityParsing();
         VerifySpanishRocketSparseBagQuantityKey();
+        VerifyShuiyinPlainBagQuantity(profile);
         VerifySpanishRocketFixedLiveLayouts(profile);
         VerifyUnboundSection2ChecksumVariants();
         var adapter = GameRuntimeAdapterCatalog.ForProfile(profile);
@@ -43,14 +44,25 @@ public static class ProfileIsolationSelfTest
 
         if (profile.Strategies.Save == DisabledSaveStrategy.StrategyId &&
             (profile.Features.SaveEditing ||
-             adapter.CanRead(GameDataSurface.Party, false) ||
-             adapter.CanRead(GameDataSurface.Boxes, false) ||
-             adapter.CanRead(GameDataSurface.Bag, false) ||
-             adapter.CanRead(GameDataSurface.Trainer, false)))
+             !profile.IsNds && (
+                 adapter.CanRead(GameDataSurface.Party, false) ||
+                 adapter.CanRead(GameDataSurface.Boxes, false) ||
+                 adapter.CanRead(GameDataSurface.Bag, false) ||
+                 adapter.CanRead(GameDataSurface.Trainer, false))))
             throw new InvalidOperationException("disabled 存档策略仍暴露了存档能力。");
 
-        VerifyCaughtBallIsolation(profile, adapter);
-        VerifyImportInitialization(adapter);
+        if (adapter.PartyLayout != PokemonDataLayout.Disabled)
+        {
+            VerifyCaughtBallIsolation(profile, adapter);
+            VerifyImportInitialization(adapter);
+        }
+        else if (profile.Features.CaughtBall.LiveParty.Read ||
+                 profile.Features.CaughtBall.SaveParty.Read ||
+                 profile.Features.CaughtBall.LiveBoxes.Read ||
+                 profile.Features.CaughtBall.SaveBoxes.Read)
+        {
+            throw new InvalidOperationException("未验证宝可梦布局的 Profile 仍暴露了球种能力。");
+        }
     }
 
     private static void VerifyMovePriorityParsing()
@@ -60,6 +72,16 @@ public static class ProfileIsolationSelfTest
             MoveDataReader.ParsePriority("0") != 0 ||
             MoveDataReader.ParsePriority("7") != 7)
             throw new InvalidOperationException("招式优先度有符号/原始字节解析回归失败。");
+    }
+
+    private static void VerifyShuiyinPlainBagQuantity(GameProfile profile)
+    {
+        if (profile.Id != "pokemon-shuiyin-12-cn") return;
+        const ushort key = 0xBEEF;
+        var encoded = LiveBagAccess.EncodeSlot(profile, 4, 11, key, isKeyItem: false);
+        var raw = (ushort)(encoded[2] | encoded[3] << 8);
+        if (raw != 11 || LiveBagAccess.DecodeQuantity(profile, 4, raw, key, false) != 11)
+            throw new InvalidOperationException("水银实时背包明文数量编解码回归失败。");
     }
 
     private static void VerifySpanishRocketSparseBagQuantityKey()

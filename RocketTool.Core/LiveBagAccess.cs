@@ -54,7 +54,11 @@ public static class LiveBagAccess
     {
         if (itemId == 0) return 0;
         if (isKeyItem) return 1;
-        var decoded = (ushort)(rawQuantity ^ quantityKey);
+        var decoded = profile.Runtime.LiveBag.QuantityEncoding == "plain"
+            ? rawQuantity
+            : (ushort)(rawQuantity ^ quantityKey);
+        if (profile.Runtime.LiveBag.QuantityEncoding == "plain")
+            return decoded == 0 ? (ushort)1 : decoded;
         if (profile.Runtime.LiveBag.QuantityEncoding != "minus-one-xor")
             return decoded == 0 ? (ushort)1 : decoded;
         if (decoded == ushort.MaxValue)
@@ -87,7 +91,9 @@ public static class LiveBagAccess
             var plain = profile.Runtime.LiveBag.QuantityEncoding == "minus-one-xor"
                 ? (ushort)(quantity - 1)
                 : quantity;
-            rawQuantity = (ushort)(plain ^ quantityKey);
+            rawQuantity = profile.Runtime.LiveBag.QuantityEncoding == "plain"
+                ? quantity
+                : (ushort)(plain ^ quantityKey);
         }
 
         return

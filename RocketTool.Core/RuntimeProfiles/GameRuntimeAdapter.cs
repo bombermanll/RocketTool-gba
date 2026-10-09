@@ -66,7 +66,7 @@ public abstract class GameRuntimeAdapterBase : IGameRuntimeAdapter
     public virtual void InitializeImportedParty(PartyPokemon mon, byte level, byte trainerGender) { }
     public virtual void InitializeImportedBox(BoxPokemon mon, byte level, byte trainerGender) { }
 
-    public void ValidateLiveRom(MgbaBridgeClient bridge)
+    public virtual void ValidateLiveRom(MgbaBridgeClient bridge)
     {
         var identity = Profile.RomIdentity;
         var header = bridge.Read(0x080000A0, 16);
@@ -122,7 +122,8 @@ public abstract class GameRuntimeAdapterBase : IGameRuntimeAdapter
     public int RemapItemPocket(int pocket)
         => Profile.Runtime.ItemPocketRemap.TryGetValue(pocket, out var remapped)
             ? remapped
-            : IsConcreteBagPocket(pocket, true) || IsConcreteBagPocket(pocket, false)
+            : pocket is >= 1 and <= 8 &&
+              (IsConcreteBagPocket(pocket, true) || IsConcreteBagPocket(pocket, false))
                 ? pocket
                 : Profile.Runtime.DefaultItemPocket;
 
@@ -182,10 +183,14 @@ public abstract class GameRuntimeAdapterBase : IGameRuntimeAdapter
         };
         if (!actual.SequenceEqual(expected, StringComparer.Ordinal))
             throw new InvalidOperationException($"版本 {profile.Id} 的策略组合不是独立适配器 {ExpectedRuntimeStrategy} 所要求的组合，已拒绝加载。");
+        if (PartyLayout == PokemonDataLayout.Disabled &&
+            (profile.Features.LiveParty.Read || profile.Features.LiveParty.Write ||
+             !profile.IsNds && profile.Features.SaveParty.Write))
+            throw new InvalidOperationException($"版本 {profile.Id} 尚未验证队伍记录布局，却启用了队伍能力，已拒绝加载。");
         if (LiveBoxLayout == PokemonDataLayout.Disabled)
         {
             if (profile.Features.LiveBoxes.Read || profile.Features.LiveBoxes.Write ||
-                profile.Features.SaveBoxes.Read || profile.Features.SaveBoxes.Write)
+                !profile.IsNds && profile.Features.SaveBoxes.Write)
                 throw new InvalidOperationException($"版本 {profile.Id} 尚未验证箱子记录布局，却启用了箱子能力，已拒绝加载。");
         }
         else
@@ -234,6 +239,8 @@ public static class GameRuntimeAdapterCatalog
             PokemonDestinyRuntimeAdapter.StrategyId => new PokemonDestinyRuntimeAdapter(profile),
             PokemonRadicalRedRuntimeAdapter.StrategyId => new PokemonRadicalRedRuntimeAdapter(profile),
             PokemonUltimateEmerald55RuntimeAdapter.StrategyId => new PokemonUltimateEmerald55RuntimeAdapter(profile),
+            PokemonShuiyin12RuntimeAdapter.StrategyId => new PokemonShuiyin12RuntimeAdapter(profile),
+            OriginHeartGold40RuntimeAdapter.StrategyId => new OriginHeartGold40RuntimeAdapter(profile),
             var id => throw new NotSupportedException($"当前程序不支持运行时策略：{id}")
         };
 }

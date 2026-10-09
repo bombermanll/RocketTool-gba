@@ -1,0 +1,178 @@
+{
+  "id": "pokemon-origin-heartgold-40-cn",
+  "displayName": "起源心金4.0正式版",
+  "description": "NDS 起源心金 4.0 独立配置。图鉴和存档编辑使用本 ROM 专用数据与存档策略；不支持 mGBA 实时连接。中文名来自本 ROM 消息银行。",
+  "platform": "nds",
+  "romIdentity": {
+    "fileName": "xinjin4.0.nds",
+    "romSize": 536870912,
+    "sha256": "4807ab2c130581cb9d4f6110fc64b41ca4807b8d28e7622ebd3c9740baed95c8",
+    "headerTitle": "POKEMON HG",
+    "gameCode": "IPKJ",
+    "liveFingerprints": [
+      { "offset": "0x4000", "hex": "FFDEFFE7FFDEFFE7FFDEFFE7FFDEA851" }
+    ]
+  },
+  "strategies": {
+    "runtime": "origin-heartgold-40-runtime-v1",
+    "pokemon": "disabled",
+    "partyScanner": "disabled",
+    "boxScanner": "disabled",
+    "bag": "disabled",
+    "save": "origin-heartgold-40-save-v1"
+  },
+  "memory": {
+    "ewramBase": "0x0",
+    "ewramSize": 0,
+    "defaultPartyBase": "0x0",
+    "partyCountOffsetFromPartyBase": 0,
+    "saveBlock1PointerAddress": "0x0",
+    "saveBlock2PointerAddress": "0x0",
+    "saveBlock1MoneyOffset": "0x0",
+    "saveBlock2EncryptionKeyOffset": "0x0",
+    "saveBlock2PlayerOtIdOffset": 0,
+    "saveBlock2HeaderLength": 0,
+    "playerNameLength": 0,
+    "pokemonOtNameOffset": 0,
+    "pokemonOtNameLength": 0,
+    "pcBoxCount": 24,
+    "pcBoxSlots": 30,
+    "pcBoxRecordSize": 1,
+    "pcBoxStoragePointerAddress": "0x0",
+    "pcBoxDataOffset": 0,
+    "livePcBoxWritableSlotCount": 0,
+    "savePcBoxWritableSlotCount": 0,
+    "pcBoxRegions": []
+  },
+  "romTables": {
+    "baseStats": { "offset": "0x7FC6000", "entrySize": 52, "count": 1441 },
+    "moves": { "offset": "0xE2C3000", "entrySize": 40, "count": 921 },
+    "items": { "offset": "0x85C7000", "entrySize": 34, "count": 791 },
+    "evolutions": { "offset": "0x8ECAA00", "entrySize": 60, "count": 1441, "entriesPerRecord": 10 },
+    "levelMoves": { "offset": "0x8EB0C00", "entrySize": 4, "count": 1441 },
+    "experience": { "offset": "0x7FDB200", "entrySize": 404, "count": 6 },
+    "eggMoves": { "offset": "0x499200", "entrySize": 2, "count": 1441 }
+  },
+  "graphics": {
+    "spritesVerified": true,
+    "spriteAssetRoot": "Profiles/pokemon-origin-heartgold-40-cn/Pokemon/front",
+    "shinySpritesVerified": true,
+    "shinySpriteAssetRoot": "Profiles/pokemon-origin-heartgold-40-cn/Pokemon/shiny",
+    "backSpritesVerified": true,
+    "backSpriteAssetRoot": "Profiles/pokemon-origin-heartgold-40-cn/Pokemon/back",
+    "shinyBackSpriteAssetRoot": "Profiles/pokemon-origin-heartgold-40-cn/Pokemon/shiny-back",
+    "iconAssetRoot": "Profiles/pokemon-origin-heartgold-40-cn/Pokemon/icon",
+    "itemIconsVerified": true,
+    "itemIconAssetRoot": "Profiles/pokemon-origin-heartgold-40-cn/Items",
+    "frontSpriteTableOffset": "0x972C00",
+    "backSpriteTableOffset": "0x972C00",
+    "iconSpriteTableOffset": "0x675E00",
+    "itemIconTableOffset": "0x85CFA00",
+    "normalPaletteTableOffset": "0x972C00",
+    "shinyPaletteTableOffset": "0x972C00",
+    "spriteIndexAdjustment": 0,
+    "paletteIndexAdjustment": 0,
+    "eggSpeciesId": 0,
+    "verifiedItemIconCount": 791,
+    "verifiedShinySpriteCount": 1440,
+    "verifiedBackSpriteCount": 1440,
+    "verifiedShinyBackSpriteCount": 1440
+  },
+  "limits": {
+    "maxSpecies": 1440,
+    "maxMove": 920,
+    "maxItem": 790,
+    "maxAbility": 327,
+    "maxLevel": 100,
+    "maxBagQuantity": 999
+  },
+  "dataVerification": {
+    "visibleSpeciesCount": 1440,
+    "verifiedMenuIconCount": 1440
+  },
+  "features": {
+    "liveEditing": false,
+    "saveEditing": true,
+    "liveParty": { "read": false, "write": false },
+    "saveParty": { "read": true, "write": true },
+    "liveBoxes": { "read": false, "write": false },
+    "saveBoxes": { "read": true, "write": true },
+    "liveBag": { "read": false, "write": false },
+    "saveBag": { "read": true, "write": true },
+    "liveTrainer": { "read": false, "write": false },
+    "saveTrainer": { "read": true, "write": true },
+    "caughtBall": {
+      "liveParty": { "read": false, "write": false },
+      "saveParty": { "read": false, "write": false },
+      "liveBoxes": { "read": false, "write": false },
+      "saveBoxes": { "read": false, "write": false },
+      "choices": [],
+      "defaultItemId": 0,
+      "pocket": 0
+    },
+    "builtInDex": true,
+    "moveDex": true,
+    "importToParty": false,
+    "importToBoxes": false,
+    "importToSaveParty": true,
+    "importToSaveBoxes": true,
+    "experiments": false
+  },
+  "runtime": {
+    "liveBag": {
+      "mode": "disabled",
+      "baseAddress": "0x0",
+      "quantityKeyMode": "none",
+      "quantityEncoding": "xor",
+      "areas": []
+    },
+    "liveBagPockets": [],
+    "saveBagPockets": [
+      { "id": 1, "name": "道具", "batchCapacity": 165 },
+      { "id": 2, "name": "回复", "batchCapacity": 40 },
+      { "id": 3, "name": "精灵球", "batchCapacity": 24 },
+      { "id": 4, "name": "技能机", "batchCapacity": 151 },
+      { "id": 5, "name": "树果", "batchCapacity": 64 },
+      { "id": 6, "name": "信件", "batchCapacity": 12 },
+      { "id": 7, "name": "战斗用品", "batchCapacity": 30 },
+      { "id": 8, "name": "重要物品", "isKeyItem": true, "batchCapacity": 50 }
+    ],
+    "itemPocketFallbackRanges": [],
+    "itemPocketRemap": {
+      "0": 1,
+      "1": 2,
+      "2": 3,
+      "3": 4,
+      "4": 5,
+      "5": 6,
+      "6": 7,
+      "7": 8
+    },
+    "defaultItemPocket": -1,
+    "machines": {
+      "pocket": 0,
+      "mode": "disabled",
+      "tmStartItem": 0,
+      "tmCount": 0,
+      "hmStartItem": 0,
+      "hmCount": 0,
+      "hmMoveStartIndex": 0,
+      "fallbackMoveIds": []
+    },
+    "shopProbe": {
+      "enabled": false,
+      "shopPriceAddress": "0x0",
+      "shopFirstItemAddress": "0x0",
+      "sellPricePrimaryAddress": "0x0",
+      "sellPriceFallbackAddress": "0x0"
+    },
+    "bridgeExperimentProfile": "disabled",
+    "experimentNeedsSaveBaseForNoEncounter": false,
+    "experimentBattleAssist": false,
+    "experimentTeleport": false,
+    "experimentNoEncounter": false,
+    "experimentWalkThroughWalls": false,
+    "maxTrainerMoney": 0,
+    "bagBatchQuantity": 0
+  }
+}

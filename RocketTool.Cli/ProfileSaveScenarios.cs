@@ -14,7 +14,9 @@ internal static class ProfileSaveScenarioCatalog
             PokemonUnboundRuntimeAdapter.StrategyId => PokemonUnboundSaveScenario.Instance,
             PokemonDestinyRuntimeAdapter.StrategyId => PokemonDestinySaveScenario.Instance,
             PokemonRadicalRedRuntimeAdapter.StrategyId => PokemonRadicalRedSaveScenario.Instance,
+            PokemonShuiyin12RuntimeAdapter.StrategyId => PokemonShuiyin12SaveScenario.Instance,
             PokemonUltimateEmerald55RuntimeAdapter.StrategyId => PokemonUltimateEmerald55SaveScenario.Instance,
+            OriginHeartGold40RuntimeAdapter.StrategyId => throw new NotSupportedException("起源心金 4.0 尚未验证存档结构，CLI 存档场景已禁用。"),
             var id => throw new NotSupportedException($"没有与运行时适配器 {id} 配套的 CLI 存档场景。")
         };
 }
@@ -146,6 +148,85 @@ internal sealed class PokemonRadicalRedSaveScenario : IProfileSaveScenario
             var mon = BoxPokemon.Create(
                 0x22334451u + (uint)(i * 2),
                 partyInfo.OtId,
+                PokemonDataLayout.UnboundCfruPlainParty);
+            mon.SetGrowth((ushort)(i + 1), item: 0, exp: 0, friendship: 70, ppBonuses: 0);
+            mon.SetIvs(new Dictionary<string, int>
+            {
+                ["hp"] = 1, ["atk"] = 2, ["def"] = 3,
+                ["spe"] = 4, ["spa"] = 5, ["spd"] = 6, ["ability"] = 0
+            });
+            document.ReplaceBoxPokemon(targetSlots[i], mon);
+        }
+    }
+}
+
+internal sealed class PokemonShuiyin12SaveScenario : IProfileSaveScenario
+{
+    public static PokemonShuiyin12SaveScenario Instance { get; } = new();
+
+    public void ApplyVerificationChanges(Gen3SaveDocument document, PartyMonInfo? partyInfo)
+    {
+        // 各 surface 独立验证：没有队伍时仍然要覆盖训练家、背包和箱子。
+        if (document.Snapshot.Trainer is { } trainer)
+        {
+            var name = trainer.NameBytes.ToArray();
+            if (name.Length > 1 && name[1] != 0xFF) name[0] = name[1];
+            document.ReplaceTrainerName(name);
+            document.ReplaceTrainerMoney(trainer.Money == 999_999 ? trainer.Money - 1 : trainer.Money + 1);
+        }
+        if (document.CurrentPartyCount > 1)
+            document.RemovePartyPokemon(document.CurrentPartyCount);
+        if (document.Snapshot.Party.Count > 0)
+        {
+            var party = new PartyPokemon(document.Snapshot.Party[0].Raw, document.Snapshot.Party[0].Layout);
+            var before = party.GetInfo();
+            party.SetGrowth(
+                item: before.Item == 0 ? (ushort)13 : (ushort)0,
+                exp: before.Exp + 1,
+                friendship: (byte)(before.Friendship == 255 ? 254 : before.Friendship + 1));
+            party.SetMoves([55, 43, 33, 0], [20, 20, 20, 0]);
+            party.SetEvs(new Dictionary<string, byte>
+            {
+                ["hp"] = 7, ["atk"] = 0, ["def"] = 0, ["spe"] = 0, ["spa"] = 0, ["spd"] = 0
+            });
+            party.SetIvs(new Dictionary<string, int>
+            {
+                ["hp"] = 10, ["atk"] = 11, ["def"] = 12, ["spe"] = 13, ["spa"] = 14, ["spd"] = 15, ["ability"] = 1
+            });
+            document.ReplacePartyPokemon(1, party);
+        }
+        if (document.Snapshot.Bag.All(entry => entry.ItemId != 4))
+            document.AddBagItem(3, 4, 2);
+        if (document.Snapshot.Bag.All(entry => entry.ItemId != 13))
+            document.AddBagItem(1, 13, 3);
+        if (document.Snapshot.Bag.All(entry => entry.ItemId != 139))
+            document.AddBagItem(5, 139, 2);
+        if (document.Snapshot.Bag.All(entry => entry.ItemId != 1))
+            document.AddBagItem(3, 1, 4);
+        if (document.Snapshot.Bag.All(entry => entry.ItemId != 15))
+            document.AddBagItem(1, 15, 2);
+        if (document.Snapshot.Bag.All(entry => entry.ItemId != 140))
+            document.AddBagItem(5, 140, 5);
+        if (document.Snapshot.Bag.All(entry => entry.ItemId != 365))
+            document.AddBagItem(2, 365, 1);
+
+        var otId = partyInfo?.OtId ?? document.Snapshot.Trainer?.OtId ?? 0xC77E6D0Bu;
+        int[] targetSlots =
+        [
+            (1 - 1) * 30 + 1,
+            (3 - 1) * 30 + 11,   // 跨 0xFF0 的 PC 连续记录边界
+            (20 - 1) * 30 + 1,
+            (21 - 1) * 30 + 1,
+            (22 - 1) * 30 + 1,
+            (23 - 1) * 30 + 1,
+            (24 - 1) * 30 + 1,
+            (25 - 1) * 30 + 30
+        ];
+        for (var i = 0; i < targetSlots.Length; i++)
+        {
+            var mon = BoxPokemon.Create(
+                0x31415927u + (uint)(i * 2),
+                otId,
                 PokemonDataLayout.UnboundCfruPlainParty);
             mon.SetGrowth((ushort)(i + 1), item: 0, exp: 0, friendship: 70, ppBonuses: 0);
             mon.SetIvs(new Dictionary<string, int>
