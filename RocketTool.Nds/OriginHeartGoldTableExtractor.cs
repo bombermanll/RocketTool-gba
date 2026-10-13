@@ -94,9 +94,15 @@ public static class OriginHeartGoldTableExtractor
         WriteTable(outputDirectory, "species_tutor_moves.tsv", visibleSpecies.Select(id => FormatIndexedMoveList(id, tutorMoves.Files[id])));
         WriteTable(outputDirectory, "moves.tsv", Enumerable.Range(1, moves.Files.Count - 1).Select(id => $"{id}\t{DisplayName(names.Moves, id, $"招式#{id:0000}")}"));
         WriteTable(outputDirectory, "move_data.tsv", Enumerable.Range(0, moves.Files.Count).Select(id => FormatMove(id, moves.Files[id])));
+        WriteTable(outputDirectory, "move_hit_counts.tsv", Enumerable.Range(0, moves.Files.Count).Select(id => FormatMoveHits(id, moves.Files[id])));
         WriteTable(outputDirectory, "items.tsv", Enumerable.Range(0, items.Files.Count).Select(id => id == 0 ? "0\t未使用" : $"{id}\t{DisplayName(names.Items, id, $"道具#{id:0000}")}"));
         WriteTable(outputDirectory, "item_data.tsv", Enumerable.Range(0, items.Files.Count).Select(id => FormatItem(id, items.Files[id])));
         WriteTable(outputDirectory, "abilities.tsv", Enumerable.Range(0, maxAbility + 1).Select(id => id == 0 ? "0\t无" : $"{id}\t{DisplayName(names.Abilities, id, $"特性#{id:0000}")}"));
+        WriteTable(outputDirectory, "ability_descriptions.tsv", Enumerable.Range(0, maxAbility + 1).Select(id =>
+        {
+            var text = names.AbilityDescriptions.TryGetValue(id, out var description) ? SanitizeTsv(description) : "";
+            return $"{id}\t{text}";
+        }));
         WriteTable(outputDirectory, "experience.tsv", Enumerable.Range(0, 6).Select(id => FormatExperience(id, growth.Files[id])));
         WriteTable(outputDirectory, "move_effects.tsv", names.MoveEffects.OrderBy(row => row.Key).Select(row => $"{row.Key}\t{SanitizeTsv(row.Value)}"));
         WriteTable(outputDirectory, "item_effects.tsv", names.ItemEffects.OrderBy(row => row.Key).Select(row => $"{row.Key}\t{SanitizeTsv(row.Value)}"));
@@ -138,6 +144,8 @@ public static class OriginHeartGoldTableExtractor
                 "moveBank": {{OriginHeartGoldText.MoveNameBank}},
                 "itemBank": {{OriginHeartGoldText.ItemNameBank}},
                 "abilityBank": {{OriginHeartGoldText.AbilityNameBank}},
+                "abilityDescriptionBank": {{OriginHeartGoldText.AbilityDescriptionBank}},
+                "charmap": "RocketTool.Nds/Data/gen4-revised-charmap.tsv",
                 "mappedGlyphs": {{names.MappedGlyphs}},
                 "unresolvedGlyphs": {{names.UnresolvedGlyphs}}
               },
@@ -154,7 +162,7 @@ public static class OriginHeartGoldTableExtractor
             items.Files.Count,
             maxAbility,
             [
-                $"中文名来自消息银行 232/739/219/711，字形 {names.MappedGlyphs}，未映射码点 {names.UnresolvedGlyphs}。",
+                $"中文名来自消息银行 232/739/219/711 和第四世代修正字库，字形 {names.MappedGlyphs}，未映射码点 {names.UnresolvedGlyphs}。",
                 ..names.Notes,
                 "存档和实时功能保持关闭。"
             ]);
@@ -193,7 +201,9 @@ public static class OriginHeartGoldTableExtractor
     private static string FormatMove(int id, byte[] record)
     {
         // extra/new_move_data.narc: type@0, effect@1, category@2 (0 status / 1 phys / 2 spec),
-        // power@3, accuracy@4, pp@5, priority@6 as signed byte. UI category is 0 phys / 1 spec / 2 status.
+        // power@3, accuracy@4, pp@5, priority@6 as signed byte.
+        // byte@7 is packed multi-hit: low nibble minimum hits, high nibble maximum hits; 0 means not multi-hit.
+        // UI category is 0 phys / 1 spec / 2 status. byte 7 is written to move_hit_counts.tsv, not this row.
         var category = record[2] switch
         {
             1 => 0,
@@ -213,6 +223,14 @@ public static class OriginHeartGoldTableExtractor
             category,
             0,
             record[1]);
+    }
+
+    private static string FormatMoveHits(int id, byte[] record)
+    {
+        var packed = record.Length > 7 ? record[7] : 0;
+        var min = packed & 0xF;
+        var max = packed >> 4;
+        return string.Join('\t', id.ToString(CultureInfo.InvariantCulture), min, max);
     }
 
     private static string FormatItem(int id, byte[] record)

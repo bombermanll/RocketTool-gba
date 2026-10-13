@@ -285,11 +285,21 @@ public sealed record GameProfileCaughtBallChoice
     public int StoredValue { get; init; }
 }
 
+public sealed record GameProfileBagDisplayCategory
+{
+    public int Id { get; init; }
+    public required string Name { get; init; }
+    public int PhysicalPocket { get; init; }
+    public bool IsAll { get; init; }
+    public IReadOnlyList<int> ItemIds { get; init; } = [];
+}
+
 public sealed record GameProfileRuntime
 {
     public required GameProfileLiveBag LiveBag { get; init; }
     public required IReadOnlyList<GameProfileBagPocket> LiveBagPockets { get; init; }
     public required IReadOnlyList<GameProfileBagPocket> SaveBagPockets { get; init; }
+    public IReadOnlyList<GameProfileBagDisplayCategory> BagDisplayCategories { get; init; } = [];
     public IReadOnlyList<GameProfileItemPocketRange> ItemPocketFallbackRanges { get; init; } = [];
     public Dictionary<int, int> ItemPocketRemap { get; init; } = [];
     public int DefaultItemPocket { get; init; } = -1;

@@ -8,7 +8,7 @@ public sealed class PokemonShuiyin12RuntimeAdapter : GameRuntimeAdapterBase
 
     public override PokemonDataLayout PartyLayout => PokemonDataLayout.UnboundCfruPlainParty;
     public override PokemonDataLayout LiveBoxLayout => PokemonDataLayout.UnboundCfruPlainParty;
-    protected override bool SupportsCaughtBall => false;
+    protected override bool SupportsCaughtBall => true;
     public override IReadOnlyList<int> MoveTypeIds { get; } = [.. Enumerable.Range(0, 18)];
     protected override string ExpectedProfileId => "pokemon-shuiyin-12-cn";
     protected override string ExpectedRuntimeStrategy => StrategyId;

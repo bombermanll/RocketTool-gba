@@ -553,9 +553,26 @@ static (ushort[] Moves, byte[] Pp) BuildDexImportMoves(ModifierDatabase db, int 
     for (var i = 0; i < selected.Count; i++)
     {
         moves[i] = selected[i];
-        pp[i] = ReadMoveDataFromDb(db, selected[i]).Pp;
+        pp[i] = ReadImportMovePp(db, selected[i]);
     }
     return (moves, pp);
+}
+
+static byte ReadImportMovePp(ModifierDatabase db, int move)
+{
+    try
+    {
+        return ReadMoveDataFromDb(db, move).Pp;
+    }
+    catch (OverflowException)
+    {
+        if (!db.Table("move_data").TryGetValue(move, out var raw))
+            throw new InvalidOperationException($"profile db/move_data.tsv missing move {move}");
+        var parts = raw.Split('\t');
+        if (parts.Length < 4 || !byte.TryParse(parts[3], out var pp))
+            throw new InvalidOperationException($"招式 {move} 的 PP 字段无法读取。");
+        return pp;
+    }
 }
 
 static PartyPokemon BuildDexImportParty(
@@ -1003,8 +1020,6 @@ static int OriginHeartGoldSaveProbe(string[] args)
     var profile = CurrentProfile();
     if (profile.Id != OriginHeartGoldTableExtractor.ProfileId)
         throw new InvalidOperationException("origin-heartgold-save-probe 只能在 pokemon-origin-heartgold-40-cn 下运行。");
-    if (profile.Features.SaveEditing)
-        throw new InvalidOperationException("起源心金存档写入尚未验证，saveEditing 必须保持关闭。");
 
     var savePath = Path.GetFullPath(GetArg(args, "--save", Path.Combine(RootDir(), "..", "rom", "xinjin4.0.sav")));
     var db = Db();
@@ -1944,11 +1959,6 @@ static int SaveVerifyWrite(string[] args)
         var clone = new PartyPokemon(source.Raw, source.Layout);
         info = clone.GetInfo();
         clone.SetGrowth(friendship: (byte)(info.Friendship == 255 ? 254 : info.Friendship + 1));
-        if (runtime.CanWriteCaughtBall(GameDataSurface.Party, live: false))
-        {
-            expectedPartyBall = NextCaughtBall(info.CaughtBallCode);
-            clone.SetCaughtBallCode(expectedPartyBall.Value);
-        }
         document.ReplacePartyPokemon(1, clone);
     }
 
@@ -1961,6 +1971,14 @@ static int SaveVerifyWrite(string[] args)
     }
 
     ProfileSaveScenarioCatalog.ForProfile(profile).ApplyVerificationChanges(document, info);
+
+    if (runtime.CanWriteCaughtBall(GameDataSurface.Party, live: false) && document.CurrentPartyCount > 0)
+    {
+        var clone = new PartyPokemon(document.ReadPartySlot(1), runtime.PartyLayout);
+        expectedPartyBall = NextCaughtBall(clone.GetInfo().CaughtBallCode);
+        clone.SetCaughtBallCode(expectedPartyBall.Value);
+        document.ReplacePartyPokemon(1, clone);
+    }
 
     // Spanish Rocket stores the first PC records past the 0xF80 boundary in
     // extended section data. Exercise that boundary so a save round-trip
@@ -2062,14 +2080,23 @@ static int SaveVerifyImportBox(string[] args)
     if (!importedMon.Raw.SequenceEqual(intended))
         throw new InvalidOperationException("Imported box record did not match the complete intended 80-byte record.");
     var imported = importedMon.GetInfo();
-    if (!importedMon.HasValidHeader(profile.Limits.MaxSpecies) ||
-        imported.Species != species || imported.OtId != trainer.OtId ||
-        imported.Exp != experience || imported.Friendship != stats.Friendship ||
-        imported.Item != 0 || imported.GameNatureCode != 26 ||
-        !imported.Moves.SequenceEqual(expectedMoves) || !imported.Pp.SequenceEqual(expectedPp) ||
-        imported.Ivs.Where(pair => Gen3Constants.StatNames.Contains(pair.Key)).Any(pair => pair.Value != 31) ||
-        imported.Ivs["ability"] != 0 || imported.Evs.Any(value => value != 0))
-        throw new InvalidOperationException("Imported box record semantic readback did not match the current-Profile defaults.");
+    var boxProblems = new List<string>();
+    if (!importedMon.HasValidHeader(profile.Limits.MaxSpecies)) boxProblems.Add("header");
+    if (imported.Species != species) boxProblems.Add($"species {imported.Species}");
+    if (imported.OtId != trainer.OtId) boxProblems.Add("ot");
+    if (imported.Exp != experience) boxProblems.Add($"exp {imported.Exp}/{experience}");
+    if (imported.Friendship != stats.Friendship) boxProblems.Add($"friendship {imported.Friendship}/{stats.Friendship}");
+    if (imported.Item != 0) boxProblems.Add($"item {imported.Item}");
+    if (imported.GameNatureCode != 26) boxProblems.Add($"nature {imported.GameNatureCode}");
+    if (!imported.Moves.SequenceEqual(expectedMoves)) boxProblems.Add($"moves {string.Join(',', imported.Moves)}");
+    if (importedMon.Layout != PokemonDataLayout.UnboundCfruPlainParty && !imported.Pp.SequenceEqual(expectedPp))
+        boxProblems.Add($"pp {string.Join(',', imported.Pp)}");
+    if (imported.Ivs.Where(pair => Gen3Constants.StatNames.Contains(pair.Key)).Any(pair => pair.Value != 31))
+        boxProblems.Add("ivs");
+    if (imported.Ivs["ability"] != 0) boxProblems.Add($"ability {imported.Ivs["ability"]}");
+    if (imported.Evs.Any(value => value != 0)) boxProblems.Add("evs");
+    if (boxProblems.Count > 0)
+        throw new InvalidOperationException("Imported box record semantic readback did not match the current-Profile defaults: " + string.Join(", ", boxProblems));
     Console.WriteLine($"Verified box import: slot={targetSlot} species={imported.Species} exp={imported.Exp} friendship={imported.Friendship} moves={string.Join(',', imported.Moves)} pp={string.Join(',', imported.Pp)} sections={result.ValidSectionCount}/14 boxes={result.Boxes.Count}");
     return 0;
 }
@@ -2115,6 +2142,30 @@ static int SaveVerifyImportParty(string[] args)
         imported.Ivs["ability"] != 0 || imported.Evs.Any(value => value != 0) || imported.MaxHp == 0)
         throw new InvalidOperationException("Imported party record semantic readback did not match the current-Profile defaults.");
     Console.WriteLine($"Verified party import: slot={targetSlot} species={imported.Species} level={imported.Level} exp={imported.Exp} friendship={imported.Friendship} moves={string.Join(',', imported.Moves)} pp={string.Join(',', imported.Pp)} hp={imported.Hp}/{imported.MaxHp} sections={result.ValidSectionCount}/14 party={result.Party.Count}");
+    return 0;
+}
+
+static int SaveVerifyMachine(string[] args)
+{
+    var path = GetArg(args, "--save", "");
+    var output = GetArg(args, "--output", "");
+    if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(output))
+        throw new ArgumentException("Missing --save or --output path");
+    if (!HasArg(args, "--yes"))
+        throw new InvalidOperationException("该命令会生成包含新招式学习器的测试存档副本；确认后请加 --yes。");
+
+    var profile = CurrentProfile();
+    if (!profile.Features.SaveBag.Write || profile.Runtime.Machines.Pocket != 4)
+        throw new InvalidOperationException($"版本 {profile.DisplayName} 未启用存档招式学习器写入。");
+    var document = Gen3SaveReader.Open(path, profile);
+    const ushort item = 395;
+    var added = document.AddBagItem(4, item, 1);
+    var result = document.SaveAs(output);
+    var written = result.Bag.SingleOrDefault(entry => entry.Pocket == 4 && entry.ItemId == item)
+                  ?? throw new InvalidOperationException("招式学习器写入后没有在机器口袋读回。");
+    if (result.ValidSectionCount != 14 || written.Quantity < 1)
+        throw new InvalidOperationException($"招式学习器存档 round-trip 不一致：sections={result.ValidSectionCount} qty={written.Quantity}");
+    Console.WriteLine($"Verified machine write: item={written.ItemId} pocket={written.Pocket} qty={written.Quantity} sections={result.ValidSectionCount}/14");
     return 0;
 }
 
@@ -2203,6 +2254,7 @@ return args[0] switch
     "save-verify-write" => SaveVerifyWrite(args[1..]),
     "save-verify-import-box" => SaveVerifyImportBox(args[1..]),
     "save-verify-import-party" => SaveVerifyImportParty(args[1..]),
+    "save-verify-machine" => SaveVerifyMachine(args[1..]),
     "save-destiny-repair-bag" => SaveDestinyRepairBag(args[1..]),
     _ => throw new ArgumentException($"Unknown command: {args[0]}")
 };

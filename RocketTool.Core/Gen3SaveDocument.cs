@@ -86,6 +86,7 @@ public sealed class Gen3SaveDocument
     }
 
     public string SourcePath { get; }
+    internal GameProfile Profile => _profile;
     public Gen3SaveReadResult Snapshot { get; }
     public bool CanWrite => string.IsNullOrEmpty(WriteBlockReason);
     public string? WriteBlockReason { get; }
@@ -98,7 +99,6 @@ public sealed class Gen3SaveDocument
     public bool TrainerModified => _expectedTrainerName is not null || _expectedMoney.HasValue;
     public IReadOnlyList<Gen3SaveBagEntry> CurrentBag => _currentBag;
     public IReadOnlyList<Gen3SaveCorruptBoxEntry> CurrentCorruptBoxes => _currentCorruptBoxes;
-    internal GameProfile Profile => _profile;
     internal IReadOnlyDictionary<int, int> ItemPockets => _itemPockets;
 
     public void ReplaceTrainerName(ReadOnlySpan<byte> nameBytes)
@@ -124,6 +124,13 @@ public sealed class Gen3SaveDocument
         if (slot < 1 || slot > CurrentPartyCount)
             throw new ArgumentOutOfRangeException(nameof(slot), $"队伍槽位必须在 1..{CurrentPartyCount} 之间。");
         return _partyOffset + (slot - 1) * PartyPokemon.Size;
+    }
+
+    public byte[] ReadPartySlot(int slot)
+    {
+        var bytes = new byte[PartyPokemon.Size];
+        ReadLogicalRange(SaveBlock1FirstSection, PartySaveOffset(slot), bytes);
+        return bytes;
     }
 
     public void ReplacePartyPokemon(int slot, PartyPokemon mon)
@@ -312,7 +319,8 @@ public sealed class Gen3SaveDocument
             _currentBag.Add(entry);
             _expectedBag[offset] = (entry.ItemId, entry.Quantity);
             ReindexBagEntries();
-            return _currentBag.First(candidate => candidate.SaveOffset == offset);
+            
+             return _currentBag.First(candidate => candidate.SaveOffset == offset);
         }
 
         throw new InvalidOperationException($"{_strategy.PocketName(pocket)}没有空格，无法添加新道具。");

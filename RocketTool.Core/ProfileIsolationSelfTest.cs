@@ -5,8 +5,10 @@ public static class ProfileIsolationSelfTest
     public static void Verify(GameProfile profile)
     {
         VerifyMovePriorityParsing();
+        VerifyExperienceTable(profile);
         VerifySpanishRocketSparseBagQuantityKey();
         VerifyShuiyinPlainBagQuantity(profile);
+        VerifyShuiyinPhysicalPocketField(profile);
         VerifySpanishRocketFixedLiveLayouts(profile);
         VerifyUnboundSection2ChecksumVariants();
         var adapter = GameRuntimeAdapterCatalog.ForProfile(profile);
@@ -74,6 +76,14 @@ public static class ProfileIsolationSelfTest
             throw new InvalidOperationException("招式优先度有符号/原始字节解析回归失败。");
     }
 
+    private static void VerifyExperienceTable(GameProfile profile)
+    {
+        if (profile.Id != "pokemon-shuiyin-12-cn") return;
+        var table = new PokemonExperienceTable(new ModifierDatabase(profile.DatabaseDirectory));
+        if (table.MaxLevelValue != 100 || table.ExperienceForLevel(2, 2) != 4)
+            throw new InvalidOperationException("水银 101 项经验表回归失败。");
+    }
+
     private static void VerifyShuiyinPlainBagQuantity(GameProfile profile)
     {
         if (profile.Id != "pokemon-shuiyin-12-cn") return;
@@ -82,6 +92,23 @@ public static class ProfileIsolationSelfTest
         var raw = (ushort)(encoded[2] | encoded[3] << 8);
         if (raw != 11 || LiveBagAccess.DecodeQuantity(profile, 4, raw, key, false) != 11)
             throw new InvalidOperationException("水银实时背包明文数量编解码回归失败。");
+    }
+
+    private static void VerifyShuiyinPhysicalPocketField(GameProfile profile)
+    {
+        if (profile.Id != "pokemon-shuiyin-12-cn") return;
+        var pockets = new ModifierDatabase(profile.DatabaseDirectory).Table("item_pockets");
+        var itemData = new ModifierDatabase(profile.DatabaseDirectory).Table("item_data");
+        foreach (var (item, pocketText) in pockets)
+        {
+            if (!itemData.TryGetValue(item, out var raw))
+                throw new InvalidOperationException($"水银道具 {item} 缺少 item_data 行。");
+            var fields = raw.Split('\t');
+            if (fields.Length <= 7 || !int.TryParse(fields[7], out var physicalPocket) ||
+                !int.TryParse(pocketText, out var configuredPocket) ||
+                physicalPocket != configuredPocket)
+                throw new InvalidOperationException($"水银道具 {item} 的物理口袋未按 ROM +0x19 配置。");
+        }
     }
 
     private static void VerifySpanishRocketSparseBagQuantityKey()

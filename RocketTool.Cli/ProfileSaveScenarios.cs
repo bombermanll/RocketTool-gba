@@ -209,7 +209,6 @@ internal sealed class PokemonShuiyin12SaveScenario : IProfileSaveScenario
             document.AddBagItem(5, 140, 5);
         if (document.Snapshot.Bag.All(entry => entry.ItemId != 365))
             document.AddBagItem(2, 365, 1);
-
         var otId = partyInfo?.OtId ?? document.Snapshot.Trainer?.OtId ?? 0xC77E6D0Bu;
         int[] targetSlots =
         [

@@ -564,7 +564,8 @@ public partial class MainWindow : Window
         TrainerMoneyApplyButton.IsVisible = trainerWrite && (live || _loadedSave?.CanWrite == true);
         TrainerMoneyApplyButton.Content = live ? "写入金钱" : "应用金钱到待保存存档";
         BagReadButton.IsVisible = live && bagRead;
-        BagAddButton.IsVisible = bagWrite && (live || _loadedSave?.CanWrite == true);
+                 BagAddButton.IsVisible = bagWrite && (live || _loadedSave?.CanWrite == true);
+         BagDeleteButton.IsVisible = bagWrite && (live || _loadedSave?.CanWrite == true);
         BagApplyButton.IsVisible = bagWrite && (live || _loadedSave?.CanWrite == true);
         BagApplyButton.Content = live ? "写入当前槽" : "应用到当前槽";
         BagList.IsVisible = live || _profile.IsNds;
@@ -610,6 +611,8 @@ public partial class MainWindow : Window
 
         if (!live && MainTabs.SelectedItem == ExperimentTab)
             MainTabs.SelectedItem = PartyTab;
+        if (MainTabs.SelectedItem is not TabItem selectedTab || !selectedTab.IsVisible)
+            MainTabs.SelectedItem = PartyTab.IsVisible ? PartyTab : DexTab.IsVisible ? DexTab : MoveDexTab;
         if (_profile.IsNds && !live)
             ApplyNdsSaveReadChrome();
         else
@@ -638,6 +641,7 @@ public partial class MainWindow : Window
         BoxDeleteButton.IsVisible = ndsSaveWrite && _profile.Features.SaveBoxes.Write;
         BoxApplyButton.IsVisible = ndsSaveWrite && _profile.Features.SaveBoxes.Write;
         BagAddButton.IsVisible = ndsSaveWrite && _profile.Features.SaveBag.Write;
+         BagDeleteButton.IsVisible = ndsSaveWrite && _profile.Features.SaveBag.Write;
         BagApplyButton.IsVisible = ndsSaveWrite && _profile.Features.SaveBag.Write;
         TrainerApplyNameButton.IsVisible = ndsSaveWrite && _profile.Features.SaveTrainer.Write;
         TrainerMoneyApplyButton.IsVisible = ndsSaveWrite && _profile.Features.SaveTrainer.Write;
@@ -698,6 +702,7 @@ public partial class MainWindow : Window
         TrainerMoneyApplyButton.IsVisible = false;
         BagReadButton.IsVisible = false;
         BagAddButton.IsVisible = false;
+         BagDeleteButton.IsVisible = false;
         BagApplyButton.IsVisible = false;
         DexImportPartyButton.IsVisible = false;
         DexImportBoxPanel.IsVisible = false;
@@ -730,12 +735,20 @@ public partial class MainWindow : Window
     }
 
     private ChoiceRow[] BuildBagPocketChoices(bool live)
-        =>
+    {
+        var configured = _profile.Runtime.BagDisplayCategories;
+        if (configured.Count > 0)
+            return configured.Select(category => new ChoiceRow(category.Id, category.Name)).ToArray();
+        return
         [
             .. _runtime.BagPockets(live).Select(pocket => new ChoiceRow(pocket.Id, pocket.Name)),
             new(-1, "未知/候选"),
             new(0, "全部口袋")
         ];
+    }
+
+    private int PhysicalBagPocket(int pocket)
+        => _profile.Runtime.BagDisplayCategories.FirstOrDefault(category => category.Id == pocket)?.PhysicalPocket ?? pocket;
 
     private void UpdateSaveButtons()
     {
@@ -1710,6 +1723,13 @@ public partial class MainWindow : Window
             UpdateBoxEggHatchEditor(null);
         }
 
+        if (PartyTab.IsVisible)
+        {
+            MainTabs.SelectedItem = PartyTab;
+            if (PartyList.SelectedItem is PartySlotRow row)
+                FillEditor(row);
+        }
+
         ConnectionStatusText.Text = $"mGBA已断开；已读取存档：{save.FileName}";
         LastWriteText.Text = _loadedSave.CanWrite
             ? "当前来源：存档编辑副本；队伍、背包和箱子可修改，原文件不会被覆盖。"
@@ -2415,11 +2435,66 @@ public partial class MainWindow : Window
         });
     }
 
+    private async void OnBagDeleteClicked(object? sender, RoutedEventArgs e)
+    {
+        if (_profile.IsNds)
+        {
+            if (BagList.SelectedItem is not BagSlotRow ndsRow || _loadedNdsSave is null)
+            {
+                ShowToast("请先选择要删除的道具。", success: false);
+                return;
+            }
+            var pocket = _loadedNdsSave.BagPockets.FirstOrDefault(candidate => NdsPocketId(candidate.Name) == ndsRow.Pocket);
+            if (pocket is null) return;
+            StageNdsEdit(editor => editor.RemoveBagItem(pocket.Name, ndsRow.SlotInPocket));
+            SetWriteNotice($"已删除 {ItemName(ndsRow.ItemId)}，尚未写回原存档。请点保存修改并备份。", success: true);
+            return;
+        }
+
+        if (_dataSourceMode == DataSourceMode.SaveFile)
+        {
+            var row = SaveBagList.SelectedItem is SaveBagEditableRow editable ? editable.Row : null;
+            if (row is null)
+            {
+                ShowToast("请先选择要删除的道具。", success: false);
+                return;
+            }
+            await RunUiTask("删除存档背包道具", () =>
+            {
+                var document = _loadedSave ?? throw new InvalidOperationException("请先读取存档。");
+                document.ReplaceBagEntry(checked((int)row.Address), 0, 0);
+                LoadSaveBagRows(document.CurrentBag);
+                UpdateSaveButtons();
+                SetWriteNotice($"已删除 {ItemName(row.ItemId)}，等待保存。", success: true);
+            });
+            return;
+        }
+
+        if (BagList.SelectedItem is not BagSlotRow liveRow)
+        {
+            ShowToast("请先选择要删除的道具。", success: false);
+            return;
+        }
+        await RunUiTask("删除实时背包道具", () =>
+        {
+            using var bridge = ConnectBridge();
+            EnsureBagSelectionFresh(bridge);
+            var quantityKey = ReadProfileQuantityKey(bridge);
+            var before = ReadProfileLiveBagSlot(bridge, liveRow.Address, liveRow.Pocket, quantityKey);
+            WriteLiveBagRange(bridge, liveRow.Address, EncodeProfileLiveBagSlot(liveRow.Pocket, 0, 0, quantityKey));
+            var after = ReadProfileLiveBagSlot(bridge, liveRow.Address, liveRow.Pocket, quantityKey);
+            if (after.ItemId != 0 || after.Quantity != 0)
+                throw new InvalidOperationException("删除后读回仍有道具，已停止后续操作。");
+            LoadFixedBagRows(bridge);
+            SetWriteNotice($"已删除实时背包道具 {ItemName(before.ItemId)}。请回游戏确认后手动保存。", success: true);
+        });
+    }
+
     private async void OnBagAddClicked(object? sender, RoutedEventArgs e)
     {
         if (_profile.IsNds)
         {
-            var selectedPocket = SelectedChoiceId(BagPocketTabs) ?? 0;
+            var selectedPocket = PhysicalBagPocket(SelectedChoiceId(BagPocketTabs) ?? 0);
             if (!IsConcreteBagPocket(selectedPocket))
                 throw new InvalidOperationException("请先切换到具体背包分类。");
             var pocket = _loadedNdsSave?.BagPockets.FirstOrDefault(candidate => NdsPocketId(candidate.Name) == selectedPocket)
@@ -2436,7 +2511,7 @@ public partial class MainWindow : Window
             await RunUiTask("添加存档背包道具", () =>
             {
                 var document = _loadedSave ?? throw new InvalidOperationException("请先读取存档。");
-                var selectedPocket = SelectedChoiceId(BagPocketTabs) ?? 0;
+                var selectedPocket = PhysicalBagPocket(SelectedChoiceId(BagPocketTabs) ?? 0);
                 if (selectedPocket <= 0)
                     selectedPocket = CurrentBagEditPocket();
                 if (!IsConcreteBagPocket(selectedPocket))
@@ -2460,7 +2535,7 @@ public partial class MainWindow : Window
 
     private void AddFixedLiveBagItem(MgbaBridgeClient bridge)
     {
-        var selectedPocket = SelectedChoiceId(BagPocketTabs) ?? 0;
+        var selectedPocket = PhysicalBagPocket(SelectedChoiceId(BagPocketTabs) ?? 0);
         if (!IsConcreteBagPocket(selectedPocket))
             selectedPocket = CurrentBagEditPocket();
         var areas = ProfileLiveBagAreas(selectedPocket);
@@ -2520,16 +2595,17 @@ public partial class MainWindow : Window
 
     private async void OnBagGiveAllCurrentPocketClicked(object? sender, RoutedEventArgs e)
     {
-        var pocket = SelectedChoiceId(BagPocketTabs) ?? 0;
-        if (pocket <= 0)
-            pocket = CurrentBagEditPocket();
-        if (!IsConcreteBagPocket(pocket))
+        var categoryId = SelectedChoiceId(BagPocketTabs) ?? 0;
+        if (categoryId <= 0)
+            categoryId = CurrentBagEditPocket();
+        var pocket = PhysicalBagPocket(categoryId);
+        if (!IsConcreteBagPocket(categoryId))
         {
             ShowToast("请先选择一个具体背包分类。", success: false);
             return;
         }
 
-        var items = BagItemChoicesForPocket(pocket)
+        var items = BagItemChoicesForPocket(categoryId)
             .Where(choice => choice.Id > 0 && PocketOfItem(choice.Id) == pocket && IsBulkImportableItem(choice.Id))
             .Select(choice => (ushort)choice.Id)
             .Distinct()
@@ -2565,6 +2641,15 @@ public partial class MainWindow : Window
 
     private ushort[] MachineBagItemIds(bool includeHms)
     {
+        var fromTable = _db.Table("machine_items")
+            .Select(pair => (Item: pair.Key, Machine: int.TryParse(pair.Value, out var machine) ? machine : 0))
+            .Where(row => row.Machine is >= 1 and <= 128 && (includeHms ? row.Machine >= 121 : row.Machine <= 120))
+            .OrderBy(row => row.Machine)
+            .Select(row => (ushort)row.Item)
+            .ToArray();
+        if (fromTable.Length > 0)
+            return fromTable;
+
         if (_profile.Runtime.Machines.Mode == "item-data")
         {
             return Enumerable.Range(1, MaxItemId())
@@ -2594,9 +2679,9 @@ public partial class MainWindow : Window
                 var document = _loadedSave ?? throw new InvalidOperationException("请先读取存档。");
                 var writableItems = items.Where(item => MachineMoveName(item) is not null).ToArray();
                 var skipped = items.Count - writableItems.Length;
-                var result = document.SetBagItems(MachinePocket, writableItems, BatchQuantityForPocket(MachinePocket));
+                var result = document.SetBagItems(MachinePocket, writableItems, 1);
                 LoadSaveBagRows(document.CurrentBag);
-                BagPocketTabs.SelectedItem = _bagPocketChoices.FirstOrDefault(choice => choice.Id == MachinePocket) ?? BagPocketTabs.SelectedItem;
+                BagPocketTabs.SelectedItem = _bagPocketChoices.FirstOrDefault(choice => PhysicalBagPocket(choice.Id) == MachinePocket) ?? BagPocketTabs.SelectedItem;
                 SelectSaveBagRow(_bagRows.FirstOrDefault(row => writableItems.Contains(row.ItemId))?.Address);
                 UpdateSaveButtons();
                 SetWriteNotice($"{label}已写入存档副本：新增 {result.Added} 个，更新 {result.Updated} 个，跳过 {skipped} 个，等待保存。");
@@ -3867,9 +3952,21 @@ public partial class MainWindow : Window
         for (var i = 0; i < selected.Count; i++)
         {
             moves[i] = selected[i];
-            pp[i] = (byte)Math.Clamp(CalculateMaxPp(ReadMoveData(selected[i]).Pp, 0), 0, byte.MaxValue);
+            pp[i] = (byte)Math.Clamp(CalculateMaxPp(ReadImportMovePp(selected[i]), 0), 0, byte.MaxValue);
         }
         return (moves, pp);
+    }
+
+    private byte ReadImportMovePp(int move)
+    {
+        if (TryReadEmbeddedMoveData(move, out var data))
+            return data.Pp;
+        if (!_db.Table("move_data").TryGetValue(move, out var raw))
+            throw MissingEmbeddedDataException("招式数据", move);
+        var parts = raw.Split('\t');
+        if (parts.Length < 4 || !byte.TryParse(parts[3], out var pp))
+            throw new InvalidOperationException($"招式 {move} 的 PP 字段无法读取。");
+        return pp;
     }
 
     private static Dictionary<string, int> DefaultImportIvs() => new()
@@ -6743,25 +6840,29 @@ public partial class MainWindow : Window
     private void ApplyBagPocketFilter()
     {
         if (_bagRows is null || BagPocketTabs is null || BagItemBox is null || _itemChoices is null) return;
-        var selectedPocket = SelectedChoiceId(BagPocketTabs) ?? 0;
-        UpdateBagBatchButtons(selectedPocket);
-        var rows = selectedPocket == 0
-            ? _allBagRows
-            : _allBagRows.Where(row => row.Pocket == selectedPocket);
+        var selectedCategory = SelectedChoiceId(BagPocketTabs) ?? 0;
+        var selectedPocket = PhysicalBagPocket(selectedCategory);
+        var category = _profile.Runtime.BagDisplayCategories.FirstOrDefault(candidate => candidate.Id == selectedCategory);
+        UpdateBagBatchButtons(selectedCategory);
+        var rows = category?.IsAll == true
+            ? _allBagRows.Where(row => selectedPocket <= 0 || row.Pocket == selectedPocket)
+            : category is null
+                ? _allBagRows.Where(row => selectedPocket <= 0 || row.Pocket == selectedPocket)
+                : _allBagRows.Where(row => category.ItemIds.Contains(row.ItemId));
         _bagRows.Clear();
         foreach (var row in rows)
             _bagRows.Add(row);
         if (_dataSourceMode == DataSourceMode.SaveFile)
         {
-            SetBagItemChoicesForPocket(selectedPocket);
+            SetBagItemChoicesForPocket(selectedCategory);
             RefreshSaveBagEditableRows();
             UpdateBagNameText();
             return;
         }
-        if (BagList.SelectedItem is BagSlotRow selectedRow && _bagRows.Contains(selectedRow))
+        if (BagList.SelectedItem is BagSlotRow selectedRow && _bagRows.Contains(selectedRow) && category is null)
             SetBagItemChoicesForPocket(selectedRow.Pocket);
         else
-            SetBagItemChoicesForPocket(selectedPocket);
+            SetBagItemChoicesForPocket(selectedCategory);
         UpdateBagNameText();
     }
 
@@ -6777,8 +6878,11 @@ public partial class MainWindow : Window
         }
 
         var pocket = selectedPocket ?? SelectedChoiceId(BagPocketTabs) ?? 0;
+        var physicalPocket = PhysicalBagPocket(pocket);
         var isConcretePocket = IsConcreteBagPocket(pocket);
-        var isMachinePocket = pocket == MachinePocket;
+        var isMachinePocket = _dataSourceMode == DataSourceMode.SaveFile &&
+                              MachinePocket > 0 &&
+                              physicalPocket == MachinePocket;
         if (_dataSourceMode == DataSourceMode.Live)
         {
             BagGiveAllCurrentPocketButton.IsVisible = isConcretePocket;
@@ -6852,7 +6956,7 @@ public partial class MainWindow : Window
         var nature = NatureText(info.Nature, info.GameNatureCode);
         var ability = AbilityText(info.Species, info.Ivs["ability"]);
         BasicNameText.Text = $"种类：{SpeciesName(info.Species)}  携带道具：{itemName}  性格：{nature}  性别：{GenderText(GenderChoiceId(info.Species, info.Pid))}  特性：{ability}  闪光：{(PartyPokemon.IsShinyPid(info.Pid, info.OtId) ? "是" : "否")}";
-        MoveNameText.Text = string.Join("  /  ", info.Moves.Select((m, i) => $"招式{i + 1}: {(m == 0 ? "无" : MoveName(m))}"));
+        MoveNameText.Text = FormatMoveStatLines(info.Moves);
         UpdateMaxPpTexts(
             [Move1Box, Move2Box, Move3Box, Move4Box],
             [PpUp1Box, PpUp2Box, PpUp3Box, PpUp4Box],
@@ -6887,13 +6991,8 @@ public partial class MainWindow : Window
                 [Move1Box, Move2Box, Move3Box, Move4Box],
                 ppUps,
                 [Move1MaxPpText, Move2MaxPpText, Move3MaxPpText, Move4MaxPpText]);
-            var moves = new[] { Move1Box, Move2Box, Move3Box, Move4Box }
-                .Select((box, i) =>
-                {
-                    var move = ParseChoiceUShortOrNull(box, _moveChoices) ?? 0;
-                    return $"招式{i + 1}: {(move == 0 ? "无" : MoveName(move))} / PP提升{SelectedPpBonus(ppUps[i])}次";
-                });
-            MoveNameText.Text = string.Join("  /  ", moves);
+            MoveNameText.Text = FormatMoveStatLines(new[] { Move1Box, Move2Box, Move3Box, Move4Box }
+                .Select(box => ParseChoiceUShortOrNull(box, _moveChoices) ?? 0));
         }
         catch
         {
@@ -6959,19 +7058,14 @@ public partial class MainWindow : Window
                 [BoxMove1Box, BoxMove2Box, BoxMove3Box, BoxMove4Box],
                 ppUps,
                 [BoxMove1MaxPpText, BoxMove2MaxPpText, BoxMove3MaxPpText, BoxMove4MaxPpText]);
-            var moves = new[] { BoxMove1Box, BoxMove2Box, BoxMove3Box, BoxMove4Box }
-                .Select((box, i) =>
-                {
-                    var move = ParseChoiceUShortOrNull(box, _moveChoices) ?? 0;
-                    return $"招式{i + 1}: {(move == 0 ? "无" : MoveName(move))} / PP提升{SelectedPpBonus(ppUps[i])}次";
-                });
+            BoxMoveDetailText.Text = FormatMoveStatLines(new[] { BoxMove1Box, BoxMove2Box, BoxMove3Box, BoxMove4Box }
+                .Select(box => ParseChoiceUShortOrNull(box, _moveChoices) ?? 0));
             BoxNameText.Text = $"宝可梦：{(species == 0 ? "无" : SpeciesName(species))}  携带：{ItemName(item)}  " +
                                $"PID性格：{(SelectedChoiceId(BoxNatureBox) is { } n ? NatureDisplays[n] : "未选择")}  " +
                                $"性别：{(SelectedChoiceId(BoxGenderBox) is { } g ? GenderText(g) : "未选择")}  " +
                                $"特性：{BoxAbilityBox.SelectedItem?.ToString() ?? "未选择"}  " +
                                $"闪光：{(BoxShinyBox.IsChecked == true ? "是" : "否")}  " +
-                               $"经验：{(exp is null ? "未填" : exp.Value)}  亲密度：{(friendship is null ? "未填" : friendship.Value)}\n" +
-                               string.Join("  /  ", moves);
+                               $"经验：{(exp is null ? "未填" : exp.Value)}  亲密度：{(friendship is null ? "未填" : friendship.Value)}";
         }
         catch
         {
@@ -6990,10 +7084,12 @@ public partial class MainWindow : Window
 
     private ChoiceRow[] BagItemChoicesForPocket(int pocket, int? selectedItem = null)
     {
-        if (!IsConcreteBagPocket(pocket))
+        var category = _profile.Runtime.BagDisplayCategories.FirstOrDefault(candidate => candidate.Id == pocket);
+        var physicalPocket = PhysicalBagPocket(pocket);
+        if (!IsConcreteBagPocket(physicalPocket))
             return _itemChoices;
         var choices = _itemChoices
-            .Where(choice => choice.Id == 0 || PocketOfItem(choice.Id) == pocket)
+            .Where(choice => choice.Id == 0 || BelongsToBagCategory(choice.Id, category, physicalPocket))
             .ToArray();
         if (selectedItem is > 0 &&
             choices.All(choice => choice.Id != selectedItem.Value) &&
@@ -7002,6 +7098,14 @@ public partial class MainWindow : Window
             return choices.Concat([current]).OrderBy(choice => choice.Id).ToArray();
         }
         return choices;
+    }
+
+    private bool BelongsToBagCategory(int itemId, GameProfileBagDisplayCategory? category, int physicalPocket)
+    {
+        if (category?.IsAll == true) return true;
+        if (category is not null)
+            return category.ItemIds.Contains(itemId);
+        return IsConcreteBagPocket(physicalPocket) && PocketOfItem(itemId) == physicalPocket;
     }
 
     private int CurrentBagEditPocket()
@@ -7013,15 +7117,15 @@ public partial class MainWindow : Window
         if (BagList.SelectedItem is BagSlotRow row &&
             string.Equals(BagAddressBox.Text, $"0x{row.Address:X8}", StringComparison.OrdinalIgnoreCase))
             return row.Pocket;
-        var selectedPocket = SelectedChoiceId(BagPocketTabs) ?? 0;
+        var selectedPocket = PhysicalBagPocket(SelectedChoiceId(BagPocketTabs) ?? 0);
         return IsConcreteBagPocket(selectedPocket) ? selectedPocket : 0;
     }
 
     private bool IsConcreteBagPocket(int pocket)
-        => _runtime.IsConcreteBagPocket(pocket, _dataSourceMode == DataSourceMode.Live);
+        => _runtime.IsConcreteBagPocket(PhysicalBagPocket(pocket), _dataSourceMode == DataSourceMode.Live);
 
     private bool IsKeyItemPocket(int pocket)
-        => _runtime.IsKeyItemPocket(pocket, _dataSourceMode == DataSourceMode.Live);
+        => _runtime.IsKeyItemPocket(PhysicalBagPocket(pocket), _dataSourceMode == DataSourceMode.Live);
 
     private ushort MaxBagWriteQuantityForPocket(int pocket)
         => (ushort)_profile.Limits.MaxBagQuantityForPocket(pocket);
@@ -7048,7 +7152,7 @@ public partial class MainWindow : Window
 
     private ushort ParseBagItemRequired(int requiredPocket, bool allowEmpty)
     {
-        var item = ParseChoiceUShortRequired(BagItemBox, _itemChoices, "道具");
+        var item = ParseChoiceUShortRequired(BagItemBox, _bagItemChoices, "道具");
         if (item == 0)
         {
             if (allowEmpty) return item;
@@ -7855,8 +7959,9 @@ public partial class MainWindow : Window
             ushort U(int index) => ushort.Parse(parts[index]);
             byte B(int index) => byte.Parse(parts[index]);
             sbyte S(int index) => MoveDataReader.ParsePriority(parts[index]);
+            var flags = uint.Parse(parts[7]);
             var effect = parts.Length >= 11 ? B(10) : (byte)0;
-            data = new MoveData(move, U(0), B(1), B(2), B(3), B(4), U(5), S(6), U(7), B(8), U(9), effect, []);
+            data = new MoveData(move, U(0), B(1), B(2), B(3), B(4), U(5), S(6), (ushort)Math.Min(flags, ushort.MaxValue), B(8), U(9), effect, []);
             return true;
         }
         catch
@@ -8449,6 +8554,16 @@ public partial class MainWindow : Window
             ? ComparisonNeutralBrush
             : current > official.Value ? ComparisonHigherBrush : ComparisonLowerBrush;
 
+    private string FormatMoveStatLines(IEnumerable<ushort> moves)
+        => string.Join("\n", moves.Select((move, index) => $"招式{index + 1}：{MoveStatSummary(move)}"));
+
+    private string MoveStatSummary(int move)
+    {
+        if (move <= 0) return "无";
+        if (!TryReadEmbeddedMoveData(move, out var data)) return MoveName(move);
+        return $"{MoveName(move)}  {MoveTypeNameZh(data.Type)} / {MoveCategoryNameZh(data.Category)}  威力 {MovePowerText(data.Power)}  命中 {MoveAccuracyText(data.Accuracy)}  PP {data.Pp}";
+    }
+
     private static string MovePowerText(int power)
         => power == 0 ? "-" : power.ToString();
 
@@ -8457,6 +8572,17 @@ public partial class MainWindow : Window
 
     private string? MachineMoveName(int item)
     {
+        if (_db.Table("machine_items").TryGetValue(item, out var machineText) &&
+            int.TryParse(machineText, out var listedMachine) &&
+            listedMachine is >= 1 and <= 128)
+        {
+            var moveId = MachineMoveId(listedMachine);
+            if (moveId <= 0) return null;
+            return listedMachine >= 121
+                ? $"HM{listedMachine - 120:00} {MoveName(moveId)}"
+                : $"TM{listedMachine:000} {MoveName(moveId)}";
+        }
+
         var rules = _profile.Runtime.Machines;
         if (rules.Mode == "item-data")
         {

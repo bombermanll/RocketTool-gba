@@ -1,0 +1,731 @@
+# CFRU reference-only candidates; never treated as Shuiyin ROM evidence
+id	shuiyin_current	other_cfru_reference	status	source
+0	未解码道具0	无	reference-only	pokemon-unbound-211-cn
+1	大师球	大师球	reference-only	pokemon-unbound-211-cn
+2	高级球	高级球	reference-only	pokemon-unbound-211-cn
+3	超级球	超级球	reference-only	pokemon-unbound-211-cn
+4	精灵球	精灵球	reference-only	pokemon-unbound-211-cn
+5	狩猎球	狩猎球	reference-only	pokemon-unbound-211-cn
+6	捕网球	捕网球	reference-only	pokemon-unbound-211-cn
+7	潜水球	潜水球	reference-only	pokemon-unbound-211-cn
+8	未解码道具8	巢穴球	reference-only	pokemon-unbound-211-cn
+9	重复球	重复球	reference-only	pokemon-unbound-211-cn
+10	计时球	计时球	reference-only	pokemon-unbound-211-cn
+11	豪华球	豪华球	reference-only	pokemon-unbound-211-cn
+12	纪念球	纪念球	reference-only	pokemon-unbound-211-cn
+13	未解码道具13	伤药	reference-only	pokemon-unbound-211-cn
+14	解毒药	解毒药	reference-only	pokemon-unbound-211-cn
+15	未解码道具15	灼伤药	reference-only	pokemon-unbound-211-cn
+16	未解码道具16	解冻药	reference-only	pokemon-unbound-211-cn
+17	未解码道具17	解眠药	reference-only	pokemon-unbound-211-cn
+18	解麻药	解麻药	reference-only	pokemon-unbound-211-cn
+19	未解码道具19	全复药	reference-only	pokemon-unbound-211-cn
+20	未解码道具20	全满药	reference-only	pokemon-unbound-211-cn
+21	未解码道具21	厉害伤药	reference-only	pokemon-unbound-211-cn
+22	好伤药	好伤药	reference-only	pokemon-unbound-211-cn
+23	未解码道具23	万灵药	reference-only	pokemon-unbound-211-cn
+24	活力碎片	活力碎片	reference-only	pokemon-unbound-211-cn
+25	未解码道具25	活力块	reference-only	pokemon-unbound-211-cn
+26	美味之水	美味之水	reference-only	pokemon-unbound-211-cn
+27	未解码道具27	劲爽汽水	reference-only	pokemon-unbound-211-cn
+28	未解码道具28	果汁牛奶	reference-only	pokemon-unbound-211-cn
+29	未解码道具29	哞哞鲜奶	reference-only	pokemon-unbound-211-cn
+30	元气粉	元气粉	reference-only	pokemon-unbound-211-cn
+31	元气根	元气根	reference-only	pokemon-unbound-211-cn
+32	万能粉	万能粉	reference-only	pokemon-unbound-211-cn
+33	未解码道具33	复活草	reference-only	pokemon-unbound-211-cn
+34	未解码道具34	ＰＰ单项小补剂	reference-only	pokemon-unbound-211-cn
+35	未解码道具35	ＰＰ单项全补剂	reference-only	pokemon-unbound-211-cn
+36	未解码道具36	ＰＰ多项小补剂	reference-only	pokemon-unbound-211-cn
+37	未解码道具37	ＰＰ多项全补剂	reference-only	pokemon-unbound-211-cn
+38	未解码道具38	釜炎仙贝	reference-only	pokemon-unbound-211-cn
+39	未解码道具39	蓝色玻璃哨	reference-only	pokemon-unbound-211-cn
+40	未解码道具40	黄色玻璃哨	reference-only	pokemon-unbound-211-cn
+41	未解码道具41	红色玻璃哨	reference-only	pokemon-unbound-211-cn
+42	未解码道具42	黑色玻璃哨	reference-only	pokemon-unbound-211-cn
+43	未解码道具43	白色玻璃哨	reference-only	pokemon-unbound-211-cn
+44	未解码道具44	树果汁	reference-only	pokemon-unbound-211-cn
+45	圣灰	圣灰	reference-only	pokemon-unbound-211-cn
+46	未解码道具46	浅滩海盐	reference-only	pokemon-unbound-211-cn
+47	未解码道具47	浅滩贝壳	reference-only	pokemon-unbound-211-cn
+48	红色碎片	红色碎片	reference-only	pokemon-unbound-211-cn
+49	蓝色碎片	蓝色碎片	reference-only	pokemon-unbound-211-cn
+50	未解码道具50	黄色碎片	reference-only	pokemon-unbound-211-cn
+51	绿色碎片	绿色碎片	reference-only	pokemon-unbound-211-cn
+52	未解码道具52	公园球	reference-only	pokemon-unbound-211-cn
+53	未解码道具53	贵重球	reference-only	pokemon-unbound-211-cn
+54	未解码道具54	黑暗球	reference-only	pokemon-unbound-211-cn
+55	密阿雷格雷派	生命宝珠	reference-only	pokemon-unbound-211-cn
+56	未解码道具56	剧毒宝珠	reference-only	pokemon-unbound-211-cn
+57	体力之羽	火焰宝珠	reference-only	pokemon-unbound-211-cn
+58	肌力之羽	黑色污泥	reference-only	pokemon-unbound-211-cn
+59	抵抗之羽	极巨粉	reference-only	pokemon-unbound-211-cn
+60	智力之羽	黑暗球	reference-only	pokemon-unbound-211-cn
+61	精神之羽	治愈球	reference-only	pokemon-unbound-211-cn
+62	瞬发之羽	先机球	reference-only	pokemon-unbound-211-cn
+63	未解码道具63	ＨＰ增强剂	reference-only	pokemon-unbound-211-cn
+64	未解码道具64	攻击增强剂	reference-only	pokemon-unbound-211-cn
+65	未解码道具65	防御增强剂	reference-only	pokemon-unbound-211-cn
+66	未解码道具66	速度增强剂	reference-only	pokemon-unbound-211-cn
+67	未解码道具67	特攻增强剂	reference-only	pokemon-unbound-211-cn
+68	神奇糖果	神奇糖果	reference-only	pokemon-unbound-211-cn
+69	未解码道具69	ＰＰ提升剂	reference-only	pokemon-unbound-211-cn
+70	未解码道具70	特防增强剂	reference-only	pokemon-unbound-211-cn
+71	未解码道具71	ＰＰ极限提升剂	reference-only	pokemon-unbound-211-cn
+72	极巨糖果	道具72	reference-only	pokemon-unbound-211-cn
+73	能力防守	能力防守	reference-only	pokemon-unbound-211-cn
+74	要害攻击	要害攻击	reference-only	pokemon-unbound-211-cn
+75	力量强化	力量强化	reference-only	pokemon-unbound-211-cn
+76	防御强化	防御强化	reference-only	pokemon-unbound-211-cn
+77	速度强化	速度强化	reference-only	pokemon-unbound-211-cn
+78	命中强化	命中强化	reference-only	pokemon-unbound-211-cn
+79	特攻强化	特攻强化	reference-only	pokemon-unbound-211-cn
+80	皮皮玩偶	皮皮玩偶	reference-only	pokemon-unbound-211-cn
+81	向尾喵的尾巴	向尾喵的尾巴	reference-only	pokemon-unbound-211-cn
+82	大马拉萨达	道具82	reference-only	pokemon-unbound-211-cn
+83	白银喷雾	白银喷雾	reference-only	pokemon-unbound-211-cn
+84	未解码道具84	黄金喷雾	reference-only	pokemon-unbound-211-cn
+85	未解码道具85	离洞绳	reference-only	pokemon-unbound-211-cn
+86	除虫喷雾	除虫喷雾	reference-only	pokemon-unbound-211-cn
+87	未解码道具87	金刚宝珠	reference-only	pokemon-unbound-211-cn
+88	护具	白玉宝珠	reference-only	pokemon-unbound-211-cn
+89	未解码道具89	白金宝珠	reference-only	pokemon-unbound-211-cn
+90	未解码道具90	超梦进化石Ｙ	reference-only	pokemon-unbound-211-cn
+91	未解码道具91	道具91	reference-only	pokemon-unbound-211-cn
+92	灵界之布	道具92	reference-only	pokemon-unbound-211-cn
+93	日之石	日之石	reference-only	pokemon-unbound-211-cn
+94	月之石	月之石	reference-only	pokemon-unbound-211-cn
+95	火之石	火之石	reference-only	pokemon-unbound-211-cn
+96	雷之石	雷之石	reference-only	pokemon-unbound-211-cn
+97	水之石	水之石	reference-only	pokemon-unbound-211-cn
+98	叶之石	叶之石	reference-only	pokemon-unbound-211-cn
+99	光之石	暗之石	reference-only	pokemon-unbound-211-cn
+100	暗之石	觉醒之石	reference-only	pokemon-unbound-211-cn
+101	觉醒之石	光之石	reference-only	pokemon-unbound-211-cn
+102	冰之石	浑圆之石	reference-only	pokemon-unbound-211-cn
+103	小蘑菇	小蘑菇	reference-only	pokemon-unbound-211-cn
+104	大蘑菇	大蘑菇	reference-only	pokemon-unbound-211-cn
+105	芳香蘑菇	楔石	reference-only	pokemon-unbound-211-cn
+106	珍珠	珍珠	reference-only	pokemon-unbound-211-cn
+107	大珍珠	大珍珠	reference-only	pokemon-unbound-211-cn
+108	星星沙子	星星沙子	reference-only	pokemon-unbound-211-cn
+109	星星碎片	星星碎片	reference-only	pokemon-unbound-211-cn
+110	金珠	金珠	reference-only	pokemon-unbound-211-cn
+111	心之鳞片	心之鳞片	reference-only	pokemon-unbound-211-cn
+112	贵重骨头	巨大金珠	reference-only	pokemon-unbound-211-cn
+113	丸子珍珠	丸子珍珠	reference-only	pokemon-unbound-211-cn
+114	彗星碎片	贵重骨头	reference-only	pokemon-unbound-211-cn
+115	巨大金珠	芳香蘑菇	reference-only	pokemon-unbound-211-cn
+116	甜甜蜜	超级耳环	reference-only	pokemon-unbound-211-cn
+117	美丽之羽	超级坠饰	reference-only	pokemon-unbound-211-cn
+118	未解码道具118	超级脚镯	reference-only	pokemon-unbound-211-cn
+119	未解码道具119	超级护腕	reference-only	pokemon-unbound-211-cn
+120	未解码道具120	超级发饰	reference-only	pokemon-unbound-211-cn
+121	未解码道具121	橙色邮件	reference-only	pokemon-unbound-211-cn
+122	未解码道具122	港口邮件	reference-only	pokemon-unbound-211-cn
+123	未解码道具123	闪亮邮件	reference-only	pokemon-unbound-211-cn
+124	未解码道具124	机械邮件	reference-only	pokemon-unbound-211-cn
+125	未解码道具125	木纹邮件	reference-only	pokemon-unbound-211-cn
+126	未解码道具126	波涛邮件	reference-only	pokemon-unbound-211-cn
+127	未解码道具127	珠宝邮件	reference-only	pokemon-unbound-211-cn
+128	未解码道具128	影子邮件	reference-only	pokemon-unbound-211-cn
+129	未解码道具129	热带邮件	reference-only	pokemon-unbound-211-cn
+130	未解码道具130	梦幻邮件	reference-only	pokemon-unbound-211-cn
+131	未解码道具131	华丽邮件	reference-only	pokemon-unbound-211-cn
+132	未解码道具132	怀旧邮件	reference-only	pokemon-unbound-211-cn
+133	桃桃果	樱子果	reference-only	pokemon-unbound-211-cn
+134	未解码道具134	零余果	reference-only	pokemon-unbound-211-cn
+135	苹野果	桃桃果	reference-only	pokemon-unbound-211-cn
+136	?	莓莓果	reference-only	pokemon-unbound-211-cn
+137	利木果	利木果	reference-only	pokemon-unbound-211-cn
+138	橙橙果	苹野果	reference-only	pokemon-unbound-211-cn
+139	樱子果	橙橙果	reference-only	pokemon-unbound-211-cn
+140	未解码道具140	柿仔果	reference-only	pokemon-unbound-211-cn
+141	木子果	木子果	reference-only	pokemon-unbound-211-cn
+142	未解码道具142	文柚果	reference-only	pokemon-unbound-211-cn
+143	未解码道具143	勿花果	reference-only	pokemon-unbound-211-cn
+144	异奇果	异奇果	reference-only	pokemon-unbound-211-cn
+145	芒芒果	芒芒果	reference-only	pokemon-unbound-211-cn
+146	乐芭果	乐芭果	reference-only	pokemon-unbound-211-cn
+147	芭亚果	芭亚果	reference-only	pokemon-unbound-211-cn
+148	未解码道具148	蔓莓果	reference-only	pokemon-unbound-211-cn
+149	未解码道具149	墨莓果	reference-only	pokemon-unbound-211-cn
+150	未解码道具150	蕉香果	reference-only	pokemon-unbound-211-cn
+151	未解码道具151	西梨果	reference-only	pokemon-unbound-211-cn
+152	未解码道具152	凰梨果	reference-only	pokemon-unbound-211-cn
+153	未解码道具153	榴石果	reference-only	pokemon-unbound-211-cn
+154	藻根果	藻根果	reference-only	pokemon-unbound-211-cn
+155	比巴果	比巴果	reference-only	pokemon-unbound-211-cn
+156	哈密果	哈密果	reference-only	pokemon-unbound-211-cn
+157	未解码道具157	萄葡果	reference-only	pokemon-unbound-211-cn
+158	未解码道具158	茄番果	reference-only	pokemon-unbound-211-cn
+159	未解码道具159	玉黍果	reference-only	pokemon-unbound-211-cn
+160	未解码道具160	岳竹果	reference-only	pokemon-unbound-211-cn
+161	未解码道具161	茸丹果	reference-only	pokemon-unbound-211-cn
+162	未解码道具162	檬柠果	reference-only	pokemon-unbound-211-cn
+163	刺角果	刺角果	reference-only	pokemon-unbound-211-cn
+164	椰木果	椰木果	reference-only	pokemon-unbound-211-cn
+165	瓜西果	瓜西果	reference-only	pokemon-unbound-211-cn
+166	金枕果	金枕果	reference-only	pokemon-unbound-211-cn
+167	未解码道具167	靛莓果	reference-only	pokemon-unbound-211-cn
+168	未解码道具168	枝荔果	reference-only	pokemon-unbound-211-cn
+169	龙睛果	龙睛果	reference-only	pokemon-unbound-211-cn
+170	沙鳞果	沙鳞果	reference-only	pokemon-unbound-211-cn
+171	龙火果	龙火果	reference-only	pokemon-unbound-211-cn
+172	未解码道具172	杏仔果	reference-only	pokemon-unbound-211-cn
+173	兰萨果	兰萨果	reference-only	pokemon-unbound-211-cn
+174	未解码道具174	星桃果	reference-only	pokemon-unbound-211-cn
+175	未解码道具175	谜芝果	reference-only	pokemon-unbound-211-cn
+176	美丽鳞片	讲究头带	reference-only	pokemon-unbound-211-cn
+177	香袋	讲究眼镜	reference-only	pokemon-unbound-211-cn
+178	未解码道具178	讲究围巾	reference-only	pokemon-unbound-211-cn
+179	光粉	光粉	reference-only	pokemon-unbound-211-cn
+180	白色香草	白色香草	reference-only	pokemon-unbound-211-cn
+181	未解码道具181	强制锻炼器	reference-only	pokemon-unbound-211-cn
+182	学习装置	学习装置	reference-only	pokemon-unbound-211-cn
+183	先制之爪	先制之爪	reference-only	pokemon-unbound-211-cn
+184	未解码道具184	安抚之铃	reference-only	pokemon-unbound-211-cn
+185	心灵香草	心灵香草	reference-only	pokemon-unbound-211-cn
+186	未解码道具186	讲究头带	reference-only	pokemon-unbound-211-cn
+187	未解码道具187	王者之证	reference-only	pokemon-unbound-211-cn
+188	银粉	银粉	reference-only	pokemon-unbound-211-cn
+189	未解码道具189	护符金币	reference-only	pokemon-unbound-211-cn
+190	未解码道具190	洁净之符	reference-only	pokemon-unbound-211-cn
+191	心之水滴	心之水滴	reference-only	pokemon-unbound-211-cn
+192	深海之牙	深海之牙	reference-only	pokemon-unbound-211-cn
+193	深海鳞片	深海鳞片	reference-only	pokemon-unbound-211-cn
+194	烟雾球	烟雾球	reference-only	pokemon-unbound-211-cn
+195	不变之石	不变之石	reference-only	pokemon-unbound-211-cn
+196	气势头带	气势头带	reference-only	pokemon-unbound-211-cn
+197	幸运蛋	幸运蛋	reference-only	pokemon-unbound-211-cn
+198	未解码道具198	焦点镜	reference-only	pokemon-unbound-211-cn
+199	未解码道具199	金属膜	reference-only	pokemon-unbound-211-cn
+200	未解码道具200	吃剩的东西	reference-only	pokemon-unbound-211-cn
+201	龙之鳞片	龙之鳞片	reference-only	pokemon-unbound-211-cn
+202	电气球	电气球	reference-only	pokemon-unbound-211-cn
+203	未解码道具203	柔软沙子	reference-only	pokemon-unbound-211-cn
+204	硬石头	硬石头	reference-only	pokemon-unbound-211-cn
+205	奇迹种子	奇迹种子	reference-only	pokemon-unbound-211-cn
+206	黑色眼镜	黑色眼镜	reference-only	pokemon-unbound-211-cn
+207	黑带	黑带	reference-only	pokemon-unbound-211-cn
+208	磁铁	磁铁	reference-only	pokemon-unbound-211-cn
+209	神秘水滴	神秘水滴	reference-only	pokemon-unbound-211-cn
+210	未解码道具210	锐利鸟嘴	reference-only	pokemon-unbound-211-cn
+211	毒针	毒针	reference-only	pokemon-unbound-211-cn
+212	未解码道具212	不融冰	reference-only	pokemon-unbound-211-cn
+213	未解码道具213	诅咒之符	reference-only	pokemon-unbound-211-cn
+214	未解码道具214	弯曲的汤匙	reference-only	pokemon-unbound-211-cn
+215	木炭	木炭	reference-only	pokemon-unbound-211-cn
+216	龙之牙	龙之牙	reference-only	pokemon-unbound-211-cn
+217	丝绸围巾	丝绸围巾	reference-only	pokemon-unbound-211-cn
+218	未解码道具218	升级数据	reference-only	pokemon-unbound-211-cn
+219	贝壳之铃	贝壳之铃	reference-only	pokemon-unbound-211-cn
+220	未解码道具220	海潮薰香	reference-only	pokemon-unbound-211-cn
+221	未解码道具221	悠闲薰香	reference-only	pokemon-unbound-211-cn
+222	吉利拳	幸运拳套	reference-only	pokemon-unbound-211-cn
+223	金属粉	金属粉	reference-only	pokemon-unbound-211-cn
+224	未解码道具224	粗骨头	reference-only	pokemon-unbound-211-cn
+225	大葱	大葱	reference-only	pokemon-unbound-211-cn
+226	未解码道具226	充电石	reference-only	pokemon-unbound-211-cn
+227	未解码道具227	连接石	reference-only	pokemon-unbound-211-cn
+228	爱心糖饰	熔岩增幅器	reference-only	pokemon-unbound-211-cn
+229	幸运草糖饰	护具	reference-only	pokemon-unbound-211-cn
+230	花朵糖饰	锐利之爪	reference-only	pokemon-unbound-211-cn
+231	未解码道具231	锐利之牙	reference-only	pokemon-unbound-211-cn
+232	星星糖饰	灵界之布	reference-only	pokemon-unbound-211-cn
+233	甜甜苹果	可疑补丁	reference-only	pokemon-unbound-211-cn
+234	酸酸苹果	电力增幅器	reference-only	pokemon-unbound-211-cn
+235	破裂的茶壶	达人带	reference-only	pokemon-unbound-211-cn
+236	未解码道具236	强力香草	reference-only	pokemon-unbound-211-cn
+237	未解码道具237	广角镜	reference-only	pokemon-unbound-211-cn
+238	未解码道具238	焦点镜	reference-only	pokemon-unbound-211-cn
+239	贵重球	红线	reference-only	pokemon-unbound-211-cn
+240	黑暗球	冰冷岩石	reference-only	pokemon-unbound-211-cn
+241	治愈球	沙沙岩石	reference-only	pokemon-unbound-211-cn
+242	先机球	炽热岩石	reference-only	pokemon-unbound-211-cn
+243	速度球	潮湿岩石	reference-only	pokemon-unbound-211-cn
+244	等级球	力量护腕	reference-only	pokemon-unbound-211-cn
+245	未解码道具245	力量腰带	reference-only	pokemon-unbound-211-cn
+246	未解码道具246	力量镜	reference-only	pokemon-unbound-211-cn
+247	甜蜜球	力量束带	reference-only	pokemon-unbound-211-cn
+248	未解码道具248	力量护踝	reference-only	pokemon-unbound-211-cn
+249	月亮球	力量负重	reference-only	pokemon-unbound-211-cn
+250	未解码道具250	大根茎	reference-only	pokemon-unbound-211-cn
+251	未解码道具251	道具251	reference-only	pokemon-unbound-211-cn
+252	未解码道具252	道具252	reference-only	pokemon-unbound-211-cn
+253	未解码道具253	道具253	reference-only	pokemon-unbound-211-cn
+254	红色头巾	红色头巾	reference-only	pokemon-unbound-211-cn
+255	蓝色头巾	蓝色头巾	reference-only	pokemon-unbound-211-cn
+256	粉红头巾	粉红头巾	reference-only	pokemon-unbound-211-cn
+257	绿色头巾	绿色头巾	reference-only	pokemon-unbound-211-cn
+258	未解码道具258	黄色头巾	reference-only	pokemon-unbound-211-cn
+259	音速自行车	音速自行车	reference-only	pokemon-unbound-211-cn
+260	未解码道具260	代币盒	reference-only	pokemon-unbound-211-cn
+261	探宝器	探宝器	reference-only	pokemon-unbound-211-cn
+262	破旧钓竿	破旧钓竿	reference-only	pokemon-unbound-211-cn
+263	未解码道具263	好钓竿	reference-only	pokemon-unbound-211-cn
+264	未解码道具264	厉害钓竿	reference-only	pokemon-unbound-211-cn
+265	未解码道具265	船票	reference-only	pokemon-unbound-211-cn
+266	未解码道具266	华丽大赛参加证	reference-only	pokemon-unbound-211-cn
+267	未解码道具267	道具267	reference-only	pokemon-unbound-211-cn
+268	杰尼龟喷壶	吼吼鲸喷壶	reference-only	pokemon-unbound-211-cn
+269	未解码道具269	得文的物品	reference-only	pokemon-unbound-211-cn
+270	未解码道具270	集灰袋	reference-only	pokemon-unbound-211-cn
+271	长老的信	地下钥匙	reference-only	pokemon-unbound-211-cn
+272	同步器	越野自行车	reference-only	pokemon-unbound-211-cn
+273	未解码道具273	CASE	reference-only	pokemon-unbound-211-cn
+274	未解码道具274	信件	reference-only	pokemon-unbound-211-cn
+275	未解码道具275	无限船票	reference-only	pokemon-unbound-211-cn
+276	未解码道具276	朱红色宝珠	reference-only	pokemon-unbound-211-cn
+277	未解码道具277	靛蓝色宝珠	reference-only	pokemon-unbound-211-cn
+278	伊布尾巴	探测器	reference-only	pokemon-unbound-211-cn
+279	红色羽毛	ＧＯＧＯ护目镜	reference-only	pokemon-unbound-211-cn
+280	蓝色羽毛	陨石	reference-only	pokemon-unbound-211-cn
+281	卡比玩偶	屏障钥匙	reference-only	pokemon-unbound-211-cn
+282	皮可西玩偶	２号房钥匙	reference-only	pokemon-unbound-211-cn
+283	未解码道具283	４号房钥匙	reference-only	pokemon-unbound-211-cn
+284	未解码道具284	６号房钥匙	reference-only	pokemon-unbound-211-cn
+285	未解码道具285	仓库钥匙	reference-only	pokemon-unbound-211-cn
+286	未解码道具286	根状化石	reference-only	pokemon-unbound-211-cn
+287	爪子化石	爪子化石	reference-only	pokemon-unbound-211-cn
+288	未解码道具288	得文侦测镜	reference-only	pokemon-unbound-211-cn
+289	未解码道具289	TM001 真气拳	reference-only	pokemon-unbound-211-cn
+290	未解码道具290	TM002 龙爪	reference-only	pokemon-unbound-211-cn
+291	未解码道具291	TM003 水之波动	reference-only	pokemon-unbound-211-cn
+292	未解码道具292	TM004 冥想	reference-only	pokemon-unbound-211-cn
+293	未解码道具293	TM005 吼叫	reference-only	pokemon-unbound-211-cn
+294	未解码道具294	TM006 剧毒	reference-only	pokemon-unbound-211-cn
+295	未解码道具295	TM007 冰雹	reference-only	pokemon-unbound-211-cn
+296	未解码道具296	TM008 健美	reference-only	pokemon-unbound-211-cn
+297	未解码道具297	TM009 种子机关枪	reference-only	pokemon-unbound-211-cn
+298	未解码道具298	TM010 觉醒力量	reference-only	pokemon-unbound-211-cn
+299	未解码道具299	TM011 大晴天	reference-only	pokemon-unbound-211-cn
+300	未解码道具300	TM012 挑衅	reference-only	pokemon-unbound-211-cn
+301	未解码道具301	TM013 冰冻光束	reference-only	pokemon-unbound-211-cn
+302	未解码道具302	TM014 暴风雪	reference-only	pokemon-unbound-211-cn
+303	未解码道具303	TM015 破坏光线	reference-only	pokemon-unbound-211-cn
+304	未解码道具304	TM016 光墙	reference-only	pokemon-unbound-211-cn
+305	未解码道具305	TM017 守住	reference-only	pokemon-unbound-211-cn
+306	未解码道具306	TM018 求雨	reference-only	pokemon-unbound-211-cn
+307	未解码道具307	TM019 终极吸取	reference-only	pokemon-unbound-211-cn
+308	未解码道具308	TM020 神秘守护	reference-only	pokemon-unbound-211-cn
+309	未解码道具309	TM021 迁怒	reference-only	pokemon-unbound-211-cn
+310	未解码道具310	TM022 日光束	reference-only	pokemon-unbound-211-cn
+311	未解码道具311	TM023 铁尾	reference-only	pokemon-unbound-211-cn
+312	未解码道具312	TM024 十万伏特	reference-only	pokemon-unbound-211-cn
+313	未解码道具313	TM025 打雷	reference-only	pokemon-unbound-211-cn
+314	未解码道具314	TM026 地震	reference-only	pokemon-unbound-211-cn
+315	未解码道具315	TM027 报恩	reference-only	pokemon-unbound-211-cn
+316	未解码道具316	TM028 挖洞	reference-only	pokemon-unbound-211-cn
+317	未解码道具317	TM029 精神强念	reference-only	pokemon-unbound-211-cn
+318	未解码道具318	TM030 暗影球	reference-only	pokemon-unbound-211-cn
+319	未解码道具319	TM031 劈瓦	reference-only	pokemon-unbound-211-cn
+320	未解码道具320	TM032 影子分身	reference-only	pokemon-unbound-211-cn
+321	未解码道具321	TM033 反射壁	reference-only	pokemon-unbound-211-cn
+322	未解码道具322	TM034 电击波	reference-only	pokemon-unbound-211-cn
+323	未解码道具323	TM035 喷射火焰	reference-only	pokemon-unbound-211-cn
+324	未解码道具324	TM036 污泥炸弹	reference-only	pokemon-unbound-211-cn
+325	未解码道具325	TM037 沙暴	reference-only	pokemon-unbound-211-cn
+326	未解码道具326	TM038 大字爆炎	reference-only	pokemon-unbound-211-cn
+327	未解码道具327	TM039 岩石封锁	reference-only	pokemon-unbound-211-cn
+328	未解码道具328	TM040 燕返	reference-only	pokemon-unbound-211-cn
+329	未解码道具329	TM041 无理取闹	reference-only	pokemon-unbound-211-cn
+330	未解码道具330	TM042 硬撑	reference-only	pokemon-unbound-211-cn
+331	未解码道具331	TM043 秘密之力	reference-only	pokemon-unbound-211-cn
+332	未解码道具332	TM044 睡觉	reference-only	pokemon-unbound-211-cn
+333	未解码道具333	TM045 迷人	reference-only	pokemon-unbound-211-cn
+334	小偷	TM046 小偷	reference-only	pokemon-unbound-211-cn
+335	未解码道具335	TM047 钢翼	reference-only	pokemon-unbound-211-cn
+336	未解码道具336	TM048 特性互换	reference-only	pokemon-unbound-211-cn
+337	未解码道具337	TM049 吸血之牙	reference-only	pokemon-unbound-211-cn
+338	未解码道具338	TM050 过热	reference-only	pokemon-unbound-211-cn
+339	未解码道具339	TM051 羽栖	reference-only	pokemon-unbound-211-cn
+340	未解码道具340	TM052 真气弹	reference-only	pokemon-unbound-211-cn
+341	未解码道具341	TM053 能量球	reference-only	pokemon-unbound-211-cn
+342	未解码道具342	TM054 点到为止	reference-only	pokemon-unbound-211-cn
+343	未解码道具343	TM055 盐水	reference-only	pokemon-unbound-211-cn
+344	未解码道具344	TM056 磨爪	reference-only	pokemon-unbound-211-cn
+345	未解码道具345	TM057 充电光束	reference-only	pokemon-unbound-211-cn
+346	未解码道具346	TM058 挺住	reference-only	pokemon-unbound-211-cn
+347	极巨腕带	未知道具347	reference-only	pokemon-unbound-211-cn
+348	未解码道具348	任务日志/服装盒	reference-only	pokemon-unbound-211-cn
+349	神奇的蛋	包裹	reference-only	pokemon-unbound-211-cn
+350	宝可梦之笛	宝可梦之笛	reference-only	pokemon-unbound-211-cn
+351	茶	秘密钥匙	reference-only	pokemon-unbound-211-cn
+352	未解码道具352	兑换券	reference-only	pokemon-unbound-211-cn
+353	钥石	超级环	reference-only	pokemon-unbound-211-cn
+354	未解码道具354	秘密琥珀	reference-only	pokemon-unbound-211-cn
+355	钥匙卡	钥匙卡	reference-only	pokemon-unbound-211-cn
+356	电梯钥匙	电梯钥匙	reference-only	pokemon-unbound-211-cn
+357	贝壳化石	贝壳化石	reference-only	pokemon-unbound-211-cn
+358	甲壳化石	甲壳化石	reference-only	pokemon-unbound-211-cn
+359	未解码道具359	西尔佛检视镜	reference-only	pokemon-unbound-211-cn
+360	自行车	自行车	reference-only	pokemon-unbound-211-cn
+361	未解码道具361	城镇地图	reference-only	pokemon-unbound-211-cn
+362	未解码道具362	对战搜寻器	reference-only	pokemon-unbound-211-cn
+363	未解码道具363	名人检视器	reference-only	pokemon-unbound-211-cn
+364	招式学习器盒	招式学习器盒	reference-only	pokemon-unbound-211-cn
+365	树果袋	树果袋	reference-only	pokemon-unbound-211-cn
+366	未解码道具366	教学电视	reference-only	pokemon-unbound-211-cn
+367	未解码道具367	三岛通行证	reference-only	pokemon-unbound-211-cn
+368	未解码道具368	七岛通行证	reference-only	pokemon-unbound-211-cn
+369	精灵齿轮	茶	reference-only	pokemon-unbound-211-cn
+370	未解码道具370	神秘船票	reference-only	pokemon-unbound-211-cn
+371	未解码道具371	极光船票	reference-only	pokemon-unbound-211-cn
+372	未解码道具372	粉末收集瓶	reference-only	pokemon-unbound-211-cn
+373	红宝石	新月之羽	reference-only	pokemon-unbound-211-cn
+374	蓝宝石	蓝宝石	reference-only	pokemon-unbound-211-cn
+375	特防强化	TM059 龙之波动	reference-only	pokemon-unbound-211-cn
+376	闪光	TM060 吸取拳	reference-only	pokemon-unbound-211-cn
+377	未解码道具377	TM061 磷火	reference-only	pokemon-unbound-211-cn
+378	未解码道具378	TM062 银色旋风	reference-only	pokemon-unbound-211-cn
+379	未解码道具379	TM063 毒液冲击	reference-only	pokemon-unbound-211-cn
+380	未解码道具380	TM064 大爆炸	reference-only	pokemon-unbound-211-cn
+381	未解码道具381	TM065 暗影爪	reference-only	pokemon-unbound-211-cn
+382	未解码道具382	TM066 以牙还牙	reference-only	pokemon-unbound-211-cn
+383	未解码道具383	TM067 回收利用	reference-only	pokemon-unbound-211-cn
+384	未解码道具384	TM068 终极冲击	reference-only	pokemon-unbound-211-cn
+385	未解码道具385	TM069 岩石打磨	reference-only	pokemon-unbound-211-cn
+386	未解码道具386	TM070 闪光	reference-only	pokemon-unbound-211-cn
+387	未解码道具387	TM071 尖石攻击	reference-only	pokemon-unbound-211-cn
+388	未解码道具388	TM072 雪崩	reference-only	pokemon-unbound-211-cn
+389	未解码道具389	TM073 电磁波	reference-only	pokemon-unbound-211-cn
+390	未解码道具390	TM074 陀螺球	reference-only	pokemon-unbound-211-cn
+391	未解码道具391	TM075 剑舞	reference-only	pokemon-unbound-211-cn
+392	未解码道具392	TM076 隐形岩	reference-only	pokemon-unbound-211-cn
+393	未解码道具393	TM077 蓄能焰袭	reference-only	pokemon-unbound-211-cn
+394	未解码道具394	TM078 下盘踢	reference-only	pokemon-unbound-211-cn
+395	羽栖	TM079 恶之波动	reference-only	pokemon-unbound-211-cn
+396	未解码道具396	TM080 岩崩	reference-only	pokemon-unbound-211-cn
+397	未解码道具397	TM081 十字剪	reference-only	pokemon-unbound-211-cn
+398	未解码道具398	TM082 梦话	reference-only	pokemon-unbound-211-cn
+399	未解码道具399	TM083 热水	reference-only	pokemon-unbound-211-cn
+400	未解码道具400	TM084 毒击	reference-only	pokemon-unbound-211-cn
+401	未解码道具401	TM085 食梦	reference-only	pokemon-unbound-211-cn
+402	未解码道具402	TM086 打草结	reference-only	pokemon-unbound-211-cn
+403	未解码道具403	TM087 虚张声势	reference-only	pokemon-unbound-211-cn
+404	未解码道具404	TM088 啄食	reference-only	pokemon-unbound-211-cn
+405	未解码道具405	TM089 急速折返	reference-only	pokemon-unbound-211-cn
+406	未解码道具406	TM090 替身	reference-only	pokemon-unbound-211-cn
+407	未解码道具407	TM091 加农光炮	reference-only	pokemon-unbound-211-cn
+408	未解码道具408	TM092 伏特替换	reference-only	pokemon-unbound-211-cn
+409	未解码道具409	TM093 龙尾	reference-only	pokemon-unbound-211-cn
+410	未解码道具410	TM094 烧净	reference-only	pokemon-unbound-211-cn
+411	未解码道具411	TM095 虫之抵抗	reference-only	pokemon-unbound-211-cn
+412	未解码道具412	TM096 重踏	reference-only	pokemon-unbound-211-cn
+413	未解码道具413	TM097 冰息	reference-only	pokemon-unbound-211-cn
+414	未解码道具414	TM098 自我激励	reference-only	pokemon-unbound-211-cn
+415	未解码道具415	TM099 疯狂伏特	reference-only	pokemon-unbound-211-cn
+416	未解码道具416	TM100 纠缠不休	reference-only	pokemon-unbound-211-cn
+417	未解码道具417	TM101 增强拳	reference-only	pokemon-unbound-211-cn
+418	未解码道具418	TM102 魔法闪耀	reference-only	pokemon-unbound-211-cn
+419	未解码道具419	TM103 污泥波	reference-only	pokemon-unbound-211-cn
+420	未解码道具420	TM104 精神冲击	reference-only	pokemon-unbound-211-cn
+421	未解码道具421	TM105 狂舞挥打	reference-only	pokemon-unbound-211-cn
+422	未解码道具422	TM106 修长之角	reference-only	pokemon-unbound-211-cn
+423	自我激励	TM107 杂技	reference-only	pokemon-unbound-211-cn
+424	未解码道具424	TM108 大声咆哮	reference-only	pokemon-unbound-211-cn
+425	未解码道具425	TM109 清除浓雾	reference-only	pokemon-unbound-211-cn
+426	未解码道具426	TM110 吸取之吻	reference-only	pokemon-unbound-211-cn
+427	未解码道具427	TM111 击落	reference-only	pokemon-unbound-211-cn
+428	未解码道具428	TM112 轮唱	reference-only	pokemon-unbound-211-cn
+429	未解码道具429	TM113 回声	reference-only	pokemon-unbound-211-cn
+430	未解码道具430	TM114 自然之恩	reference-only	pokemon-unbound-211-cn
+431	未解码道具431	TM115 延后	reference-only	pokemon-unbound-211-cn
+432	未解码道具432	TM116 戏法空间	reference-only	pokemon-unbound-211-cn
+433	未解码道具433	TM117 投掷	reference-only	pokemon-unbound-211-cn
+434	未解码道具434	TM118 极光幕	reference-only	pokemon-unbound-211-cn
+435	未解码道具435	TM119 自由落体	reference-only	pokemon-unbound-211-cn
+436	未解码道具436	TM120 自然之力	reference-only	pokemon-unbound-211-cn
+437	未解码道具437	TM121 居合劈	reference-only	pokemon-unbound-211-cn
+438	未解码道具438	TM122 飞翔	reference-only	pokemon-unbound-211-cn
+439	未解码道具439	TM123 冲浪	reference-only	pokemon-unbound-211-cn
+440	未解码道具440	TM124 怪力	reference-only	pokemon-unbound-211-cn
+441	未解码道具441	TM125 潜水	reference-only	pokemon-unbound-211-cn
+442	未解码道具442	TM126 碎岩	reference-only	pokemon-unbound-211-cn
+443	未解码道具443	TM127 攀瀑	reference-only	pokemon-unbound-211-cn
+444	未解码道具444	TM128 攀岩	reference-only	pokemon-unbound-211-cn
+445	未解码道具445	究极奈克洛Z	reference-only	pokemon-unbound-211-cn
+446	未解码道具446	妙蛙花进化石	reference-only	pokemon-unbound-211-cn
+447	千香果	喷火龙进化石X	reference-only	pokemon-unbound-211-cn
+448	烛木果	喷火龙进化石Y	reference-only	pokemon-unbound-211-cn
+449	罗子果	水箭龟进化石	reference-only	pokemon-unbound-211-cn
+450	未解码道具450	大针蜂进化石	reference-only	pokemon-unbound-211-cn
+451	未解码道具451	大比鸟进化石	reference-only	pokemon-unbound-211-cn
+452	通通果	胡地进化石	reference-only	pokemon-unbound-211-cn
+453	未解码道具453	呆壳兽进化石	reference-only	pokemon-unbound-211-cn
+454	棱瓜果	耿鬼进化石	reference-only	pokemon-unbound-211-cn
+455	未解码道具455	袋兽进化石	reference-only	pokemon-unbound-211-cn
+456	未解码道具456	凯罗斯进化石	reference-only	pokemon-unbound-211-cn
+457	未解码道具457	暴鲤龙进化石	reference-only	pokemon-unbound-211-cn
+458	未解码道具458	化石翼龙进化石	reference-only	pokemon-unbound-211-cn
+459	未解码道具459	超梦进化石X	reference-only	pokemon-unbound-211-cn
+460	刺耳果	超梦进化石Y	reference-only	pokemon-unbound-211-cn
+461	霹霹果	电龙进化石	reference-only	pokemon-unbound-211-cn
+462	灯浆果	大钢蛇进化石	reference-only	pokemon-unbound-211-cn
+463	奇秘果	巨钳螳螂进化石	reference-only	pokemon-unbound-211-cn
+464	未解码道具464	赫拉克罗斯进化石	reference-only	pokemon-unbound-211-cn
+465	未解码道具465	黑鲁加进化石	reference-only	pokemon-unbound-211-cn
+466	雾莲果	班基拉斯进化石	reference-only	pokemon-unbound-211-cn
+467	未解码道具467	蜥蜴王进化石	reference-only	pokemon-unbound-211-cn
+468	亚开果	火焰鸡进化石	reference-only	pokemon-unbound-211-cn
+469	香罗果	巨沼怪进化石	reference-only	pokemon-unbound-211-cn
+470	未解码道具470	沙奈朵进化石	reference-only	pokemon-unbound-211-cn
+471	未解码道具471	勾魂眼进化石	reference-only	pokemon-unbound-211-cn
+472	未解码道具472	大嘴娃进化石	reference-only	pokemon-unbound-211-cn
+473	未解码道具473	波士可多拉进化石	reference-only	pokemon-unbound-211-cn
+474	未解码道具474	恰雷姆进化石	reference-only	pokemon-unbound-211-cn
+475	未解码道具475	雷电兽进化石	reference-only	pokemon-unbound-211-cn
+476	未解码道具476	巨牙鲨进化石	reference-only	pokemon-unbound-211-cn
+477	未解码道具477	喷火驼进化石	reference-only	pokemon-unbound-211-cn
+478	未解码道具478	七夕青鸟进化石	reference-only	pokemon-unbound-211-cn
+479	未解码道具479	诅咒娃娃进化石	reference-only	pokemon-unbound-211-cn
+480	未解码道具480	阿勃梭鲁进化石	reference-only	pokemon-unbound-211-cn
+481	未解码道具481	冰鬼护进化石	reference-only	pokemon-unbound-211-cn
+482	未解码道具482	暴飞龙进化石	reference-only	pokemon-unbound-211-cn
+483	未解码道具483	巨金怪进化石	reference-only	pokemon-unbound-211-cn
+484	未解码道具484	拉帝亚斯进化石	reference-only	pokemon-unbound-211-cn
+485	腐朽的剑	拉帝欧斯进化石	reference-only	pokemon-unbound-211-cn
+486	腐朽的盾	长耳兔进化石	reference-only	pokemon-unbound-211-cn
+487	金刚宝珠	烈咬陆鲨进化石	reference-only	pokemon-unbound-211-cn
+488	白玉宝珠	路卡利欧进化石	reference-only	pokemon-unbound-211-cn
+489	白金宝珠	暴雪王进化石	reference-only	pokemon-unbound-211-cn
+490	拳头石板	艾路雷朵进化石	reference-only	pokemon-unbound-211-cn
+491	蓝天石板	差不多娃娃进化石	reference-only	pokemon-unbound-211-cn
+492	剧毒石板	蒂安希进化石	reference-only	pokemon-unbound-211-cn
+493	大地石板	防尘护目镜	reference-only	pokemon-unbound-211-cn
+494	岩石石板	突击背心	reference-only	pokemon-unbound-211-cn
+495	玉虫石板	进化奇石	reference-only	pokemon-unbound-211-cn
+496	妖怪石板	拳头石板	reference-only	pokemon-unbound-211-cn
+497	钢铁石板	蓝天石板	reference-only	pokemon-unbound-211-cn
+498	火球石板	剧毒石板	reference-only	pokemon-unbound-211-cn
+499	水滴石板	大地石板	reference-only	pokemon-unbound-211-cn
+500	未解码道具500	岩石石板	reference-only	pokemon-unbound-211-cn
+501	雷电石板	玉虫石板	reference-only	pokemon-unbound-211-cn
+502	神奇石板	妖怪石板	reference-only	pokemon-unbound-211-cn
+503	冰柱石板	钢铁石板	reference-only	pokemon-unbound-211-cn
+504	龙之石板	火球石板	reference-only	pokemon-unbound-211-cn
+505	未解码道具505	水滴石板	reference-only	pokemon-unbound-211-cn
+506	妖精石板	碧绿石板	reference-only	pokemon-unbound-211-cn
+507	未解码道具507	雷电石板	reference-only	pokemon-unbound-211-cn
+508	未解码道具508	神奇石板	reference-only	pokemon-unbound-211-cn
+509	未解码道具509	冰柱石板	reference-only	pokemon-unbound-211-cn
+510	未解码道具510	龙之石板	reference-only	pokemon-unbound-211-cn
+511	未解码道具511	恶颜石板	reference-only	pokemon-unbound-211-cn
+512	未解码道具512	妖精石板	reference-only	pokemon-unbound-211-cn
+513	未解码道具513	彗星碎片	reference-only	pokemon-unbound-211-cn
+514	未解码道具514	芳香蘑菇	reference-only	pokemon-unbound-211-cn
+515	未解码道具515	大马拉萨达	reference-only	pokemon-unbound-211-cn
+516	未解码道具516	飞云冰淇淋	reference-only	pokemon-unbound-211-cn
+517	未解码道具517	密阿雷格雷派饼	reference-only	pokemon-unbound-211-cn
+518	未解码道具518	愤怒馒头	reference-only	pokemon-unbound-211-cn
+519	未解码道具519	娑罗沙布蕾	reference-only	pokemon-unbound-211-cn
+520	未解码道具520	森之羊羹	reference-only	pokemon-unbound-211-cn
+521	未解码道具521	头盖化石	reference-only	pokemon-unbound-211-cn
+522	未解码道具522	盾甲化石	reference-only	pokemon-unbound-211-cn
+523	未解码道具523	背盖化石	reference-only	pokemon-unbound-211-cn
+524	火焰卡带	羽毛化石	reference-only	pokemon-unbound-211-cn
+525	水流卡带	颚之化石	reference-only	pokemon-unbound-211-cn
+526	闪电卡带	鳍之化石	reference-only	pokemon-unbound-211-cn
+527	冰冻卡带	Mega耳环	reference-only	pokemon-unbound-211-cn
+528	未解码道具528	Mega坠饰	reference-only	pokemon-unbound-211-cn
+529	未解码道具529	Mega手镯	reference-only	pokemon-unbound-211-cn
+530	未解码道具530	Mega脚环	reference-only	pokemon-unbound-211-cn
+531	未解码道具531	Mega吊坠	reference-only	pokemon-unbound-211-cn
+532	未解码道具532	金刚宝珠	reference-only	pokemon-unbound-211-cn
+533	超级石	白玉宝珠	reference-only	pokemon-unbound-211-cn
+534	未解码道具534	白金宝珠	reference-only	pokemon-unbound-211-cn
+535	未解码道具535	葛拉西蒂亚花	reference-only	pokemon-unbound-211-cn
+536	未解码道具536	基因之楔	reference-only	pokemon-unbound-211-cn
+537	未解码道具537	现形镜	reference-only	pokemon-unbound-211-cn
+538	未解码道具538	惩戒之壶	reference-only	pokemon-unbound-211-cn
+539	未解码道具539	巧可果	reference-only	pokemon-unbound-211-cn
+540	未解码道具540	千香果	reference-only	pokemon-unbound-211-cn
+541	未解码道具541	烛木果	reference-only	pokemon-unbound-211-cn
+542	未解码道具542	罗子果	reference-only	pokemon-unbound-211-cn
+543	未解码道具543	番荔果	reference-only	pokemon-unbound-211-cn
+544	未解码道具544	莲蒲果	reference-only	pokemon-unbound-211-cn
+545	钥匙卡	通通果	reference-only	pokemon-unbound-211-cn
+546	地下钥匙	腰木果	reference-only	pokemon-unbound-211-cn
+547	未解码道具547	棱瓜果	reference-only	pokemon-unbound-211-cn
+548	红色鳞片	福禄果	reference-only	pokemon-unbound-211-cn
+549	大钢蛇进化石	扁樱果	reference-only	pokemon-unbound-211-cn
+550	未解码道具550	草蚕果	reference-only	pokemon-unbound-211-cn
+551	未解码道具551	佛柑果	reference-only	pokemon-unbound-211-cn
+552	黑鲁加进化石	莓榴果	reference-only	pokemon-unbound-211-cn
+553	未解码道具553	刺耳果	reference-only	pokemon-unbound-211-cn
+554	蜥蜴王进化石	霹霹果	reference-only	pokemon-unbound-211-cn
+555	火焰鸡进化石	灯浆果	reference-only	pokemon-unbound-211-cn
+556	巨沼怪进化石	枝荔果	reference-only	pokemon-unbound-211-cn
+557	沙奈朵进化石	沙鳞果	reference-only	pokemon-unbound-211-cn
+558	勾魂眼进化石	龙睛果	reference-only	pokemon-unbound-211-cn
+559	大嘴娃进化石	谜芝果	reference-only	pokemon-unbound-211-cn
+560	未解码道具560	洛玫果	reference-only	pokemon-unbound-211-cn
+561	恰雷姆进化石	亚开果	reference-only	pokemon-unbound-211-cn
+562	雷电兽进化石	香罗果	reference-only	pokemon-unbound-211-cn
+563	巨牙鲨进化石	球根	reference-only	pokemon-unbound-211-cn
+564	喷火驼进化石	气球	reference-only	pokemon-unbound-211-cn
+565	未解码道具565	胆怯球	reference-only	pokemon-unbound-211-cn
+566	未解码道具566	紧绑束带	reference-only	pokemon-unbound-211-cn
+567	未解码道具567	充电电池	reference-only	pokemon-unbound-211-cn
+568	冰鬼护进化石	逃脱按键	reference-only	pokemon-unbound-211-cn
+569	暴飞龙进化石	轻石	reference-only	pokemon-unbound-211-cn
+570	巨金怪进化石	气势披带	reference-only	pokemon-unbound-211-cn
+571	未解码道具571	紧缠钩爪	reference-only	pokemon-unbound-211-cn
+572	未解码道具572	黑色铁球	reference-only	pokemon-unbound-211-cn
+573	长耳兔进化石	后攻之尾	reference-only	pokemon-unbound-211-cn
+574	未解码道具574	光苔	reference-only	pokemon-unbound-211-cn
+575	未解码道具575	速度粉	reference-only	pokemon-unbound-211-cn
+576	暴雪王进化石	节拍器	reference-only	pokemon-unbound-211-cn
+577	未解码道具577	力量头带	reference-only	pokemon-unbound-211-cn
+578	未解码道具578	部位护具	reference-only	pokemon-unbound-211-cn
+579	蒂安希进化石	红牌	reference-only	pokemon-unbound-211-cn
+580	未解码道具580	标靶	reference-only	pokemon-unbound-211-cn
+581	未解码道具581	美丽空壳	reference-only	pokemon-unbound-211-cn
+582	未解码道具582	雪球	reference-only	pokemon-unbound-211-cn
+583	未解码道具583	附着针	reference-only	pokemon-unbound-211-cn
+584	未解码道具584	大地膜	reference-only	pokemon-unbound-211-cn
+585	未解码道具585	博识眼镜	reference-only	pokemon-unbound-211-cn
+586	未解码道具586	电气种子	reference-only	pokemon-unbound-211-cn
+587	未解码道具587	青草种子	reference-only	pokemon-unbound-211-cn
+588	未解码道具588	薄雾种子	reference-only	pokemon-unbound-211-cn
+589	未解码道具589	精神种子	reference-only	pokemon-unbound-211-cn
+590	未解码道具590	一般宝石	reference-only	pokemon-unbound-211-cn
+591	未解码道具591	格斗宝石	reference-only	pokemon-unbound-211-cn
+592	未解码道具592	飞行宝石	reference-only	pokemon-unbound-211-cn
+593	未解码道具593	毒之宝石	reference-only	pokemon-unbound-211-cn
+594	未解码道具594	地面宝石	reference-only	pokemon-unbound-211-cn
+595	未解码道具595	岩石宝石	reference-only	pokemon-unbound-211-cn
+596	未解码道具596	虫之宝石	reference-only	pokemon-unbound-211-cn
+597	未解码道具597	幽灵宝石	reference-only	pokemon-unbound-211-cn
+598	未解码道具598	钢之宝石	reference-only	pokemon-unbound-211-cn
+599	未解码道具599	火之宝石	reference-only	pokemon-unbound-211-cn
+600	未解码道具600	水之宝石	reference-only	pokemon-unbound-211-cn
+601	未解码道具601	草之宝石	reference-only	pokemon-unbound-211-cn
+602	未解码道具602	电之宝石	reference-only	pokemon-unbound-211-cn
+603	未解码道具603	超能力宝石	reference-only	pokemon-unbound-211-cn
+604	未解码道具604	冰之宝石	reference-only	pokemon-unbound-211-cn
+605	未解码道具605	龙之宝石	reference-only	pokemon-unbound-211-cn
+606	未解码道具606	恶之宝石	reference-only	pokemon-unbound-211-cn
+607	未解码道具607	妖精宝石	reference-only	pokemon-unbound-211-cn
+608	未解码道具608	特性胶囊	reference-only	pokemon-unbound-211-cn
+609	未解码道具609	体力之羽	reference-only	pokemon-unbound-211-cn
+610	未解码道具610	肌力之羽	reference-only	pokemon-unbound-211-cn
+611	未解码道具611	抵抗之羽	reference-only	pokemon-unbound-211-cn
+612	未解码道具612	智力之羽	reference-only	pokemon-unbound-211-cn
+613	未解码道具613	精神之羽	reference-only	pokemon-unbound-211-cn
+614	黑球果	瞬发之羽	reference-only	pokemon-unbound-211-cn
+615	蓝球果	美丽之羽	reference-only	pokemon-unbound-211-cn
+616	绿球果	银色王冠	reference-only	pokemon-unbound-211-cn
+617	粉球果	金色王冠	reference-only	pokemon-unbound-211-cn
+618	红球果	朱红色花蜜	reference-only	pokemon-unbound-211-cn
+619	白球果	金黄色花蜜	reference-only	pokemon-unbound-211-cn
+620	黄球果	桃粉色花蜜	reference-only	pokemon-unbound-211-cn
+621	古代铜币	兰紫色花蜜	reference-only	pokemon-unbound-211-cn
+622	古代银币	速度球	reference-only	pokemon-unbound-211-cn
+623	古代金币	等级球	reference-only	pokemon-unbound-211-cn
+624	古代之壶	诱饵球	reference-only	pokemon-unbound-211-cn
+625	未解码道具625	沉重球	reference-only	pokemon-unbound-211-cn
+626	未解码道具626	甜蜜球	reference-only	pokemon-unbound-211-cn
+627	古代王冠	友友球	reference-only	pokemon-unbound-211-cn
+628	头盖化石	月亮球	reference-only	pokemon-unbound-211-cn
+629	盾甲化石	竞赛球	reference-only	pokemon-unbound-211-cn
+630	背盖化石	究极球	reference-only	pokemon-unbound-211-cn
+631	羽毛化石	梦境球	reference-only	pokemon-unbound-211-cn
+632	颚之化石	圆形护符	reference-only	pokemon-unbound-211-cn
+633	未解码道具633	闪耀护符	reference-only	pokemon-unbound-211-cn
+634	化石鸟	火焰卡带	reference-only	pokemon-unbound-211-cn
+635	化石鱼	水流卡带	reference-only	pokemon-unbound-211-cn
+636	化石龙	闪电卡带	reference-only	pokemon-unbound-211-cn
+637	化石海兽	冰冻卡带	reference-only	pokemon-unbound-211-cn
+638	未解码道具638	格斗存储碟	reference-only	pokemon-unbound-211-cn
+639	银色王冠	飞行存储碟	reference-only	pokemon-unbound-211-cn
+640	金色王冠	毒存储碟	reference-only	pokemon-unbound-211-cn
+641	未解码道具641	地面存储碟	reference-only	pokemon-unbound-211-cn
+642	力量护腕	岩石存储碟	reference-only	pokemon-unbound-211-cn
+643	未解码道具643	虫子存储碟	reference-only	pokemon-unbound-211-cn
+644	力量镜	幽灵存储碟	reference-only	pokemon-unbound-211-cn
+645	力量束带	钢铁存储碟	reference-only	pokemon-unbound-211-cn
+646	未解码道具646	火焰存储碟	reference-only	pokemon-unbound-211-cn
+647	力量负重	清水存储碟	reference-only	pokemon-unbound-211-cn
+648	未解码道具648	青草存储碟	reference-only	pokemon-unbound-211-cn
+649	未解码道具649	电子存储碟	reference-only	pokemon-unbound-211-cn
+650	未解码道具650	精神存储碟	reference-only	pokemon-unbound-211-cn
+651	未解码道具651	冰雪存储碟	reference-only	pokemon-unbound-211-cn
+652	未解码道具652	龙之存储碟	reference-only	pokemon-unbound-211-cn
+653	未解码道具653	黑暗存储碟	reference-only	pokemon-unbound-211-cn
+654	未解码道具654	妖精存储碟	reference-only	pokemon-unbound-211-cn
+655	未解码道具655	虹色之羽	reference-only	pokemon-unbound-211-cn
+656	格斗宝石	银色之羽	reference-only	pokemon-unbound-211-cn
+657	飞行宝石	奈克洛索尔合体器	reference-only	pokemon-unbound-211-cn
+658	毒之宝石	奈克洛露奈合体器	reference-only	pokemon-unbound-211-cn
+659	地面宝石	太阳之笛	reference-only	pokemon-unbound-211-cn
+660	岩石宝石	月亮之笛	reference-only	pokemon-unbound-211-cn
+661	虫之宝石	光明石	reference-only	pokemon-unbound-211-cn
+662	幽灵宝石	黑暗石	reference-only	pokemon-unbound-211-cn
+663	钢之宝石	古代铜币	reference-only	pokemon-unbound-211-cn
+664	火之宝石	古代银币	reference-only	pokemon-unbound-211-cn
+665	水之宝石	古代金币	reference-only	pokemon-unbound-211-cn
+666	草之宝石	古代之壶	reference-only	pokemon-unbound-211-cn
+667	电之宝石	古代手镯	reference-only	pokemon-unbound-211-cn
+668	超能力宝石	古代石像	reference-only	pokemon-unbound-211-cn
+669	冰之宝石	古代王冠	reference-only	pokemon-unbound-211-cn
+670	龙之宝石	一般Z	reference-only	pokemon-unbound-211-cn
+671	恶之宝石	格斗Z	reference-only	pokemon-unbound-211-cn
+672	妖精宝石	飞行Z	reference-only	pokemon-unbound-211-cn
+673	广角镜	毒Z	reference-only	pokemon-unbound-211-cn
+674	力量头带	地面Z	reference-only	pokemon-unbound-211-cn
+675	博识眼镜	岩石Z	reference-only	pokemon-unbound-211-cn
+676	达人带	虫Z	reference-only	pokemon-unbound-211-cn
+677	光之黏土	幽灵Z	reference-only	pokemon-unbound-211-cn
+678	生命宝珠	钢Z	reference-only	pokemon-unbound-211-cn
+679	强力香草	火Z	reference-only	pokemon-unbound-211-cn
+680	剧毒宝珠	水Z	reference-only	pokemon-unbound-211-cn
+681	火焰宝珠	草Z	reference-only	pokemon-unbound-211-cn
+682	速度粉	电Z	reference-only	pokemon-unbound-211-cn
+683	气势披带	超能力Z	reference-only	pokemon-unbound-211-cn
+684	未解码道具684	冰Z	reference-only	pokemon-unbound-211-cn
+685	节拍器	龙Z	reference-only	pokemon-unbound-211-cn
+686	黑色铁球	恶Z	reference-only	pokemon-unbound-211-cn
+687	后攻之尾	妖精Z	reference-only	pokemon-unbound-211-cn
+688	红线	阿罗雷Z	reference-only	pokemon-unbound-211-cn
+689	黑色污泥	狙射树枭Z	reference-only	pokemon-unbound-211-cn
+690	冰冷岩石	伊布Z	reference-only	pokemon-unbound-211-cn
+691	沙沙岩石	炽焰咆哮虎Z	reference-only	pokemon-unbound-211-cn
+692	炽热岩石	杖尾鳞甲龙Z	reference-only	pokemon-unbound-211-cn
+693	未解码道具693	露奈雅拉Z	reference-only	pokemon-unbound-211-cn
+694	未解码道具694	鬃岩狼人Z	reference-only	pokemon-unbound-211-cn
+695	未解码道具695	玛夏多Z	reference-only	pokemon-unbound-211-cn
+696	未解码道具696	梦幻Z	reference-only	pokemon-unbound-211-cn
+697	未解码道具697	谜拟丘Z	reference-only	pokemon-unbound-211-cn
+698	美丽空壳	皮卡丘Z	reference-only	pokemon-unbound-211-cn
+699	未解码道具699	智皮卡Z	reference-only	pokemon-unbound-211-cn
+700	进化奇石	西狮海壬Z	reference-only	pokemon-unbound-211-cn
+701	轻石	卡比兽Z	reference-only	pokemon-unbound-211-cn
+702	未解码道具702	索尔迦雷欧Z	reference-only	pokemon-unbound-211-cn
+703	气球	卡璞Z	reference-only	pokemon-unbound-211-cn
+704	红牌	避难背包	reference-only	pokemon-unbound-211-cn
+705	未解码道具705	客房服务	reference-only	pokemon-unbound-211-cn
+706	紧绑束带	打空保险	reference-only	pokemon-unbound-211-cn
+707	球根	厚底靴	reference-only	pokemon-unbound-211-cn
+708	未解码道具708	万能伞	reference-only	pokemon-unbound-211-cn
+709	未解码道具709	爽喉喷雾	reference-only	pokemon-unbound-211-cn
+710	未解码道具710	腐朽的剑	reference-only	pokemon-unbound-211-cn
+711	突击背心	腐朽的盾	reference-only	pokemon-unbound-211-cn
+712	未解码道具712	甜甜苹果	reference-only	pokemon-unbound-211-cn
+713	雪丸	酸酸苹果	reference-only	pokemon-unbound-211-cn
+714	防尘护目镜	破裂的茶壶	reference-only	pokemon-unbound-211-cn
+715	未解码道具715	缺损的茶壶	reference-only	pokemon-unbound-211-cn
+716	未解码道具716	草莓糖饰	reference-only	pokemon-unbound-211-cn
+717	未解码道具717	莓果糖饰	reference-only	pokemon-unbound-211-cn
+718	电气种子	爱心糖饰	reference-only	pokemon-unbound-211-cn
+719	青草种子	四叶草糖饰	reference-only	pokemon-unbound-211-cn
+720	薄雾种子	花朵糖饰	reference-only	pokemon-unbound-211-cn
+721	精神种子	蝴蝶结糖饰	reference-only	pokemon-unbound-211-cn
+722	避难背包	星星糖饰	reference-only	pokemon-unbound-211-cn
+723	未解码道具723	伽勒豆蔻手环	reference-only	pokemon-unbound-211-cn
+724	未解码道具724	伽勒豆蔻花圈	reference-only	pokemon-unbound-211-cn
+725	未解码道具725	牵绊缰绳	reference-only	pokemon-unbound-211-cn
+726	万能伞	黑奇石	reference-only	pokemon-unbound-211-cn
+727	未解码道具727	泥炭块	reference-only	pokemon-unbound-211-cn
+728	未解码道具728	洗翠岩石	reference-only	pokemon-unbound-211-cn

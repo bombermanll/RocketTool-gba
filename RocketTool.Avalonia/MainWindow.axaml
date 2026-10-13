@@ -219,7 +219,7 @@
                                                 <ComboBox x:Name="PpUp4Box" Grid.Row="4" Grid.Column="2" />
                                                 <TextBlock x:Name="Move4MaxPpText" Grid.Row="4" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#102E4A" />
                                             </Grid>
-                                            <TextBlock x:Name="MoveNameText" Text="" Foreground="#6C6255" TextWrapping="Wrap" IsVisible="False" />
+                                            <TextBlock x:Name="MoveNameText" Text="" Foreground="#6C6255" TextWrapping="Wrap" />
                                         </StackPanel>
                                     </Border>
 
@@ -423,6 +423,7 @@
                                                 <TextBlock Text="实时模式写入会直接生效；存档模式不会覆盖原文件。" Foreground="#6C6255" TextWrapping="Wrap" />
                                                 <WrapPanel Grid.Row="1" HorizontalAlignment="Right">
                                                     <Button x:Name="BagAddButton" Content="添加到当前背包" Margin="0,0,8,0" Click="OnBagAddClicked" />
+                                                     <Button x:Name="BagDeleteButton" Content="删除当前道具" Margin="0,0,8,0" Click="OnBagDeleteClicked" />
                                                     <Button x:Name="BagApplyButton" Content="覆盖当前道具" Click="OnBagApplyClicked" Classes="primary" />
                                                 </WrapPanel>
                                             </Grid>
@@ -654,6 +655,7 @@
                                                 <ComboBox x:Name="BoxPpUp4Box" Grid.Row="4" Grid.Column="2" />
                                                 <TextBlock x:Name="BoxMove4MaxPpText" Grid.Row="4" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#102E4A" />
                                             </Grid>
+                                            <TextBlock x:Name="BoxMoveDetailText" Text="" Foreground="#6C6255" TextWrapping="Wrap" />
                                         </StackPanel>
                                     </Border>
 

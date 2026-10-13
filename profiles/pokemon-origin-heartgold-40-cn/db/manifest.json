@@ -24,8 +24,10 @@
     "moveBank": 739,
     "itemBank": 219,
     "abilityBank": 711,
-    "mappedGlyphs": 1200,
-    "unresolvedGlyphs": 1046
+    "abilityDescriptionBank": 712,
+    "charmap": "RocketTool.Nds/Data/gen4-revised-charmap.tsv",
+    "mappedGlyphs": 7294,
+    "unresolvedGlyphs": 0
   },
   "evidence": "See ORIGIN_HEARTGOLD_REVERSE_NOTES.md"
 }

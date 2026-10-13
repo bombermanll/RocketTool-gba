@@ -7,4 +7,10 @@
     <RootNamespace>RocketTool.Nds</RootNamespace>
   </PropertyGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Data/gen4-revised-charmap.tsv">
+      <LogicalName>RocketTool.Nds.gen4-revised-charmap.tsv</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
 </Project>

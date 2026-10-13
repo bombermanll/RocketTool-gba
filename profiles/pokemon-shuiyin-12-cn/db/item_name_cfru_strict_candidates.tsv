@@ -1,0 +1,11 @@
+# strict raw-byte/charmap candidates; CFRU name is reference-only until current-ROM/user confirmation
+id	candidate_name	raw_hex	status
+13	伤药	0BA90EF0	strict-reference-candidate
+16	解冻药	073403580EF0	strict-reference-candidate
+23	万灵药	0D5A08BC0EF0	strict-reference-candidate
+33	复活草	041E057B0201	strict-reference-candidate
+50	黄色碎片	05530B890C8C0A67	strict-reference-candidate
+84	黄金喷雾	055307420A440DB3	strict-reference-candidate
+258	黄色头巾	05530B890D1F073F	strict-reference-candidate
+260	代币盒	02DA018F04F6	strict-reference-candidate
+263	好钓竿	04E9033D0437	strict-reference-candidate
