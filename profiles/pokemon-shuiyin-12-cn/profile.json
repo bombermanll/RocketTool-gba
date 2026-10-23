@@ -1,7 +1,7 @@
 {
   "id": "pokemon-shuiyin-12-cn",
-  "displayName": "宝可梦水银1.2",
-  "description": "宝可梦水银1.2：基于 CFRU（Complete Fire Red Upgrade）引擎开发的 GBA 中文改版。当前 Profile 只启用本 ROM 重新验证的图鉴、正面图、菜单图标、道具图标、存档队伍、存档箱子、存档背包和训练家金钱读写；CFRU 资料仅作逆向搜索线索，存档球种、存档图鉴导入和物种-机器兼容表已按本 ROM 验证；机器写入、实时修改、商店和实验仍关闭。",
+  "displayName": "宝可梦水银",
+  "description": "宝可梦水银：基于 CFRU（Complete Fire Red Upgrade）引擎开发的 GBA 中文改版。ROM 仍在更新，当前只支持已验证的存档修改和图鉴显示，不绑定具体小版本号；实时修改、商店和实验仍关闭。",
   "romIdentity": {
     "fileName": "shuiyin1.2.gba",
     "romSize": 33554432,
@@ -1223,7 +1223,13 @@
     "experimentTeleport": false,
     "experimentNoEncounter": false,
     "experimentWalkThroughWalls": false,
-    "maxTrainerMoney": 999999,
+    "maxTrainerMoney": 9999999,
+    "coinCase": {
+      "enabled": true,
+      "saveBlock1Offset": "0x296",
+      "max": 65535,
+      "name": "代币"
+    },
     "bagBatchQuantity": 1
   }
 }

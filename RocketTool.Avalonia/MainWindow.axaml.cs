@@ -221,6 +221,8 @@ public partial class MainWindow : Window
     private int? _abilitySpecies;
     private int? _boxAbilitySpecies;
     private bool _suppressEditorEvents;
+    private readonly Dictionary<int, byte[]> _partyRevertRaw = [];
+    private readonly Dictionary<int, byte[]> _boxRevertRaw = [];
     private bool _suppressExperienceSync;
     private bool _suppressCheatEvents;
     private bool _suppressDexImportBoxSelection;
@@ -429,7 +431,7 @@ public partial class MainWindow : Window
         if (!UsesVerifiedSpriteAssets)
             Log("当前版本尚未验证宝可梦图片素材，已暂时隐藏旧版本图片，避免显示错误。");
         Log(profile.IsNds
-            ? "当前是 NDS 版本：不连接 mGBA；图鉴和已验证存档字段可在待保存副本中编辑，只有保存或另存为才写出文件。"
+            ? "当前是 NDS 版本：不连接 mGBA；图鉴和已验证存档字段可在存档中编辑，只有保存或另存为才写出文件。"
             : "界面已就绪。请先在 mGBA 加载 bridge 脚本，然后点击“连接 mGBA”。");
     }
 
@@ -539,14 +541,18 @@ public partial class MainWindow : Window
         UpdateSaveButtons();
         UpdateCorruptBoxNotice();
 
-        PartyDeleteButton.IsVisible = partyWrite && (live || _loadedSave?.CanWrite == true);
-        PartyDeleteButton.Content = live ? "删除队伍精灵" : "从待保存队伍删除";
-        PartyApplyButton.IsVisible = partyWrite && (live || _loadedSave?.CanWrite == true);
-        PartyApplyButton.Content = live ? "写入当前精灵" : "应用到待保存存档";
-        BoxDeleteButton.IsVisible = boxWrite && (live || _loadedSave?.CanWrite == true);
-        BoxDeleteButton.Content = live ? "删除箱子精灵" : "从待保存箱子删除";
-        BoxApplyButton.IsVisible = boxWrite && (live || _loadedSave?.CanWrite == true);
-        BoxApplyButton.Content = live ? "写入当前箱子精灵" : "应用到待保存存档";
+        var partyEdit = partyWrite && (live || _loadedSave?.CanWrite == true);
+        var boxEdit = boxWrite && (live || _loadedSave?.CanWrite == true);
+        PartyDeleteButton.IsVisible = partyEdit;
+        PartyDeleteButton.Content = "删除";
+        PartyRevertButton.IsVisible = partyEdit;
+        PartyApplyButton.IsVisible = partyEdit;
+        PartyApplyButton.Content = "保存修改";
+        BoxDeleteButton.IsVisible = boxEdit;
+        BoxDeleteButton.Content = "删除";
+        BoxRevertButton.IsVisible = boxEdit;
+        BoxApplyButton.IsVisible = boxEdit;
+        BoxApplyButton.Content = "保存修改";
         PartyOtSyncButton.IsVisible = live && partyWrite;
         BoxOtSyncButton.IsVisible = live && boxWrite;
         var partyCaughtBallRead = _runtime.CanReadCaughtBall(GameDataSurface.Party, live);
@@ -559,10 +565,13 @@ public partial class MainWindow : Window
                                      _runtime.CanWriteCaughtBall(GameDataSurface.Boxes, live);
         TrainerReadButton.IsVisible = live && trainerRead;
         TrainerApplyNameButton.IsVisible = trainerWrite && (live || _loadedSave?.CanWrite == true);
-        TrainerApplyNameButton.Content = live ? "写入名字" : "应用名字到待保存存档";
+        TrainerApplyNameButton.Content = "保存修改";
         TrainerMoneyReadButton.IsVisible = live && trainerRead;
-        TrainerMoneyApplyButton.IsVisible = trainerWrite && (live || _loadedSave?.CanWrite == true);
-        TrainerMoneyApplyButton.Content = live ? "写入金钱" : "应用金钱到待保存存档";
+        var moneyWrite = live
+            ? trainerWrite || _profile.Features.LiveTrainerMoney.Write
+            : _loadedSave?.CanWrite == true && (trainerWrite || _profile.Features.SaveTrainerMoney.Write);
+        TrainerMoneyApplyButton.IsVisible = moneyWrite;
+        TrainerMoneyApplyButton.Content = "保存修改";
         BagReadButton.IsVisible = live && bagRead;
                  BagAddButton.IsVisible = bagWrite && (live || _loadedSave?.CanWrite == true);
          BagDeleteButton.IsVisible = bagWrite && (live || _loadedSave?.CanWrite == true);
@@ -573,7 +582,7 @@ public partial class MainWindow : Window
         BagEditorTitleText.Text = live ? "背包槽编辑" : "添加道具与详情";
         BagEditorDescriptionText.Text = live
             ? "选中左侧口袋槽位后编辑，再明确写入 mGBA 内存。"
-            : "左侧可直接修改现有道具；选择完成或数量输入失焦/回车后自动更新待保存副本。右侧用于添加道具和查看详情。";
+            : "左侧可直接修改现有道具；选好或改完数量后会记下修改。右侧用于添加道具和查看详情。";
         BagAddButton.Content = live ? "添加到当前背包" : "添加到当前分类";
         DexImportPartyButton.IsVisible = live
             ? _profile.Features.ImportToParty && partyWrite
@@ -598,7 +607,7 @@ public partial class MainWindow : Window
             : _loadedSave is null
                 ? "请先点击顶部“选择存档”读取 .sav 或 .srm 文件。"
                 : _loadedSave.CanWrite
-                ? "背包修改只保存在待保存副本中；重要物品可能影响流程，请谨慎修改。"
+                ? "修改背包后点保存修改。重要物品可能影响流程，请谨慎修改。"
                 : $"当前存档背包只读：{_loadedSave.WriteBlockReason}";
         var boxDragEnabled = boxWrite && (live || _loadedSave?.CanWrite == true);
         BoxModeHintText.Text = !live && _loadedSave is null
@@ -607,7 +616,7 @@ public partial class MainWindow : Window
                 ? "当前 Profile 或当前存档只开放箱子读取，不能拖动或写入槽位。"
                 : live
                 ? "可拖动宝可梦调整槽位，也可右键删除或移动到指定箱子；拖到已有宝可梦会立即交换。实时写入前建议先保存 mGBA 即时存档。"
-                : "可拖动宝可梦调整槽位，也可右键删除或移动到指定箱子；拖到已有宝可梦会立即交换。所有变化先进入待保存副本。";
+                : "可拖动调整槽位，也可右键删除或移动。改完点保存修改；撤回会恢复这只精灵本次读取前的状态。";
 
         if (!live && MainTabs.SelectedItem == ExperimentTab)
             MainTabs.SelectedItem = PartyTab;
@@ -637,9 +646,13 @@ public partial class MainWindow : Window
         TrainerMoneyReadButton.IsVisible = false;
         var ndsSaveWrite = _profile.Features.SaveEditing && _loadedNdsSave is not null;
         PartyDeleteButton.IsVisible = ndsSaveWrite && _profile.Features.SaveParty.Write;
+        PartyRevertButton.IsVisible = ndsSaveWrite && _profile.Features.SaveParty.Write;
         PartyApplyButton.IsVisible = ndsSaveWrite && _profile.Features.SaveParty.Write;
+        PartyApplyButton.Content = "保存修改";
         BoxDeleteButton.IsVisible = ndsSaveWrite && _profile.Features.SaveBoxes.Write;
+        BoxRevertButton.IsVisible = ndsSaveWrite && _profile.Features.SaveBoxes.Write;
         BoxApplyButton.IsVisible = ndsSaveWrite && _profile.Features.SaveBoxes.Write;
+        BoxApplyButton.Content = "保存修改";
         BagAddButton.IsVisible = ndsSaveWrite && _profile.Features.SaveBag.Write;
          BagDeleteButton.IsVisible = ndsSaveWrite && _profile.Features.SaveBag.Write;
         BagApplyButton.IsVisible = ndsSaveWrite && _profile.Features.SaveBag.Write;
@@ -659,7 +672,7 @@ public partial class MainWindow : Window
             ? "NDS 存档；尚未选择存档"
             : $"NDS 存档：{_loadedNdsSave.FileName}";
         LastWriteText.Text = _profile.Features.SaveEditing
-            ? "NDS 修改先进入待保存副本，只有保存或另存为才写出文件。实时连接未启用。"
+            ? "NDS 修改先进入存档，只有保存或另存为才写出文件。实时连接未启用。"
             : "NDS 当前只开放已验证字段读取；存档写入尚未正式启用。实时连接未启用。";
         UpdateSaveButtons();
     }
@@ -691,8 +704,10 @@ public partial class MainWindow : Window
         ExportSaveButton.IsVisible = false;
         SaveAsButton.IsVisible = false;
         PartyDeleteButton.IsVisible = false;
+        PartyRevertButton.IsVisible = false;
         PartyApplyButton.IsVisible = false;
         BoxDeleteButton.IsVisible = false;
+        BoxRevertButton.IsVisible = false;
         BoxApplyButton.IsVisible = false;
         PartyOtSyncButton.IsVisible = false;
         BoxOtSyncButton.IsVisible = false;
@@ -756,8 +771,7 @@ public partial class MainWindow : Window
             ? _ndsSaveDirty && _ndsPendingSave is not null
             : _dataSourceMode == DataSourceMode.SaveFile &&
               _profile.Features.SaveEditing &&
-              _loadedSave is { CanWrite: true } loaded &&
-              (loaded.HasChanges || loaded.CurrentCorruptBoxes.Count > 0);
+              _loadedSave is { CanWrite: true };
         ExportSaveButton.IsEnabled = enabled;
         SaveAsButton.IsEnabled = enabled;
     }
@@ -817,6 +831,8 @@ public partial class MainWindow : Window
             return;
         }
         SetDataSourceMode(DataSourceMode.Live);
+        _partyRevertRaw.Clear();
+        _boxRevertRaw.Clear();
         _loadedSavePath = null;
         _loadedSave = null;
         await RunUiTask("连接 mGBA", () =>
@@ -853,7 +869,7 @@ public partial class MainWindow : Window
         {
             SetDataSourceMode(DataSourceMode.SaveFile);
             ConnectionStatusText.Text = "当前模式：存档文件；尚未选择存档";
-            LastWriteText.Text = "请选择 .sav 或 .srm 文件；修改会先进入待保存副本。";
+            LastWriteText.Text = "请选择 .sav 或 .srm 文件。修改后点保存修改，再用顶部保存写入文件。";
         }
         else
         {
@@ -1270,13 +1286,6 @@ public partial class MainWindow : Window
             ShowToast(loaded.WriteBlockReason ?? "当前存档不能安全写回。", success: false);
             return false;
         }
-        if (!loaded.HasChanges && loaded.CurrentCorruptBoxes.Count == 0)
-        {
-            document = null!;
-            ShowToast("当前存档没有待保存的修改。", success: false);
-            return false;
-        }
-
         document = loaded;
         return true;
     }
@@ -1470,8 +1479,13 @@ public partial class MainWindow : Window
             using var bridge = ConnectBridge();
             var baseAddr = ResolvePartyBase(bridge, forceRefresh: true);
             LoadPartyRows(bridge, baseAddr, selectSlot);
-            ConnectionStatusText.Text = $"mGBA连接成功：{bridge.GameCode()}；队伍已刷新";
-            Log($"已从 0x{baseAddr:X8} 刷新队伍，当前队伍数量={_partyRows.Count}。");
+            var opponents = ReadEnemyPartyNames(bridge);
+            ConnectionStatusText.Text = opponents.Count == 0
+                ? $"mGBA连接成功：{bridge.GameCode()}；队伍已刷新"
+                : $"mGBA连接成功：{bridge.GameCode()}；队伍已刷新；对手 {string.Join("、", opponents)}";
+            Log(opponents.Count == 0
+                ? $"已从 0x{baseAddr:X8} 刷新队伍，当前队伍数量={_partyRows.Count}。"
+                : $"已从 0x{baseAddr:X8} 刷新队伍，当前队伍数量={_partyRows.Count}。对手：{string.Join("、", opponents)}。");
         });
     }
 
@@ -1479,16 +1493,42 @@ public partial class MainWindow : Window
     {
         _runtime.EnsureCanRead(GameDataSurface.Party, live: true);
         var rows = new List<PartySlotRow>();
-        var partyCount = ReadLivePartyCount(bridge, baseAddr) ?? Gen3Constants.PartySlots;
+        var partyCount = string.Equals(_profile.Memory.PartyCountMode, "scan-until-empty", StringComparison.Ordinal)
+            ? Gen3Constants.PartySlots
+            : ReadLivePartyCount(bridge, baseAddr) ?? Gen3Constants.PartySlots;
         for (var slot = 1; slot <= partyCount; slot++)
         {
             var addr = SlotAddress(baseAddr, slot);
             var mon = new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize), ActivePokemonLayout);
+            if (string.Equals(_profile.Memory.PartyCountMode, "scan-until-empty", StringComparison.Ordinal) && mon.IsEmpty)
+                break;
             rows.Add(ToRow(slot, addr, mon));
+            RememberPartyRevert(slot, mon.Raw);
         }
         _partyRows.Clear();
         foreach (var row in rows) _partyRows.Add(row);
         PartyList.SelectedIndex = _partyRows.Count == 0 ? -1 : Math.Clamp(selectSlot - 1, 0, _partyRows.Count - 1);
+    }
+
+    private List<string> ReadEnemyPartyNames(MgbaBridgeClient bridge)
+    {
+        var names = new List<string>();
+        var baseAddr = _profile.Memory.EnemyPartyBase;
+        var countAddr = _profile.Memory.EnemyPartyCountAddress;
+        if (baseAddr == 0 || countAddr == 0 || !IsEwramRange(baseAddr, Gen3Constants.PartySlots * Gen3Constants.PartyMonSize))
+            return names;
+        var count = bridge.Read(countAddr, 1)[0];
+        if (count == 0 || count > Gen3Constants.PartySlots)
+            return names;
+        for (var slot = 0; slot < count; slot++)
+        {
+            var addr = baseAddr + (uint)(slot * Gen3Constants.PartyMonSize);
+            var mon = new PartyPokemon(bridge.Read(addr, Gen3Constants.PartyMonSize), ActivePokemonLayout);
+            if (mon.IsEmpty) continue;
+            var info = mon.GetInfo();
+            names.Add($"{SpeciesName(info.Species)} Lv.{info.Level}");
+        }
+        return names;
     }
 
     private void LoadNdsSaveFile(string path)
@@ -1501,7 +1541,7 @@ public partial class MainWindow : Window
         _ndsSaveDirty = false;
         FillNdsSaveViews(save);
         ApplyNdsSaveReadUi();
-        Log($"已打开 NDS 存档待保存副本：队伍 {save.PartyCount}，箱子 {save.OccupiedBoxSlots}，金钱 {save.Money}。修改不会立即写回，需点击保存或另存为。");
+        Log($"已打开 NDS 存档：队伍 {save.PartyCount}，箱子 {save.OccupiedBoxSlots}，金钱 {save.Money}。修改不会立即写回，需点击保存或另存为。");
     }
 
     private void FillNdsSaveViews(OriginHeartGoldSaveProbe save)
@@ -1554,7 +1594,7 @@ public partial class MainWindow : Window
         TrainerStatusText.Text = trainerName.Contains('□')
             ? "当前名字含未解码字形；已知“叶”可识别，其他字符请先用副本验证。"
             : _profile.Features.SaveTrainer.Write
-                ? "训练家名已解析；修改先进入待保存副本，保存或另存为后写入。"
+                ? "训练家名已解析。修改后点保存修改，再用顶部保存写入文件。"
                 : "只读。训练家名由本 ROM 已证明字形解码。";
         TrainerMoneyStatusText.Text = $"金钱 {save.Money}。写入后需保存或另存为。";
         NdsSaveText.Text = FormatNdsSave(save);
@@ -1688,8 +1728,13 @@ public partial class MainWindow : Window
         BaseBox.Text = string.Empty;
 
         _partyRows.Clear();
+        _partyRevertRaw.Clear();
+        _boxRevertRaw.Clear();
         for (var i = 0; i < save.Party.Count; i++)
+        {
             _partyRows.Add(ToRow(i + 1, (uint)_loadedSave.PartySaveOffset(i + 1), save.Party[i]));
+            RememberPartyRevert(i + 1, save.Party[i].Raw);
+        }
         PartyList.SelectedIndex = _partyRows.Count > 0 ? 0 : -1;
         if (_partyRows.Count == 0)
         {
@@ -1707,7 +1752,8 @@ public partial class MainWindow : Window
             var info = entry.Mon.GetInfo();
             var title = BoxDisplayTitle(entry.BoxNumber, entry.SlotInBox, entry.Mon, info);
             if (HasSummaryAllStatsIncreaseNatureCode(info.GameNatureCode)) title += " / 性格代码异常";
-            _boxRows.Add(new BoxSlotRow(entry.GlobalSlot, (uint)entry.SaveOffset, entry.Mon, info, title, "存档待保存副本", BoxDisplaySprite(info)));
+            _boxRows.Add(new BoxSlotRow(entry.GlobalSlot, (uint)entry.SaveOffset, entry.Mon, info, title, "存档", BoxDisplaySprite(info)));
+            RememberBoxRevert(entry.GlobalSlot, entry.Mon.Raw);
         }
 
         UpdateCorruptBoxNotice();
@@ -1734,7 +1780,7 @@ public partial class MainWindow : Window
         LastWriteText.Text = _loadedSave.CanWrite
             ? "当前来源：存档编辑副本；队伍、背包和箱子可修改，原文件不会被覆盖。"
             : $"当前来源：存档只读预览；{_loadedSave.WriteBlockReason}";
-        Log($"已读取存档：{save.FileName}，大小 {save.FileSize} 字节，使用副本 {save.SaveSlot}，save index {save.SaveIndex}，有效 section {save.ValidSectionCount}/14。");
+        Log($"已读取存档：{save.FileName}，大小 {save.FileSize} 字节，使用副本 {save.SaveSlot}，save index {save.SaveIndex}，有效 section {save.ValidSectionCount}。");
         Log($"存档内容：队伍 {save.Party.Count} 只，背包可显示 {save.Bag.Count} 格，箱子正常记录 {save.Boxes.Count} 格，损坏记录 {save.CorruptBoxes.Count} 格。支持 .sav/.srm 原始电池存档。");
         foreach (var warning in save.Warnings)
             Log("存档提示：" + warning);
@@ -1820,7 +1866,7 @@ public partial class MainWindow : Window
                     return BitConverter.ToUInt16(raw, 0);
                 }).ToArray();
                 StageNdsEdit(editor => editor.SetTrainerName(codes));
-                SetWriteNotice($"训练家名字已更新为 {newName}，进入待保存副本；请点击保存或另存为。", success: true);
+                SetWriteNotice($"训练家名字已保存修改为 {newName}。请点顶部保存写入文件。", success: true);
                 return;
             }
             var encoded = EncodeGameTextBuffer(newName, _profile.Memory.PlayerNameLength, requireTerminator: true);
@@ -1829,11 +1875,11 @@ public partial class MainWindow : Window
                 var document = _loadedSave ?? throw new InvalidOperationException("请先读取一个存档。");
                 var before = document.Snapshot.Trainer ?? throw new InvalidOperationException("当前存档没有已验证的训练家字段。");
                 document.ReplaceTrainerName(encoded);
-                var info = ToTrainerInfo(encoded, before.OtId, "存档待保存副本 / SaveBlock2");
+                var info = ToTrainerInfo(encoded, before.OtId, "存档 / SaveBlock2");
                 FillTrainerInfo(info);
-                TrainerStatusText.Text = "名字已更新到待保存副本；点击顶部保存后才会写入文件。";
+                TrainerStatusText.Text = "名字已保存修改。请点顶部保存写入文件。";
                 UpdateSaveButtons();
-                SetWriteNotice($"训练家名字已更新为 {info.Name}，等待保存。现有宝可梦的初训家名字不会自动批量改写。");
+                SetWriteNotice($"训练家名字已保存修改为 {info.Name}。现有宝可梦的初训家名字不会自动改写。");
                 return;
             }
 
@@ -1885,7 +1931,7 @@ public partial class MainWindow : Window
         if (_profile.IsNds)
         {
             StageNdsEdit(_ => { });
-            SetWriteNotice("金钱修改已记入待保存副本，尚未写回原存档。请点保存修改并备份。", success: true);
+            SetWriteNotice("金钱已保存修改。请点顶部保存写入文件。", success: true);
             return;
         }
         await RunUiTask("写入金钱", () =>
@@ -1899,9 +1945,9 @@ public partial class MainWindow : Window
                 var document = _loadedSave ?? throw new InvalidOperationException("请先读取一个存档。");
                 document.ReplaceTrainerMoney((uint)money);
                 TrainerMoneyCurrentBox.Text = money.ToString();
-                TrainerMoneyStatusText.Text = $"金钱已改为 {money}，等待保存。";
+                TrainerMoneyStatusText.Text = $"金钱已保存修改为 {money}。";
                 UpdateSaveButtons();
-                SetWriteNotice($"金钱已更新为 {money}，等待保存。", success: true);
+                SetWriteNotice($"金钱已保存修改为 {money}。", success: true);
                 return;
             }
 
@@ -1967,7 +2013,7 @@ public partial class MainWindow : Window
             mon.SetShiny(ShinyBox.IsChecked == true);
             ApplyGenderChoice(mon, species ?? before.Species);
             var abilitySlot = SelectedAbilitySlot();
-            if (abilitySlot is not null)
+            if (abilitySlot is not null && _runtime.CanWriteAbilitySlot)
                 mon.SetAbilitySlot(abilitySlot.Value, ReadSpeciesStats(species ?? before.Species).GenderRatio);
             mon.SetGrowth(species, ParseItemOrNull(ItemBox), experience.Exp, ParsePartyFriendshipOrHatchCounter(before), null);
             if (_runtime.CanWriteCaughtBall(GameDataSurface.Party, live: true) &&
@@ -1994,7 +2040,7 @@ public partial class MainWindow : Window
         if (_profile.IsNds)
         {
             StageNdsEdit(_ => { });
-            SetWriteNotice("队伍修改已记入待保存副本，尚未写回原存档。请点保存修改并备份。", success: true);
+            SetWriteNotice("队伍已保存修改。请点顶部保存写入文件。", success: true);
             return;
         }
         if (SelectedRow() is not { } row) return;
@@ -2016,8 +2062,8 @@ public partial class MainWindow : Window
                 UpdateSaveButtons();
                 SetWriteNotice(
                     evTotal > 510
-                        ? $"存档队伍槽位 {row.Slot} 已更新，等待保存。警告：努力值总和已超过限制。"
-                        : $"存档队伍槽位 {row.Slot} 已更新，等待保存。",
+                        ? $"队伍第 {row.Slot} 只已保存修改。努力值总和超过 510。"
+                        : $"队伍第 {row.Slot} 只已保存修改。",
                     success: evTotal <= 510);
             });
             return;
@@ -2059,7 +2105,7 @@ public partial class MainWindow : Window
         if (SelectedChoiceId(NatureBox) is { } nature) mon.SetNature(nature);
         mon.SetShiny(ShinyBox.IsChecked == true);
         ApplyGenderChoice(mon, species ?? before.Species);
-        if (SelectedAbilitySlot() is { } abilitySlot)
+        if (_runtime.CanWriteAbilitySlot && SelectedAbilitySlot() is { } abilitySlot)
             mon.SetAbilitySlot(abilitySlot, ReadSpeciesStats(species ?? before.Species).GenderRatio);
         mon.SetGrowth(
             species,
@@ -2090,7 +2136,7 @@ public partial class MainWindow : Window
         {
             if (SelectedRow() is not { } ndsRow || string.IsNullOrWhiteSpace(_loadedSavePath)) return;
             StageNdsEdit(editor => editor.RemoveParty(ndsRow.Slot));
-            SetWriteNotice($"已从待保存副本删除队伍第 {ndsRow.Slot} 只，尚未写回原存档。", success: true);
+            SetWriteNotice($"已删除队伍第 {ndsRow.Slot} 只。请点顶部保存写入文件。", success: true);
             return;
         }
         if (SelectedRow() is not { } row) return;
@@ -2109,9 +2155,10 @@ public partial class MainWindow : Window
                     _partyRows[index] = ToRow(index + 1, (uint)document.PartySaveOffset(index + 1), current.Mon);
                 }
                 PartyList.SelectedIndex = _partyRows.Count == 0 ? -1 : Math.Clamp(row.Slot - 1, 0, _partyRows.Count - 1);
+                ShiftPartyRevertAfterDelete(row.Slot);
                 UpdateSaveButtons();
-                SetWriteNotice($"存档队伍槽位 {row.Slot} 已删除并压缩后续槽位，等待保存。");
-                ShowToast("存档队伍精灵已删除，等待保存。", success: true);
+                SetWriteNotice($"已删除队伍第 {row.Slot} 只。");
+                ShowToast("已删除。", success: true);
             });
             return;
         }
@@ -2275,7 +2322,7 @@ public partial class MainWindow : Window
     private void ShowBagRowDetails(BagSlotRow row)
     {
         BagAddressBox.Text = $"0x{row.Address:X8}";
-        SetBagItemChoicesForPocket(row.Pocket, row.ItemId);
+        SetBagItemChoicesForPocket(SelectedBagCategoryId(row.Pocket), row.ItemId);
         BagQuantityBox.Text = row.Quantity.ToString();
         UpdateBagNameText();
     }
@@ -2309,8 +2356,8 @@ public partial class MainWindow : Window
             LoadSaveBagRows(document.CurrentBag, updated?.SaveOffset);
             UpdateSaveButtons();
             SetWriteNotice(item == 0
-                ? $"{PocketNameZh(editable.Row.Pocket)}第 {editable.Row.SlotInPocket} 格已清空，等待保存。"
-                : $"{PocketNameZh(editable.Row.Pocket)}第 {editable.Row.SlotInPocket} 格已改为 {ItemName(item)}，等待保存。");
+                ? $"{PocketNameZh(editable.Row.Pocket)}第 {editable.Row.SlotInPocket} 格已清空。"
+                : $"{PocketNameZh(editable.Row.Pocket)}第 {editable.Row.SlotInPocket} 格已改为 {ItemName(item)}。");
         });
     }
 
@@ -2358,7 +2405,7 @@ public partial class MainWindow : Window
             document.ReplaceBagEntry(current.SaveOffset, current.ItemId, quantity);
             LoadSaveBagRows(document.CurrentBag, current.SaveOffset);
             UpdateSaveButtons();
-            SetWriteNotice($"{PocketNameZh(current.Pocket)}第 {current.SlotInPocket} 格数量已改为 {quantity}，等待保存。");
+            SetWriteNotice($"{PocketNameZh(current.Pocket)}第 {current.SlotInPocket} 格数量已改为 {quantity}。");
         });
     }
 
@@ -2383,7 +2430,7 @@ public partial class MainWindow : Window
         if (_profile.IsNds)
         {
             StageNdsEdit(_ => { });
-            SetWriteNotice("背包修改已记入待保存副本，尚未写回原存档。请点保存修改并备份。", success: true);
+            SetWriteNotice("背包已保存修改。请点顶部保存写入文件。", success: true);
             return;
         }
         var row = _dataSourceMode == DataSourceMode.SaveFile
@@ -2406,8 +2453,8 @@ public partial class MainWindow : Window
                 LoadSaveBagRows(document.CurrentBag, updated?.SaveOffset);
                 UpdateSaveButtons();
                 SetWriteNotice(item == 0
-                    ? $"存档背包槽 0x{row.Address:X} 已清空，等待保存。"
-                    : $"存档背包槽已更新为 {ItemName(item)} x{(row.Pocket == 8 ? 1 : qty)}，等待保存。");
+                    ? $"存档背包槽 0x{row.Address:X} 已清空。"
+                    : $"存档背包槽已更新为 {ItemName(item)} x{(row.Pocket == 8 ? 1 : qty)}。");
             });
             return;
         }
@@ -2447,7 +2494,7 @@ public partial class MainWindow : Window
             var pocket = _loadedNdsSave.BagPockets.FirstOrDefault(candidate => NdsPocketId(candidate.Name) == ndsRow.Pocket);
             if (pocket is null) return;
             StageNdsEdit(editor => editor.RemoveBagItem(pocket.Name, ndsRow.SlotInPocket));
-            SetWriteNotice($"已删除 {ItemName(ndsRow.ItemId)}，尚未写回原存档。请点保存修改并备份。", success: true);
+            SetWriteNotice($"已删除 {ItemName(ndsRow.ItemId)}，请点顶部保存写入文件。", success: true);
             return;
         }
 
@@ -2465,7 +2512,7 @@ public partial class MainWindow : Window
                 document.ReplaceBagEntry(checked((int)row.Address), 0, 0);
                 LoadSaveBagRows(document.CurrentBag);
                 UpdateSaveButtons();
-                SetWriteNotice($"已删除 {ItemName(row.ItemId)}，等待保存。", success: true);
+                SetWriteNotice($"已删除 {ItemName(row.ItemId)}。", success: true);
             });
             return;
         }
@@ -2503,7 +2550,7 @@ public partial class MainWindow : Window
             var quantity = ParseBagQuantityRequired(item, allowZero: false, selectedPocket);
             StageNdsEdit(editor => editor.AddBagItem(pocket.Name, item, quantity));
             _pendingNdsBagAdd = null;
-            SetWriteNotice($"已添加 {ItemName(item)}，尚未写回原存档。请点保存修改并备份。", success: true);
+            SetWriteNotice($"已添加 {ItemName(item)}，请点顶部保存写入文件。", success: true);
             return;
         }
         if (_dataSourceMode == DataSourceMode.SaveFile)
@@ -2521,7 +2568,7 @@ public partial class MainWindow : Window
                 var added = document.AddBagItem(selectedPocket, item, qty);
                 LoadSaveBagRows(document.CurrentBag, added.SaveOffset);
                 UpdateSaveButtons();
-                SetWriteNotice($"存档背包已添加 {ItemName(item)} x{(IsKeyItemPocket(selectedPocket) ? 1 : qty)}，等待保存。");
+                SetWriteNotice($"存档背包已添加 {ItemName(item)} x{(IsKeyItemPocket(selectedPocket) ? 1 : qty)}。");
             });
             return;
         }
@@ -2684,7 +2731,7 @@ public partial class MainWindow : Window
                 BagPocketTabs.SelectedItem = _bagPocketChoices.FirstOrDefault(choice => PhysicalBagPocket(choice.Id) == MachinePocket) ?? BagPocketTabs.SelectedItem;
                 SelectSaveBagRow(_bagRows.FirstOrDefault(row => writableItems.Contains(row.ItemId))?.Address);
                 UpdateSaveButtons();
-                SetWriteNotice($"{label}已写入存档副本：新增 {result.Added} 个，更新 {result.Updated} 个，跳过 {skipped} 个，等待保存。");
+                SetWriteNotice($"{label}已写入存档副本：新增 {result.Added} 个，更新 {result.Updated} 个，跳过 {skipped} 个。");
             });
             return;
         }
@@ -2758,7 +2805,7 @@ public partial class MainWindow : Window
                 BagPocketTabs.SelectedItem = _bagPocketChoices.FirstOrDefault(choice => choice.Id == pocket) ?? BagPocketTabs.SelectedItem;
                 SelectSaveBagRow(_bagRows.FirstOrDefault(row => items.Contains(row.ItemId))?.Address);
                 UpdateSaveButtons();
-                SetWriteNotice($"{label}已写入存档副本：新增 {result.Added} 个，更新 {result.Updated} 个，数量设为 {quantity}，等待保存。");
+                SetWriteNotice($"{label}已写入存档副本：新增 {result.Added} 个，更新 {result.Updated} 个，数量设为 {quantity}。");
             });
             return;
         }
@@ -2985,7 +3032,7 @@ public partial class MainWindow : Window
         if (entry is null) return;
         var confirmed = await ConfirmActionAsync(
             "清除损坏记录",
-            $"确定清除箱{entry.BoxNumber:00}-{entry.SlotInBox:00} 的损坏记录吗？\n该操作只会清空当前待保存副本，保存前仍可取消。",
+            $"确定清除箱{entry.BoxNumber:00}-{entry.SlotInBox:00} 的损坏记录吗？\n确定清除这条损坏记录吗？清除后点顶部保存才会写入文件。",
             "确认清除");
         if (!confirmed) return;
         try
@@ -3010,11 +3057,12 @@ public partial class MainWindow : Window
             return;
         }
         var info = row.Info;
-        SetPokemonSprite(
+        SetEggOrPokemonSprite(
             BoxDetailSpriteImage,
             info.Species,
             row.Mon.IsShiny,
-            BoxBackSpriteBox.IsChecked == true);
+            BoxBackSpriteBox.IsChecked == true,
+            IsEgg(info));
         UpdateBoxHeaderInfo(info.Species, info.Exp);
         SetOtEditor(BoxOtNameBox, BoxOtIdText, row.Mon.Raw, info.OtId);
         BoxAddressText.Text = $"0x{row.Address:X8}";
@@ -3331,17 +3379,18 @@ public partial class MainWindow : Window
             catch (Exception rollbackError)
             {
                 throw new InvalidOperationException(
-                    "存档箱子位置调整失败，且待保存副本回滚失败。请放弃当前副本并重新读取原存档。",
+                    "箱子位置调整失败，而且无法恢复。请重新读取存档。",
                     new AggregateException(writeError, rollbackError));
             }
             throw new InvalidOperationException("存档箱子位置调整失败，已恢复原槽位。", writeError);
         }
 
         var targetAddress = targetRow?.Address ?? SaveBoxDisplayAddress(targetSlot);
-        ReplaceBoxRowsAfterMove(sourceRow, targetRow, targetSlot, targetAddress, sourceMon, targetMon, "存档待保存副本");
+        ReplaceBoxRowsAfterMove(sourceRow, targetRow, targetSlot, targetAddress, sourceMon, targetMon, "存档");
+        SwapBoxRevert(sourceRow.Slot, targetSlot);
         UpdateSaveButtons();
         var action = targetMon is null ? "移动" : "交换";
-        SetWriteNotice($"已在待保存存档中{action}：{BoxSlotLabel(sourceRow.Slot)} → {BoxSlotLabel(targetSlot)}。完成后请使用“保存修改并备份”。");
+        SetWriteNotice($"已{action}：{BoxSlotLabel(sourceRow.Slot)} → {BoxSlotLabel(targetSlot)}。");
     }
 
     private void MoveOrSwapLiveBoxSlot(BoxSlotRow sourceRow, BoxSlotRow? targetRow, int targetSlot)
@@ -3465,7 +3514,7 @@ public partial class MainWindow : Window
         if (_profile.IsNds)
         {
             StageNdsEdit(_ => { });
-            SetWriteNotice("箱子修改已记入待保存副本，尚未写回原存档。请点保存修改并备份。", success: true);
+            SetWriteNotice("箱子已保存修改。请点顶部保存写入文件。", success: true);
             return;
         }
         if (BoxList.SelectedItem is not BoxSlotRow row)
@@ -3489,7 +3538,7 @@ public partial class MainWindow : Window
                 var slotInBox = (row.Slot - 1) % _profile.Memory.PcBoxSlots + 1;
                 var title = BoxDisplayTitle(boxNumber, slotInBox, mon, info);
                 if (HasSummaryAllStatsIncreaseNatureCode(info.GameNatureCode)) title += " / 性格代码异常";
-                var updated = new BoxSlotRow(row.Slot, row.Address, mon, info, title, "存档待保存副本", BoxDisplaySprite(info));
+                var updated = new BoxSlotRow(row.Slot, row.Address, mon, info, title, "存档", BoxDisplaySprite(info));
                 var index = _boxRows.IndexOf(row);
                 if (index >= 0) _boxRows[index] = updated;
                 RefreshBoxGridGroups();
@@ -3497,8 +3546,8 @@ public partial class MainWindow : Window
                 UpdateSaveButtons();
                 SetWriteNotice(
                     evTotal > 510
-                        ? $"存档箱{boxNumber:00}-{slotInBox:00}已更新为 {SpeciesName(species)}，等待保存。警告：努力值总和已超过限制。"
-                        : $"存档箱{boxNumber:00}-{slotInBox:00}已更新为 {SpeciesName(species)}，等待保存。",
+                        ? $"{BoxSlotLabel(row.Slot)} 已保存修改。努力值总和超过 510。"
+                        : $"{BoxSlotLabel(row.Slot)} 已保存修改。",
                     success: evTotal <= 510);
             });
             return;
@@ -3546,7 +3595,7 @@ public partial class MainWindow : Window
             mon.SetNature(nature);
         mon.SetShiny(BoxShinyBox.IsChecked == true);
         ApplyGenderChoice(mon, species);
-        if (SelectedChoiceId(BoxAbilityBox) is { } ability)
+        if (_runtime.CanWriteAbilitySlot && SelectedChoiceId(BoxAbilityBox) is { } ability)
             mon.SetAbilitySlot(ability, ReadSpeciesStats(species).GenderRatio);
         var ivs = BuildIntStats(BoxIvHpBox, BoxIvAtkBox, BoxIvDefBox, BoxIvSpeBox, BoxIvSpaBox, BoxIvSpdBox);
         foreach (var value in ivs.Values)
@@ -3583,7 +3632,7 @@ public partial class MainWindow : Window
             var mon = _loadedNdsSave?.BoxMons.FirstOrDefault(candidate => candidate.Offset == ndsRow.Address);
             if (mon is null) return;
             StageNdsEdit(editor => editor.RemoveBox(mon.Box, mon.Slot));
-            SetWriteNotice($"已从待保存副本删除箱子 {mon.Box}-{mon.Slot}，尚未写回原存档。", success: true);
+            SetWriteNotice($"已删除箱子 {mon.Box}-{mon.Slot}。请点顶部保存写入文件。", success: true);
             return;
         }
         if (BoxList.SelectedItem is not BoxSlotRow row)
@@ -3614,9 +3663,10 @@ public partial class MainWindow : Window
                 _boxRows.Remove(row);
                 RefreshBoxGridGroups();
                 BoxList.SelectedIndex = _boxRows.Count == 0 ? -1 : Math.Clamp(oldIndex, 0, _boxRows.Count - 1);
+                _boxRevertRaw.Remove(row.Slot);
                 UpdateSaveButtons();
-                SetWriteNotice($"存档箱子槽已清空：{row.Title}，等待保存。");
-                ShowToast("存档箱子精灵已删除，等待保存。", success: true);
+                SetWriteNotice($"已删除 {row.Title}。");
+                ShowToast("已删除。", success: true);
             });
             return;
         }
@@ -3655,7 +3705,7 @@ public partial class MainWindow : Window
             var slot = 0;
             var imported = NdsDexImport(ndsRow.Id);
             StageNdsEdit(editor => slot = editor.AppendParty((ushort)ndsRow.Id, imported.Experience, imported.Level, imported.Moves, imported.Pp, imported.Ivs));
-            SetWriteNotice($"已导入待保存队伍第 {slot} 只：{ndsRow.DisplayName}。请点保存修改并备份。", success: true);
+            SetWriteNotice($"已导入队伍第 {slot} 只：{ndsRow.DisplayName}。请点保存修改并备份。", success: true);
             return;
         }
         var saveMode = _dataSourceMode == DataSourceMode.SaveFile;
@@ -3716,7 +3766,7 @@ public partial class MainWindow : Window
             var placed = (0, 0);
             var imported = NdsDexImport(ndsRow.Id);
             StageNdsEdit(editor => placed = editor.AppendBox((ushort)ndsRow.Id, imported.Experience, imported.Moves, imported.Pp, imported.Ivs));
-            SetWriteNotice($"已导入待保存箱子 {placed.Item1}-{placed.Item2}：{ndsRow.DisplayName}。请点保存修改并备份。", success: true);
+            SetWriteNotice($"已导入箱子 {placed.Item1}-{placed.Item2}：{ndsRow.DisplayName}。请点保存修改并备份。", success: true);
             return;
         }
         var saveMode = _dataSourceMode == DataSourceMode.SaveFile;
@@ -3756,7 +3806,7 @@ public partial class MainWindow : Window
                     saveMon,
                     saveInfo,
                     title,
-                    "存档待保存副本",
+                    "存档",
                     BoxDisplaySprite(saveInfo));
                 _boxRows.Add(updated);
                 RefreshBoxGridGroups();
@@ -4026,6 +4076,9 @@ public partial class MainWindow : Window
 
     private TrainerInfo ReadTrainerInfo(MgbaBridgeClient bridge)
     {
+        if (_profile.Memory.SaveBlock2HeaderLength <= 0 || _profile.Memory.PlayerNameLength <= 0)
+            return new TrainerInfo(0, [], "名字未验证", 0, 0, 0, "实时 mGBA / 仅金钱已验证");
+
         var pointerRaw = bridge.Read(_profile.Memory.SaveBlock2PointerAddress, 4);
         var saveBlock2 = ReadU32Le(pointerRaw, 0);
         if (!IsEwramRange(saveBlock2, _profile.Memory.SaveBlock2HeaderLength))
@@ -4072,17 +4125,67 @@ public partial class MainWindow : Window
     {
         var trainer = _loadedSave?.Snapshot.Trainer
                       ?? throw new InvalidOperationException("请先读取一个包含已验证训练家字段的存档。");
-        FillTrainerInfo(ToTrainerInfo(trainer.NameBytes, trainer.OtId, "存档待保存副本 / SaveBlock2"));
-        TrainerStatusText.Text = "已读取存档训练家信息；修改会先进入待保存副本。";
+        FillTrainerInfo(ToTrainerInfo(trainer.NameBytes, trainer.OtId, "存档 / SaveBlock2"));
+        TrainerStatusText.Text = "已读取训练家信息。修改后点保存修改。";
         TrainerMoneyCurrentBox.Text = trainer.Money.ToString();
         TrainerMoneyStatusText.Text = $"已读取存档金钱：{trainer.Money}。";
+        FillCoinCase(trainer.Coins);
+    }
+
+    private void FillCoinCase(ushort? coins)
+    {
+        var coinCase = _profile.Runtime.CoinCase;
+        CoinCasePanel.IsVisible = coinCase.Enabled;
+        if (!coinCase.Enabled) return;
+        CoinCaseTitleText.Text = $"{coinCase.Name}盒";
+        CoinCaseLabelText.Text = $"当前{coinCase.Name}";
+        var liveCoins = _dataSourceMode == DataSourceMode.Live && _profile.Features.LiveTrainerCoins.Write;
+        CoinCaseApplyButton.IsEnabled = liveCoins || (_loadedSave?.CanWrite == true && _profile.Features.SaveTrainer.Write);
+        CoinCaseBox.Text = coins?.ToString() ?? "";
+        CoinCaseStatusText.Text = coins is null
+            ? "当前存档没有读到代币盒数量。"
+            : $"已读取{coinCase.Name}盒：{coins}。范围 0..{coinCase.Max}。";
+    }
+
+    private async void OnCoinCaseApplyClicked(object? sender, RoutedEventArgs e)
+    {
+        var coinCase = _profile.Runtime.CoinCase;
+        if (!coinCase.Enabled) return;
+        await RunUiTask($"写入{coinCase.Name}盒", () =>
+        {
+            var coins = ParseIntRequired(CoinCaseBox.Text, $"{coinCase.Name}数量");
+            if (coins is < 0 || coins > coinCase.Max)
+                throw new InvalidOperationException($"{coinCase.Name}必须在 0..{coinCase.Max}。");
+            if (_dataSourceMode == DataSourceMode.Live)
+            {
+                if (!_profile.Features.LiveTrainerCoins.Write)
+                    throw new InvalidOperationException("当前版本还没有验证实时游戏币写入。");
+                using var bridge = ConnectBridge();
+                WriteTrainerCoins(bridge, coins);
+                var actual = TryReadTrainerCoins(bridge) ?? throw new InvalidOperationException("写入后没有读回游戏币。");
+                CoinCaseBox.Text = actual.ToString();
+                CoinCaseStatusText.Text = $"已写入{coinCase.Name}：{actual}。";
+                SetWriteNotice($"{coinCase.Name}已写入：{actual}。请回游戏确认后手动保存。");
+                return;
+            }
+            var document = _loadedSave ?? throw new InvalidOperationException("请先读取存档。");
+            document.ReplaceCoinCase((ushort)coins);
+            CoinCaseStatusText.Text = $"{coinCase.Name}已改为 {coins}。";
+            UpdateSaveButtons();
+            SetWriteNotice($"{coinCase.Name}盒已更新为 {coins}。", success: true);
+        });
     }
 
     private void FillTrainerMoney(MgbaBridgeClient bridge)
     {
         var money = ReadTrainerMoney(bridge);
         TrainerMoneyCurrentBox.Text = money.ToString();
-        TrainerMoneyStatusText.Text = $"已读取当前金钱：{money}。";
+        var coins = TryReadTrainerCoins(bridge);
+        TrainerMoneyStatusText.Text = coins is null
+            ? $"已读取当前金钱：{money}。"
+            : $"已读取当前金钱：{money}。游戏币：{coins}。";
+        if (_profile.Runtime.CoinCase.Enabled)
+            FillCoinCase(coins is null ? null : (ushort)coins);
     }
 
     private int ReadTrainerMoney(MgbaBridgeClient bridge)
@@ -4096,9 +4199,35 @@ public partial class MainWindow : Window
         return (int)money;
     }
 
+    private int? TryReadTrainerCoins(MgbaBridgeClient bridge)
+    {
+        if (_profile.Memory.SaveBlock1CoinsOffset == 0 || _profile.Runtime.MaxTrainerCoins <= 0)
+            return null;
+        var (moneyAddress, key) = ResolveTrainerMoneyField(bridge);
+        var address = moneyAddress - _profile.Memory.SaveBlock1MoneyOffset + _profile.Memory.SaveBlock1CoinsOffset;
+        if (!IsEwramRange(address, 2))
+            return null;
+        var encrypted = ReadU16(bridge.Read(address, 2), 0);
+        var coins = encrypted ^ (ushort)key;
+        return coins <= _profile.Runtime.MaxTrainerCoins ? coins : null;
+    }
+
+    private void WriteTrainerCoins(MgbaBridgeClient bridge, int coins)
+    {
+        if (coins < 0 || coins > _profile.Runtime.MaxTrainerCoins)
+            throw new InvalidOperationException($"游戏币必须在 0..{_profile.Runtime.MaxTrainerCoins}。");
+        var (moneyAddress, key) = ResolveTrainerMoneyField(bridge);
+        var address = moneyAddress - _profile.Memory.SaveBlock1MoneyOffset + _profile.Memory.SaveBlock1CoinsOffset;
+        if (!IsEwramRange(address, 2))
+            throw new InvalidOperationException("没有读到有效的游戏币字段。");
+        var encrypted = (ushort)coins ^ (ushort)key;
+        bridge.WriteRangeVerified(address, [(byte)encrypted, (byte)(encrypted >> 8)]);
+    }
+
     private void WriteTrainerMoney(MgbaBridgeClient bridge, int money)
     {
-        _runtime.EnsureCanWrite(GameDataSurface.Trainer, live: true);
+        if (!_runtime.CanWrite(GameDataSurface.Trainer, live: true) && !_profile.Features.LiveTrainerMoney.Write)
+            throw new InvalidOperationException("当前版本还没有验证实时金钱写入。");
         var (address, key) = ResolveTrainerMoneyField(bridge);
         var encrypted = (uint)money ^ key;
         bridge.WriteRangeVerified(address, U32Le(encrypted));
@@ -4474,18 +4603,22 @@ public partial class MainWindow : Window
                 DexBackSpriteBox.IsChecked == true));
 
         var partySpecies = ParseChoiceUShortOrNull(SpeciesBox, _speciesChoices) ?? 0;
-        SetPokemonSprite(
+        var partyInfo = (PartyList.SelectedItem as PartySlotRow)?.Info;
+        SetEggOrPokemonSprite(
             PartyDetailSpriteImage,
             partySpecies,
             ShinyBox.IsChecked == true,
-            PartyBackSpriteBox.IsChecked == true);
+            PartyBackSpriteBox.IsChecked == true,
+            partyInfo is not null && IsEgg(partyInfo));
 
         var boxSpecies = ParseChoiceUShortOrNull(BoxSpeciesBox, _speciesChoices) ?? 0;
-        SetPokemonSprite(
+        var boxInfo = (BoxList.SelectedItem as BoxSlotRow)?.Info;
+        SetEggOrPokemonSprite(
             BoxDetailSpriteImage,
             boxSpecies,
             BoxShinyBox.IsChecked == true,
-            BoxBackSpriteBox.IsChecked == true);
+            BoxBackSpriteBox.IsChecked == true,
+            boxInfo is not null && IsEgg(boxInfo));
     }
 
     private void InitializeDexRows()
@@ -4784,6 +4917,20 @@ public partial class MainWindow : Window
         image.IsVisible = sprite is not null;
     }
 
+    private void SetEggOrPokemonSprite(
+        Image image,
+        int speciesId,
+        bool shiny,
+        bool back,
+        bool egg)
+    {
+        var sprite = egg
+            ? LoadEggSpriteBitmap()
+            : speciesId > 0 ? LoadSpriteBitmap(speciesId, shiny, back) : null;
+        image.Source = sprite;
+        image.IsVisible = sprite is not null;
+    }
+
     private void UpdatePartyHeaderInfo(int species, int? level)
     {
         if (species <= 0)
@@ -4878,13 +5025,13 @@ public partial class MainWindow : Window
 
     private Bitmap? LoadEggSpriteBitmap()
     {
-        if (!UsesVerifiedSpriteAssets || _profile.Graphics.EggSpeciesId <= 0) return null;
-        // Egg artwork is stored as egg.png; keep the species-id fallback for profiles
-        // that provide an explicitly numbered egg asset.
-        _eggSpriteCache ??= LoadSpriteBitmapCore(
-                "egg",
-                _profile.Graphics.SpriteAssetRoot)
-            ?? LoadSpriteBitmapCore(
+        if (!UsesVerifiedSpriteAssets) return null;
+        if (_eggSpriteCache is not null) return _eggSpriteCache;
+        // egg.png is the temporary stand-in until this ROM's egg picture is confirmed.
+        // Numbered species art remains only for profiles that already verified an egg id.
+        _eggSpriteCache = LoadSpriteBitmapCore("egg", _profile.Graphics.SpriteAssetRoot);
+        if (_eggSpriteCache is null && _profile.Graphics.EggSpeciesId > 0)
+            _eggSpriteCache = LoadSpriteBitmapCore(
                 _profile.Graphics.EggSpeciesId,
                 _profile.Graphics.SpriteAssetRoot);
         return _eggSpriteCache;
@@ -5037,6 +5184,8 @@ public partial class MainWindow : Window
     {
         _dexInfoRows.Clear();
         _dexInfoRows.Add(new DexInfoRow("宝可梦", row.DisplayName));
+        if (_db.Table("species_dex_text").TryGetValue(row.Id, out var dexText) && !string.IsNullOrWhiteSpace(dexText))
+            _dexInfoRows.Add(new DexInfoRow("图鉴说明", dexText.Replace(" / ", "\n")));
         if (NationalDexNumber(row.Id) is { } nationalDex)
             _dexInfoRows.Add(new DexInfoRow("全国图鉴编号", $"No.{nationalDex:0000}（内部 ID {row.Id}）"));
         else
@@ -5329,7 +5478,7 @@ public partial class MainWindow : Window
     {
         _dexOtherMoveRows.Clear();
         foreach (var (index, move) in ReadIndexedSpeciesMoves("species_machine_moves", species))
-            AddDexMoveRow(_dexOtherMoveRows, $"机器 {index + 1:000}", move);
+            AddDexMoveRow(_dexOtherMoveRows, MachineDexLabel(index), move);
         foreach (var (index, move) in ReadIndexedSpeciesMoves("species_tutor_moves", species))
             AddDexMoveRow(_dexOtherMoveRows, "教学招式", move);
         if (_db.Table("species_egg_moves").TryGetValue(species, out var rawEggMoves))
@@ -5362,6 +5511,41 @@ public partial class MainWindow : Window
         }
         DexEncountersEmptyText.Text = _dexEncounterRows.Count == 0 ? "当前 ROM 的野外遭遇表中没有记录。" : "";
         DexEncountersEmptyText.IsVisible = _dexEncounterRows.Count == 0;
+    }
+
+    private string? MachinesTeachingMove(int moveId)
+    {
+        var rules = _profile.Runtime.Machines;
+        if (rules.TmCount <= 0 || moveId <= 0)
+            return null;
+        var labels = new List<string>();
+        var total = rules.TmCount + Math.Max(rules.HmCount, 0);
+        for (var index = 0; index < total; index++)
+        {
+            if (MachineMoveId(index) == moveId)
+                labels.Add(MachineDexLabel(index));
+        }
+        return labels.Count == 0 ? null : string.Join("、", labels);
+    }
+
+    private string? MachineTaughtByItem(int itemId)
+    {
+        var rules = _profile.Runtime.Machines;
+        if (rules.TmStartItem <= 0 || rules.TmCount <= 0)
+            return null;
+        var index = itemId - rules.TmStartItem;
+        if (index < 0 || index >= rules.TmCount + Math.Max(rules.HmCount, 0))
+            return null;
+        var moveId = MachineMoveId(index);
+        return moveId <= 0 ? null : $"{MachineDexLabel(index)} {MoveName(moveId)}";
+    }
+
+    private string MachineDexLabel(int index)
+    {
+        var rules = _profile.Runtime.Machines;
+        if (rules.TmCount > 0 && index >= rules.TmCount && index < rules.TmCount + rules.HmCount)
+            return $"秘传 {index - rules.TmCount + 1:00}";
+        return $"机器 {index + 1:000}";
     }
 
     private IEnumerable<(int Index, int Move)> ReadIndexedSpeciesMoves(string table, int species)
@@ -5440,10 +5624,15 @@ public partial class MainWindow : Window
             var description = _db.Table("move_descriptions").TryGetValue(id, out var text) && !string.IsNullOrWhiteSpace(text)
                 ? text
                 : "暂无完整说明";
+            var machines = MachinesTeachingMove(id);
+            var chance = _profile.Runtime.MoveEffectChanceVerified
+                ? m.SecondaryEffectChance.ToString()
+                : "未验证";
             return $"招式 {id}（{_db.NameOf("moves", id)}）\n" +
+                   (machines is null ? "" : $"机器：{machines}\n") +
                    $"说明：{description}\n" +
                    $"威力 {power}  属性 {m.Type}（{MoveTypeNameZh(m.Type)}）  命中 {accuracy}  PP {m.Pp}\n" +
-                   $"分类 {m.Category}（{MoveCategoryNameZh(m.Category)}）  优先度 {m.Priority}  附加几率 {m.SecondaryEffectChance}\n" +
+                   $"分类 {m.Category}（{MoveCategoryNameZh(m.Category)}）  优先度 {m.Priority}  附加几率 {chance}\n" +
                    $"效果 {m.Effect}（{_db.NameOf("move_effects", m.Effect)}）\n" +
                    $"目标 0x{m.Target:X4}  标志 0x{m.Flags:X4}  Z/基础威力 {m.ZMovePower}\n" +
                    $"原始数据：{Convert.ToHexString(m.Raw)}";
@@ -5460,7 +5649,9 @@ public partial class MainWindow : Window
             var description = _db.Table("item_descriptions").TryGetValue(id, out var text) && !string.IsNullOrWhiteSpace(text)
                 ? text
                 : "暂无完整说明";
+            var taught = MachineTaughtByItem(id);
             return $"道具 {id}（{_db.NameOf("items", id)}）\n" +
+                   (taught is null ? "" : $"教授招式：{taught}\n") +
                    $"说明：{description}\n" +
                    $"内部ID {item.ItemId}  价格 {item.Price}\n" +
                    $"携带效果 {item.HoldEffect}（{effect}）  参数 {item.HoldEffectParam}\n" +
@@ -5776,7 +5967,7 @@ public partial class MainWindow : Window
         root.Children.Add(new TextBlock
         {
             Text = _dataSourceMode == DataSourceMode.SaveFile
-                ? "确定继续应用到待保存副本吗？保存前请确认已有原始备份。"
+                ? "确定继续保存修改吗？写入文件前会保留原始备份。"
                 : "确定继续写入吗？建议先保存 mGBA 即时存档。",
             TextWrapping = TextWrapping.Wrap,
             Foreground = new SolidColorBrush(Color.FromRgb(108, 98, 85))
@@ -5828,7 +6019,7 @@ public partial class MainWindow : Window
         root.Children.Add(new TextBlock
         {
             Text = _dataSourceMode == DataSourceMode.SaveFile
-                ? $"已有机器和新增机器的数量都会设为 {BatchQuantityForPocket(MachinePocket)}。此步骤只更新待保存副本，尚未写回原存档。"
+                ? $"已有机器和新增机器的数量都会设为 {BatchQuantityForPocket(MachinePocket)}。此步骤只保存修改，写入文件请点顶部保存。"
                 : "已有机器会跳过，不会叠加数量。写入前建议先保存 mGBA 即时存档；写入后需要在游戏中手动存档才会保留。",
             TextWrapping = TextWrapping.Wrap,
             Foreground = new SolidColorBrush(Color.FromRgb(108, 98, 85))
@@ -5882,10 +6073,10 @@ public partial class MainWindow : Window
         {
             Text = isKeyItems
                 ? _dataSourceMode == DataSourceMode.SaveFile
-                    ? "重要物品会影响剧情标记和流程状态，可能导致剧情卡住、NPC 不触发或进程无法继续，不建议使用。此步骤只更新待保存副本。"
+                    ? "重要物品会影响剧情标记和流程状态，可能导致剧情卡住、NPC 不触发或进程无法继续，不建议使用。此步骤只保存修改。"
                     : "重要物品会直接影响剧情标记和流程状态，可能导致剧情卡住、NPC 不触发或进程无法继续，不建议使用。继续前务必保存 mGBA 即时存档。"
                 : _dataSourceMode == DataSourceMode.SaveFile
-                    ? $"已有道具会把数量改为 {BatchQuantityForPocket(pocket)}，缺失道具会写入空槽。此步骤只更新待保存副本。"
+                    ? $"已有道具会把数量改为 {BatchQuantityForPocket(pocket)}，缺失道具会写入空槽。此步骤只保存修改。"
                     : $"已有道具会把数量改为 {BatchQuantityForPocket(pocket)}，缺失道具会写入空槽。写入后需要在游戏中手动存档才会保留。",
             TextWrapping = TextWrapping.Wrap,
             Foreground = new SolidColorBrush(isKeyItems ? Color.FromRgb(150, 43, 43) : Color.FromRgb(108, 98, 85)),
@@ -5987,7 +6178,9 @@ public partial class MainWindow : Window
         });
         root.Children.Add(new TextBlock
         {
-            Text = "删除前强烈建议先保存 mGBA 即时存档；删除后需要在游戏中手动存档才会保留。",
+            Text = _dataSourceMode == DataSourceMode.Live
+                ? "删除前强烈建议先保存 mGBA 即时存档；删除后需要在游戏中手动存档才会保留。"
+                : "确定删除这只精灵吗？删除后点顶部保存才会写入文件。",
             TextWrapping = TextWrapping.Wrap,
             Foreground = new SolidColorBrush(Color.FromRgb(108, 98, 85))
         });
@@ -6037,7 +6230,9 @@ public partial class MainWindow : Window
         });
         root.Children.Add(new TextBlock
         {
-            Text = "删除前强烈建议先保存 mGBA 即时存档；删除后需要在游戏中手动存档才会保留。",
+            Text = _dataSourceMode == DataSourceMode.Live
+                ? "删除前强烈建议先保存 mGBA 即时存档；删除后需要在游戏中手动存档才会保留。"
+                : "确定删除这只精灵吗？删除后点顶部保存才会写入文件。",
             TextWrapping = TextWrapping.Wrap,
             Foreground = new SolidColorBrush(Color.FromRgb(108, 98, 85))
         });
@@ -6153,7 +6348,8 @@ public partial class MainWindow : Window
                       ActivePokemonLayout,
                       _profile.Memory.DefaultPartyBase,
                       _profile.Memory.PartyCountOffsetFromPartyBase,
-                      _profile.Limits.MaxSpecies)
+                      _profile.Limits.MaxSpecies,
+                      partyCountMode: _profile.Memory.PartyCountMode)
                   ?? throw new InvalidOperationException("没有定位到队伍。请先在游戏中载入存档，再点击“读取队伍”。");
         _partyBase = run.StartAddress;
         BaseBox.Text = $"0x{run.StartAddress:X8}";
@@ -6165,7 +6361,9 @@ public partial class MainWindow : Window
         if (mon.IsEmpty) return new PartySlotRow(slot, addr, mon, null, $"{slot} 空槽", "", null);
         var info = mon.GetInfo();
         var ok = info.Checksum == info.CalculatedChecksum ? "正常" : "异常";
-        var title = $"{slot} {(mon.IsShiny ? "★" : "")}{SpeciesName(info.Species)} Lv{info.Level}";
+        var title = IsEgg(info)
+            ? $"{slot} 蛋"
+            : $"{slot} {(mon.IsShiny ? "★" : "")}{SpeciesName(info.Species)} Lv{info.Level}";
         if (HasSummaryAllStatsIncreaseNatureCode(info.GameNatureCode)) title += " / 性格代码异常";
         var item = info.Item == 0 ? "无" : ItemName(info.Item);
         var shiny = mon.IsShiny ? "闪光" : "非闪";
@@ -6178,7 +6376,7 @@ public partial class MainWindow : Window
             info,
             title,
             detail,
-            LoadSpriteBitmap(info.Species, mon.IsShiny));
+            IsEgg(info) ? LoadEggSpriteBitmap() : LoadSpriteBitmap(info.Species, mon.IsShiny));
     }
 
     private void FillEditor(PartySlotRow row)
@@ -6188,11 +6386,12 @@ public partial class MainWindow : Window
             UpdatePartyHeaderInfo(headerInfo.Species, headerInfo.Level);
         else
             UpdatePartyHeaderInfo(0, null);
-        SetPokemonSprite(
+        SetEggOrPokemonSprite(
             PartyDetailSpriteImage,
             headerInfo?.Species ?? 0,
             row.Mon.IsShiny,
-            PartyBackSpriteBox.IsChecked == true);
+            PartyBackSpriteBox.IsChecked == true,
+            headerInfo is not null && IsEgg(headerInfo));
         SelectedDetailText.Text = string.Empty;
         SelectedDetailText.IsVisible = false;
         if (row.Info is not { } info)
@@ -6379,7 +6578,29 @@ public partial class MainWindow : Window
     private void LoadBagRows(MgbaBridgeClient bridge)
     {
         _runtime.EnsureCanRead(GameDataSurface.Bag, live: true);
+        var adapterSlots = _runtime.ReadLiveBag(bridge);
+        if (adapterSlots is not null)
+        {
+            LoadAdapterBagRows(adapterSlots);
+            return;
+        }
         LoadFixedBagRows(bridge);
+    }
+
+    private void LoadAdapterBagRows(IReadOnlyList<BagSlot> slots)
+    {
+        _allBagRows.Clear();
+        var displaySlots = new Dictionary<int, int>();
+        foreach (var slot in slots)
+        {
+            if (slot.ItemId == 0 || slot.ItemId > MaxItemId()) continue;
+            var displaySlot = displaySlots.GetValueOrDefault(slot.Pocket) + 1;
+            displaySlots[slot.Pocket] = displaySlot;
+            _allBagRows.Add(ToBagRow(slot.Address, slot.ItemId, slot.Quantity, slot.Note, slot.Pocket, displaySlot, null));
+        }
+        ApplyBagPocketFilter();
+        if (_bagRows.Count > 0 && BagList.SelectedItem is null) BagList.SelectedIndex = 0;
+        Log($"已按当前版本的背包描述表读取：非空 {_allBagRows.Count} 格。");
     }
 
     private void LoadFixedBagRows(MgbaBridgeClient bridge)
@@ -6501,7 +6722,7 @@ public partial class MainWindow : Window
         _saveBagRows.Clear();
         foreach (var row in _bagRows)
         {
-            var choices = BagItemChoicesForPocket(row.Pocket);
+            var choices = BagItemChoicesForPocket(SelectedBagCategoryId(row.Pocket), row.ItemId);
             _saveBagRows.Add(new SaveBagEditableRow(
                 row,
                 choices,
@@ -6564,6 +6785,7 @@ public partial class MainWindow : Window
             var title = BoxDisplayTitle(boxNo, slotInBox, mon, info);
             if (HasSummaryAllStatsIncreaseNatureCode(info.GameNatureCode)) title += " / 性格代码异常";
             _boxRows.Add(new BoxSlotRow(globalSlot, address, mon, info, title, $"地址 0x{address:X8}", BoxDisplaySprite(info)));
+            RememberBoxRevert(globalSlot, mon.Raw);
         }
 
         RefreshBoxGridGroups();
@@ -6596,6 +6818,7 @@ public partial class MainWindow : Window
             var slotInBox = (globalSlot - 1) % _profile.Memory.PcBoxSlots + 1;
             var title = BoxDisplayTitle(boxNumber, slotInBox, mon, info);
             _boxRows.Add(new BoxSlotRow(globalSlot, address, mon, info, title, $"地址 0x{address:X8}", BoxDisplaySprite(info)));
+            RememberBoxRevert(globalSlot, mon.Raw);
         }
 
         RefreshBoxGridGroups();
@@ -6707,6 +6930,7 @@ public partial class MainWindow : Window
             var boxNo = (globalSlot - 1) / _profile.Memory.PcBoxSlots + 1;
             var title = BoxDisplayTitle(boxNo, slotInBox, mon, info);
             _boxRows.Add(new BoxSlotRow(globalSlot, address, mon, info, title, $"地址 0x{address:X8}", BoxDisplaySprite(info)));
+            RememberBoxRevert(globalSlot, mon.Raw);
         }
 
         RefreshBoxGridGroups();
@@ -6750,6 +6974,7 @@ public partial class MainWindow : Window
             var title = BoxDisplayTitle(boxNo, slotInBox, mon, info);
             if (HasSummaryAllStatsIncreaseNatureCode(info.GameNatureCode)) title += " / 性格代码异常";
             _boxRows.Add(new BoxSlotRow(i + 1, address, mon, info, title, $"地址 0x{address:X8}", BoxDisplaySprite(info)));
+            RememberBoxRevert(i + 1, mon.Raw);
         }
 
         RefreshBoxGridGroups();
@@ -6993,6 +7218,7 @@ public partial class MainWindow : Window
                 [Move1MaxPpText, Move2MaxPpText, Move3MaxPpText, Move4MaxPpText]);
             MoveNameText.Text = FormatMoveStatLines(new[] { Move1Box, Move2Box, Move3Box, Move4Box }
                 .Select(box => ParseChoiceUShortOrNull(box, _moveChoices) ?? 0));
+
         }
         catch
         {
@@ -7010,9 +7236,10 @@ public partial class MainWindow : Window
             var warning = item != 0 && IsConcreteBagPocket(editPocket) && itemPocket != editPocket
                 ? $"  注意：不属于当前{PocketNameZh(editPocket)}，不能写入。"
                 : "";
+            var taught = item == 0 ? null : MachineTaughtByItem(item);
             BagItemNameText.Text = item == 0
                 ? "道具：无"
-                : $"道具：{ItemName(item)}  口袋：{PocketNameZh(itemPocket)}{warning}";
+                : $"道具：{ItemName(item)}{(taught is null ? "" : $"（{taught}）")}  口袋：{PocketNameZh(itemPocket)}{warning}";
             BagQuantityLimitText.Text = BagQuantityLimitTextFor(item, editPocket);
         }
         catch
@@ -7066,11 +7293,125 @@ public partial class MainWindow : Window
                                $"特性：{BoxAbilityBox.SelectedItem?.ToString() ?? "未选择"}  " +
                                $"闪光：{(BoxShinyBox.IsChecked == true ? "是" : "否")}  " +
                                $"经验：{(exp is null ? "未填" : exp.Value)}  亲密度：{(friendship is null ? "未填" : friendship.Value)}";
+
         }
         catch
         {
             BoxNameText.Text = "箱子输入内容暂时无法解析。";
         }
+    }
+
+    private void RememberPartyRevert(int slot, ReadOnlySpan<byte> raw)
+    {
+        if (!_partyRevertRaw.ContainsKey(slot))
+            _partyRevertRaw[slot] = raw.ToArray();
+    }
+
+    private void RememberBoxRevert(int slot, ReadOnlySpan<byte> raw)
+    {
+        if (!_boxRevertRaw.ContainsKey(slot))
+            _boxRevertRaw[slot] = raw.ToArray();
+    }
+
+    private void ShiftPartyRevertAfterDelete(int deletedSlot)
+    {
+        var shifted = new Dictionary<int, byte[]>();
+        foreach (var (slot, raw) in _partyRevertRaw)
+        {
+            if (slot == deletedSlot) continue;
+            shifted[slot > deletedSlot ? slot - 1 : slot] = raw;
+        }
+        _partyRevertRaw.Clear();
+        foreach (var entry in shifted)
+            _partyRevertRaw[entry.Key] = entry.Value;
+    }
+
+    private void SwapBoxRevert(int sourceSlot, int targetSlot)
+    {
+        _boxRevertRaw.TryGetValue(sourceSlot, out var source);
+        _boxRevertRaw.TryGetValue(targetSlot, out var target);
+        if (target is null) _boxRevertRaw.Remove(sourceSlot);
+        else _boxRevertRaw[sourceSlot] = target;
+        if (source is null) _boxRevertRaw.Remove(targetSlot);
+        else _boxRevertRaw[targetSlot] = source;
+    }
+
+    private void OnPartyRevertClicked(object? sender, RoutedEventArgs e)
+    {
+        if (SelectedRow() is not { } row)
+        {
+            ShowToast("请先选择一只队伍精灵。", success: false);
+            return;
+        }
+        if (!_partyRevertRaw.TryGetValue(row.Slot, out var raw))
+        {
+            ShowToast("这只精灵没有可撤回的修改前状态。", success: false);
+            return;
+        }
+        RestorePartyFromRevert(row, raw);
+    }
+
+    private void OnBoxRevertClicked(object? sender, RoutedEventArgs e)
+    {
+        if (BoxList.SelectedItem is not BoxSlotRow row || row.ReadOnlySummary)
+        {
+            ShowToast("请先选择一只箱子精灵。", success: false);
+            return;
+        }
+        if (!_boxRevertRaw.TryGetValue(row.Slot, out var raw))
+        {
+            ShowToast("这只精灵没有可撤回的修改前状态。", success: false);
+            return;
+        }
+        RestoreBoxFromRevert(row, raw);
+    }
+
+    private void RestorePartyFromRevert(PartySlotRow row, byte[] raw)
+    {
+        var document = _dataSourceMode == DataSourceMode.SaveFile ? _loadedSave : null;
+        if (_dataSourceMode == DataSourceMode.SaveFile && document is null)
+            throw new InvalidOperationException("当前没有已读取的存档。");
+        var mon = new PartyPokemon(raw, ActivePokemonLayout);
+        if (document is not null && !row.Mon.Raw.SequenceEqual(raw))
+            document.ReplacePartyPokemon(row.Slot, mon);
+        else if (_dataSourceMode == DataSourceMode.Live)
+        {
+            using var bridge = ConnectBridge();
+            WriteMon(bridge, row.Address, mon);
+        }
+        var updated = ToRow(row.Slot, row.Address, mon);
+        var index = _partyRows.IndexOf(row);
+        if (index >= 0) _partyRows[index] = updated;
+        PartyList.SelectedItem = updated;
+        FillEditor(updated);
+        UpdateSaveButtons();
+        SetWriteNotice($"已撤回队伍第 {row.Slot} 只的修改。", success: true);
+    }
+
+    private void RestoreBoxFromRevert(BoxSlotRow row, byte[] raw)
+    {
+        var document = _dataSourceMode == DataSourceMode.SaveFile ? _loadedSave : null;
+        if (_dataSourceMode == DataSourceMode.SaveFile && document is null)
+            throw new InvalidOperationException("当前没有已读取的存档。");
+        var mon = new BoxPokemon(raw, row.Mon.Layout);
+        if (document is not null && !row.Mon.Raw.SequenceEqual(raw))
+            document.ReplaceBoxPokemon(row.Slot, mon);
+        else if (_dataSourceMode == DataSourceMode.Live)
+        {
+            using var bridge = ConnectBridge();
+            WriteLiveBoxRange(bridge, row.Address, mon.Raw);
+        }
+        var info = mon.GetInfo();
+        var boxNumber = (row.Slot - 1) / _profile.Memory.PcBoxSlots + 1;
+        var slotInBox = (row.Slot - 1) % _profile.Memory.PcBoxSlots + 1;
+        var title = BoxDisplayTitle(boxNumber, slotInBox, mon, info);
+        var updated = new BoxSlotRow(row.Slot, row.Address, mon, info, title, "存档", BoxDisplaySprite(info));
+        var index = _boxRows.IndexOf(row);
+        if (index >= 0) _boxRows[index] = updated;
+        RefreshBoxGridGroups();
+        BoxList.SelectedItem = updated;
+        UpdateSaveButtons();
+        SetWriteNotice($"已撤回 {BoxSlotLabel(row.Slot)} 的修改。", success: true);
     }
 
     private void SetBagItemChoicesForPocket(int pocket, int? selectedItem = null)
@@ -7102,10 +7443,19 @@ public partial class MainWindow : Window
 
     private bool BelongsToBagCategory(int itemId, GameProfileBagDisplayCategory? category, int physicalPocket)
     {
-        if (category?.IsAll == true) return true;
+        if (category?.IsAll == true)
+            return physicalPocket <= 0 || PocketOfItem(itemId) == physicalPocket;
         if (category is not null)
             return category.ItemIds.Contains(itemId);
         return IsConcreteBagPocket(physicalPocket) && PocketOfItem(itemId) == physicalPocket;
+    }
+
+    private int SelectedBagCategoryId(int fallbackPocket)
+    {
+        if (SelectedChoiceId(BagPocketTabs) is not int selected) return fallbackPocket;
+        return selected > 0 || _profile.Runtime.BagDisplayCategories.Any(category => category.Id == selected)
+            ? selected
+            : fallbackPocket;
     }
 
     private int CurrentBagEditPocket()
@@ -8406,6 +8756,8 @@ public partial class MainWindow : Window
 
     private string EvolutionEdgeLabel(SpeciesEvolution evolution)
     {
+        if (FormatProfileEvolution(evolution) is { } profileLabel)
+            return profileLabel;
         var paramItem = EvolutionParameterItemText(evolution.Parameter);
         return evolution.Method switch
         {
@@ -8444,6 +8796,8 @@ public partial class MainWindow : Window
 
     private string EvolutionConditionText(SpeciesEvolution evolution)
     {
+        if (FormatProfileEvolution(evolution) is { } profileLabel)
+            return profileLabel;
         var paramItem = EvolutionParameterItemText(evolution.Parameter);
         return evolution.Method switch
         {
@@ -8480,6 +8834,14 @@ public partial class MainWindow : Window
         };
     }
 
+    private string? FormatProfileEvolution(SpeciesEvolution evolution)
+        => _runtime.EvolutionMethodKind(evolution.Method) switch
+        {
+            "level" => $"{evolution.Parameter}级",
+            "item" => $"使用{EvolutionParameterItemText(evolution.Parameter)}",
+            _ => null
+        };
+
     private string EvolutionParameterItemText(ushort parameter)
     {
         if (parameter == 0) return "指定道具";
@@ -8502,7 +8864,11 @@ public partial class MainWindow : Window
         _ => $"母 ♀约 {genderRatio * 100.0 / 254.0:0.#}%"
     };
 
-    private static string GrowthRateName(byte growthRate) => growthRate switch
+    private string GrowthRateName(byte growthRate)
+    {
+        if (_db.Table("growth_rates").TryGetValue(growthRate, out var name) && !string.IsNullOrWhiteSpace(name))
+            return name;
+        return growthRate switch
     {
         0 => "较快",
         1 => "中等",
@@ -8511,7 +8877,8 @@ public partial class MainWindow : Window
         4 => "较快",
         5 => "波动",
         _ => $"类型{growthRate}"
-    };
+        };
+    }
 
     private static string EggGroupName(byte eggGroup) => eggGroup switch
     {
@@ -9055,12 +9422,13 @@ public partial class MainWindow : Window
         0 => "物理",
         1 => "特殊",
         2 => "变化",
+        255 => "未验证",
         _ => MoveDataReader.CategoryName(category)
     };
 
     private string MoveTypeNameZh(int type)
     {
-        if (_profile.IsNds && _db.Table("types").TryGetValue(type, out var name) && !string.IsNullOrWhiteSpace(name))
+        if (_db.Table("types").TryGetValue(type, out var name) && !string.IsNullOrWhiteSpace(name))
             return name;
         return type switch
         {
@@ -9083,7 +9451,7 @@ public partial class MainWindow : Window
             16 => "龙",
             17 => "恶",
             18 or 23 => "妖精",
-            _ => MoveDataReader.TypeName(type)
+            _ => $"属性#{type}"
         };
     }
 

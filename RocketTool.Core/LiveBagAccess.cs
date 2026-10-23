@@ -1,6 +1,6 @@
 namespace RocketTool.Core;
 
-public sealed record BagSlot(uint Address, ushort ItemId, ushort Quantity, string Note);
+public sealed record BagSlot(uint Address, ushort ItemId, ushort Quantity, string Note, int Pocket = 0);
 public sealed record BagPocketDefinition(int Pocket, string Name, uint Offset, int SlotCount, bool QuantityXor, ushort QuantityKey);
 
 public static class LiveBagAccess

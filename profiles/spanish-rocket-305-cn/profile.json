@@ -1,0 +1,317 @@
+{
+  "id": "spanish-rocket-305-cn",
+  "displayName": "西班牙火箭队 3.0.5 汉化版",
+  "description": "TeamRocket_v3.0.5_cn.gba 的独立配置。实时队伍、箱子、背包、金钱、游戏币和训练家名字可以读写。存档可以只读。捕获球、特性槽、存档写入和图片仍未验证。",
+  "romIdentity": {
+    "fileName": "TeamRocket_v3.0.5_cn.gba",
+    "romSize": 33554432,
+    "sha256": "1eb3f256db0fe401e404799d71a52a814f63dab277943f381572664face17c5d",
+    "headerTitle": "POKEMON EMER",
+    "gameCode": "BPEE",
+    "liveFingerprints": [
+      {
+        "offset": "0x1000000",
+        "hex": "4D4343CD3D43D3DD4343CDCC43D3CCDD"
+      }
+    ]
+  },
+  "strategies": {
+    "runtime": "spanish-rocket-305-runtime-v1",
+    "pokemon": "spanish-rocket-305-pokemon-v1",
+    "partyScanner": "spanish-rocket-305-party-v1",
+    "boxScanner": "spanish-rocket-305-box-v1",
+    "bag": "spanish-rocket-305-bag-v1",
+    "save": "spanish-rocket-305-save-v1"
+  },
+  "memory": {
+    "ewramBase": "0x02000000",
+    "ewramSize": "0x40000",
+    "defaultPartyBase": "0x020395CC",
+    "enemyPartyBase": "0x02039374",
+    "enemyPartyCountAddress": "0x0203936D",
+    "partyCountOffsetFromPartyBase": 0,
+    "partyCountMode": "scan-until-empty",
+    "saveBlock1PointerAddress": "0x030040F0",
+    "saveBlock2PointerAddress": "0x030040EC",
+    "saveBlock1MoneyOffset": "0x490",
+    "saveBlock1CoinsOffset": "0x494",
+    "saveBlock2EncryptionKeyOffset": "0x44",
+    "saveBlock2PlayerOtIdOffset": "0x0A",
+    "saveBlock2HeaderLength": 14,
+    "playerNameLength": 7,
+    "pokemonOtNameOffset": "0x14",
+    "pokemonOtNameLength": 7,
+    "pcBoxCount": 24,
+    "pcBoxSlots": 30,
+    "pcBoxRecordSize": 80,
+    "pcBoxStoragePointerAddress": "0x030040F4",
+    "pcBoxDataOffset": 4,
+    "livePcBoxWritableSlotCount": 0,
+    "savePcBoxWritableSlotCount": 0,
+    "pcBoxRegions": []
+  },
+  "romTables": {
+    "baseStats": {
+      "offset": "0x9687F8",
+      "entrySize": 168,
+      "count": 1757
+    },
+    "moves": {
+      "offset": "0x92C9BC",
+      "entrySize": 60,
+      "count": 935
+    },
+    "items": {
+      "offset": "0x8CCF48",
+      "entrySize": 44,
+      "count": 1049
+    },
+    "evolutions": {
+      "offset": "0x9687F8",
+      "entrySize": 168,
+      "count": 1757,
+      "entriesPerRecord": 1
+    },
+    "levelMoves": {
+      "offset": "0x9687F8",
+      "entrySize": 168,
+      "count": 1757
+    },
+    "experience": {
+      "offset": "0xA1D6AC",
+      "entrySize": 4,
+      "count": 6
+    }
+  },
+  "graphics": {
+    "spritesVerified": true,
+    "spriteAssetRoot": "Profiles/spanish-rocket-305-cn/Pokemon/front",
+    "shinySpritesVerified": true,
+    "shinySpriteAssetRoot": "Profiles/spanish-rocket-305-cn/Pokemon/front-shiny",
+    "shinyPaletteTableOffset": "0x9687F8",
+    "verifiedShinySpriteCount": 1682,
+    "itemIconsVerified": true,
+    "itemIconAssetRoot": "Profiles/spanish-rocket-305-cn/Items/icon",
+    "frontSpriteTableOffset": "0x9687F8",
+    "itemIconTableOffset": "0x8CCF48",
+    "normalPaletteTableOffset": "0x9687F8",
+    "spriteIndexAdjustment": 0,
+    "paletteIndexAdjustment": 0,
+    "eggSpeciesId": 0,
+    "verifiedItemIconCount": 793
+  },
+  "limits": {
+    "maxSpecies": 1756,
+    "maxMove": 934,
+    "maxItem": 1048,
+    "maxAbility": 820,
+    "maxLevel": 150,
+    "maxBagQuantity": 999
+  },
+  "dataVerification": {
+    "visibleSpeciesCount": 1756,
+    "verifiedMenuIconCount": 0
+  },
+  "features": {
+    "liveEditing": true,
+    "saveEditing": true,
+    "liveParty": {
+      "read": true,
+      "write": true
+    },
+    "saveParty": {
+      "read": true,
+      "write": true
+    },
+    "liveBoxes": {
+      "read": true,
+      "write": true
+    },
+    "saveBoxes": {
+      "read": true,
+      "write": true
+    },
+    "liveBag": {
+      "read": true,
+      "write": true
+    },
+    "saveBag": {
+      "read": true,
+      "write": true
+    },
+    "liveTrainer": {
+      "read": true,
+      "write": true
+    },
+    "liveTrainerMoney": {
+      "read": true,
+      "write": true
+    },
+    "liveTrainerCoins": {
+      "read": true,
+      "write": true
+    },
+    "saveTrainer": {
+      "read": true,
+      "write": true
+    },
+    "saveTrainerMoney": {
+      "read": true,
+      "write": true
+    },
+    "caughtBall": {
+      "liveParty": {
+        "read": true,
+        "write": true
+      },
+      "saveParty": {
+        "read": true,
+        "write": true
+      },
+      "liveBoxes": {
+        "read": true,
+        "write": true
+      },
+      "saveBoxes": {
+        "read": true,
+        "write": true
+      },
+      "choices": [
+        {
+          "itemId": 1,
+          "storedValue": 1
+        },
+        {
+          "itemId": 2,
+          "storedValue": 2
+        },
+        {
+          "itemId": 3,
+          "storedValue": 3
+        }
+      ],
+      "defaultItemId": 1,
+      "pocket": 4
+    },
+    "builtInDex": true,
+    "moveDex": true,
+    "importToParty": false,
+    "importToBoxes": false,
+    "importToSaveParty": true,
+    "importToSaveBoxes": true,
+    "experiments": false
+  },
+  "runtime": {
+    "liveBag": {
+      "mode": "disabled",
+      "baseAddress": "0x0",
+      "quantityKeyMode": "none",
+      "quantityEncoding": "plain",
+      "areas": []
+    },
+    "liveBagPockets": [
+      {
+        "id": 0,
+        "name": "道具"
+      },
+      {
+        "id": 1,
+        "name": "药品"
+      },
+      {
+        "id": 2,
+        "name": "招式机"
+      },
+      {
+        "id": 3,
+        "name": "重要物品"
+      },
+      {
+        "id": 4,
+        "name": "精灵球"
+      },
+      {
+        "id": 5,
+        "name": "战斗道具"
+      },
+      {
+        "id": 6,
+        "name": "树果"
+      },
+      {
+        "id": 7,
+        "name": "进化石"
+      }
+    ],
+    "saveBagPockets": [
+      {
+        "id": 0,
+        "name": "道具"
+      },
+      {
+        "id": 1,
+        "name": "药品"
+      },
+      {
+        "id": 2,
+        "name": "招式机"
+      },
+      {
+        "id": 3,
+        "name": "重要物品"
+      },
+      {
+        "id": 4,
+        "name": "精灵球"
+      },
+      {
+        "id": 5,
+        "name": "战斗道具"
+      },
+      {
+        "id": 6,
+        "name": "树果"
+      },
+      {
+        "id": 7,
+        "name": "进化石"
+      }
+    ],
+    "itemPocketFallbackRanges": [],
+    "itemPocketRemap": {},
+    "defaultItemPocket": -1,
+    "machines": {
+      "pocket": 0,
+      "mode": "disabled",
+      "tmStartItem": 602,
+      "tmCount": 246,
+      "hmStartItem": 848,
+      "hmCount": 8,
+      "hmMoveStartIndex": 246,
+      "fallbackMoveIds": []
+    },
+    "shopProbe": {
+      "enabled": false,
+      "shopPriceAddress": "0x0",
+      "shopFirstItemAddress": "0x0",
+      "sellPricePrimaryAddress": "0x0",
+      "sellPriceFallbackAddress": "0x0"
+    },
+    "bridgeExperimentProfile": "disabled",
+    "experimentNeedsSaveBaseForNoEncounter": false,
+    "experimentBattleAssist": false,
+    "experimentTeleport": false,
+    "experimentNoEncounter": false,
+    "experimentWalkThroughWalls": false,
+    "maxTrainerMoney": 999999,
+    "maxTrainerCoins": 9999,
+    "coinCase": {
+      "enabled": true,
+      "saveBlock1Offset": "0x494",
+      "max": 9999,
+      "name": "游戏币"
+    },
+    "moveEffectChanceVerified": false,
+    "bagBatchQuantity": 0
+  }
+}

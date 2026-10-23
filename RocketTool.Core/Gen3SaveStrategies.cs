@@ -4,6 +4,7 @@ internal interface IGen3SaveStrategy
 {
     string Id { get; }
     bool RefreshMgbaRtcFooter => true;
+    int ExpectedSectionCount => 14;
     Gen3SaveDocument Open(string path, GameProfile profile);
     void ReplaceTrainerName(Gen3SaveDocument document, ReadOnlySpan<byte> nameBytes);
     void ReplaceTrainerMoney(Gen3SaveDocument document, uint money);
@@ -23,6 +24,7 @@ internal static class Gen3SaveStrategyCatalog
         => profile.Strategies.Save switch
         {
             SpanishRocketSaveStrategy.StrategyId => SpanishRocketSaveStrategy.Instance,
+            SpanishRocket305SaveStrategy.StrategyId => SpanishRocket305SaveStrategy.Instance,
             UnboundCfruSaveStrategy.StrategyId => UnboundCfruSaveStrategy.Instance,
             DestinyFireRedSaveStrategy.StrategyId => DestinyFireRedSaveStrategy.Instance,
             RadicalRedCfruSaveStrategy.StrategyId => RadicalRedCfruSaveStrategy.Instance,

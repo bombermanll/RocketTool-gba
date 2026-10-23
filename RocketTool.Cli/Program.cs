@@ -239,7 +239,8 @@ static uint ScanPartyBase(MgbaBridgeClient bridge, bool quiet = false)
                   layout,
                   profile.Memory.DefaultPartyBase,
                   profile.Memory.PartyCountOffsetFromPartyBase,
-                  profile.Limits.MaxSpecies)
+                  profile.Limits.MaxSpecies,
+                  partyCountMode: profile.Memory.PartyCountMode)
               ?? throw new InvalidOperationException("Could not auto-locate the live party base.");
     if (!quiet) Console.WriteLine($"Auto party base: 0x{run.StartAddress:X8} len={run.Length} score_sum={run.ScoreSum}");
     return run.StartAddress;
@@ -375,7 +376,8 @@ static int PartyScan(string[] args)
         profile.Memory.DefaultPartyBase,
         profile.Memory.PartyCountOffsetFromPartyBase,
         profile.Limits.MaxSpecies,
-        minScore);
+        minScore,
+        profile.Memory.PartyCountMode);
     if (best is not null) Console.WriteLine($"\nBest live party base: 0x{best.StartAddress:X8}");
     return 0;
 }
@@ -1307,7 +1309,7 @@ static int ProfileDataVerify()
         if (placeholders.Length > 0)
         {
             var message = $"{table}: unresolved display rows {string.Join(',', placeholders.Take(12))}{(placeholders.Length > 12 ? "..." : "")}";
-            if (profile.IsNds || profile.Id == "pokemon-shuiyin-12-cn") warnings.Add(message);
+            if (profile.IsNds || profile.Id is "pokemon-shuiyin-12-cn" or "spanish-rocket-305-cn") warnings.Add(message);
             else errors.Add(message);
         }
     }
@@ -1318,7 +1320,7 @@ static int ProfileDataVerify()
         Console.WriteLine($"  {table,-28} {lineCount,5} rows");
         if (lineCount == 0)
         {
-            if (profile.IsNds) warnings.Add($"{table}: empty until Chinese text is decoded");
+            if (profile.IsNds || profile.Id == "spanish-rocket-305-cn") warnings.Add($"{table}: empty until Chinese text is decoded");
             else errors.Add($"{table}: missing or empty");
         }
     }
@@ -1863,6 +1865,43 @@ static (BagPocketDefinition Definition, int MaxQuantity) ResolveLiveBagSlot(
     return (new BagPocketDefinition(area.Pocket, area.Name, 0, area.Capacity, true, key), profile.Limits.MaxBagQuantityForPocket(area.Pocket));
 }
 
+static int SpanishRocket305SaveCopyTest(string[] args)
+{
+    var profile = CurrentProfile();
+    if (profile.Id != "spanish-rocket-305-cn")
+        throw new InvalidOperationException("这个测试只能在 3.0.5 Profile 下运行。");
+    var source = GetArg(args, "--save", "");
+    var output = GetArg(args, "--output", "");
+    if (string.IsNullOrWhiteSpace(source) || string.IsNullOrWhiteSpace(output))
+        throw new ArgumentException("需要 --save 和 --output。");
+    var document = Gen3SaveReader.Open(source, profile);
+    if (document.Snapshot.Trainer?.Money != 6320)
+        throw new InvalidOperationException($"原档金钱不是 6320，而是 {document.Snapshot.Trainer?.Money}。已停止，避免改错档。");
+    document.ReplaceTrainerName([0xBD, 0xCC, 0xC9, 0xCD, 0xD2, 0xFF, 0xFF]);
+    document.ReplaceCoinCase(1);
+    var party = new PartyPokemon(document.Snapshot.Party[0].Raw, document.Snapshot.Party[0].Layout);
+    party.SetGrowth(item: 0);
+    document.ReplacePartyPokemon(1, party);
+    var box = document.Snapshot.Boxes.First(entry => entry.GlobalSlot == 1);
+    var boxMon = new BoxPokemon(box.Mon.Raw, box.Mon.Layout);
+    boxMon.SetGrowth(item: 148);
+    document.ReplaceBoxPokemon(1, boxMon);
+    var saved = document.SaveAs(output);
+    if (saved.Trainer?.NameBytes is not { Length: >= 5 } name || name[4] != 0xD2)
+        throw new InvalidOperationException("副本训练家名字读回不是 CROXS。");
+    if (saved.Trainer?.Coins != 1)
+        throw new InvalidOperationException("副本游戏币读回不是 1。");
+    if (saved.Party[0].GetInfo().Item != 0)
+        throw new InvalidOperationException("副本队伍第一只的携带道具没有清掉。");
+    if (saved.Boxes.First(entry => entry.GlobalSlot == 1).Mon.GetInfo().Item != 148)
+        throw new InvalidOperationException("副本箱子第一格的携带道具不是珍珠。");
+    if (saved.ValidSectionCount != 28)
+        throw new InvalidOperationException($"副本有效 section 是 {saved.ValidSectionCount}，不是 28。");
+    Console.WriteLine($"wrote {output}");
+    Console.WriteLine($"name=CROXS coins={saved.Trainer?.Coins} partyItem={saved.Party[0].GetInfo().Item} boxItem={saved.Boxes.First(entry => entry.GlobalSlot == 1).Mon.GetInfo().Item} sections={saved.ValidSectionCount}");
+    return 0;
+}
+
 static int SaveProbe(string[] args)
 {
     var db = Db();
@@ -1878,7 +1917,7 @@ static int SaveProbe(string[] args)
         throw new InvalidOperationException($"版本 {profile.DisplayName} 未启用存档读取。");
     var result = Gen3SaveReader.Read(path, profile);
     Console.WriteLine($"Save: {result.FileName}");
-    Console.WriteLine($"  size={result.FileSize} slot={result.SaveSlot} saveIndex={result.SaveIndex} sections={result.ValidSectionCount}/14");
+    Console.WriteLine($"  size={result.FileSize} slot={result.SaveSlot} saveIndex={result.SaveIndex} sections={result.ValidSectionCount}");
     Console.WriteLine($"  party={result.Party.Count} bag={result.Bag.Count} boxes={result.Boxes.Count} corruptBoxes={result.CorruptBoxes.Count}");
     if (result.Trainer is { } trainer)
         Console.WriteLine($"  trainerId={(ushort)trainer.OtId} secretId={(ushort)(trainer.OtId >> 16)} money={trainer.Money}");
@@ -2027,18 +2066,19 @@ static int SaveVerifyWrite(string[] args)
             Console.WriteLine($"Caught-ball round-trip OK: party={expectedPartyBall?.ToString() ?? "n/a"} box={expectedBoxBall?.ToString() ?? "n/a"}");
     }
 
+    var expectedSections = document.Snapshot.ValidSectionCount;
     if (inPlace)
     {
         var writeResult = document.SaveInPlaceWithBackup();
         var result = writeResult.Snapshot;
         VerifyCaughtBallRoundTrip(result);
-        Console.WriteLine($"Verified in-place write: {result.FileName} backup={writeResult.BackupPath} created={writeResult.BackupCreated} sections={result.ValidSectionCount}/14 party={result.Party.Count} bag={result.Bag.Count} boxes={result.Boxes.Count} trainer={(result.Trainer is null ? "n/a" : "ok")}");
+        Console.WriteLine($"Verified in-place write: {result.FileName} backup={writeResult.BackupPath} created={writeResult.BackupCreated} sections={result.ValidSectionCount}/{expectedSections} party={result.Party.Count} bag={result.Bag.Count} boxes={result.Boxes.Count} trainer={(result.Trainer is null ? "n/a" : "ok")}");
     }
     else
     {
         var result = document.SaveAs(output);
         VerifyCaughtBallRoundTrip(result);
-        Console.WriteLine($"Verified write: {result.FileName} sections={result.ValidSectionCount}/14 party={result.Party.Count} bag={result.Bag.Count} boxes={result.Boxes.Count} trainer={(result.Trainer is null ? "n/a" : "ok")}");
+        Console.WriteLine($"Verified write: {result.FileName} sections={result.ValidSectionCount}/{expectedSections} party={result.Party.Count} bag={result.Bag.Count} boxes={result.Boxes.Count} trainer={(result.Trainer is null ? "n/a" : "ok")}");
     }
     return 0;
 }
@@ -2073,9 +2113,10 @@ static int SaveVerifyImportBox(string[] args)
     var mon = BuildDexImportBox(profile, db, trainer, species);
     var intended = mon.Raw.ToArray();
     document.ReplaceBoxPokemon(targetSlot, mon);
+    var expectedSections = document.Snapshot.ValidSectionCount;
     var result = document.SaveAs(output);
-    if (result.ValidSectionCount != 14)
-        throw new InvalidOperationException("Imported save did not reopen with all 14 valid sections.");
+    if (result.ValidSectionCount != expectedSections)
+        throw new InvalidOperationException($"Imported save did not reopen with all {expectedSections} valid sections (got {result.ValidSectionCount}).");
     var importedMon = result.Boxes.Single(entry => entry.GlobalSlot == targetSlot).Mon;
     if (!importedMon.Raw.SequenceEqual(intended))
         throw new InvalidOperationException("Imported box record did not match the complete intended 80-byte record.");
@@ -2126,9 +2167,10 @@ static int SaveVerifyImportParty(string[] args)
     var mon = BuildDexImportParty(profile, db, trainer, species);
     var intended = mon.Raw.ToArray();
     var targetSlot = document.AppendPartyPokemon(mon);
+    var expectedSections = document.Snapshot.ValidSectionCount;
     var result = document.SaveAs(output);
-    if (result.ValidSectionCount != 14 || result.Party.Count != targetSlot)
-        throw new InvalidOperationException("Imported save did not reopen with the expected sections or party count.");
+    if (result.ValidSectionCount != expectedSections || result.Party.Count != targetSlot)
+        throw new InvalidOperationException($"Imported save did not reopen with the expected sections or party count (sections {result.ValidSectionCount}/{expectedSections}, party {result.Party.Count}/{targetSlot}).");
     var importedMon = result.Party[targetSlot - 1];
     if (!importedMon.Raw.SequenceEqual(intended))
         throw new InvalidOperationException("Imported party record did not match the complete intended 100-byte record.");
@@ -2141,7 +2183,7 @@ static int SaveVerifyImportParty(string[] args)
         imported.Ivs.Where(pair => Gen3Constants.StatNames.Contains(pair.Key)).Any(pair => pair.Value != 31) ||
         imported.Ivs["ability"] != 0 || imported.Evs.Any(value => value != 0) || imported.MaxHp == 0)
         throw new InvalidOperationException("Imported party record semantic readback did not match the current-Profile defaults.");
-    Console.WriteLine($"Verified party import: slot={targetSlot} species={imported.Species} level={imported.Level} exp={imported.Exp} friendship={imported.Friendship} moves={string.Join(',', imported.Moves)} pp={string.Join(',', imported.Pp)} hp={imported.Hp}/{imported.MaxHp} sections={result.ValidSectionCount}/14 party={result.Party.Count}");
+    Console.WriteLine($"Verified party import: slot={targetSlot} species={imported.Species} level={imported.Level} exp={imported.Exp} friendship={imported.Friendship} moves={string.Join(',', imported.Moves)} pp={string.Join(',', imported.Pp)} hp={imported.Hp}/{imported.MaxHp} sections={result.ValidSectionCount}/{expectedSections} party={result.Party.Count}");
     return 0;
 }
 
@@ -2251,6 +2293,7 @@ return args[0] switch
     "trainer-verify-write" => TrainerVerifyWrite(args[1..]),
     "party-verify-create" => PartyVerifyCreate(args[1..]),
     "save-probe" => SaveProbe(args[1..]),
+    "305-save-copy-test" => SpanishRocket305SaveCopyTest(args[1..]),
     "save-verify-write" => SaveVerifyWrite(args[1..]),
     "save-verify-import-box" => SaveVerifyImportBox(args[1..]),
     "save-verify-import-party" => SaveVerifyImportParty(args[1..]),

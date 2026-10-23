@@ -69,8 +69,15 @@ public static class PartyScanner
         uint preferredBase,
         int partyCountOffsetFromBase,
         int maxSpecies,
-        int minScore = 13)
+        int minScore = 13,
+        string partyCountMode = "offset")
     {
+        if (string.Equals(partyCountMode, "scan-until-empty", StringComparison.Ordinal))
+        {
+            var scanned = TryBuildPartyRunUntilEmpty(ewram, ewramBase, preferredBase, maxSpecies, layout, minScore);
+            if (scanned is not null) return scanned;
+        }
+
         var knownBase = TryBuildPartyRunAtBase(ewram, ewramBase, preferredBase, partyCountOffsetFromBase, maxSpecies, layout, minScore);
         if (knownBase is not null) return knownBase;
 
@@ -128,6 +135,36 @@ public static class PartyScanner
         }
 
         return new PartyRun(partyBase, count.Value, candidates.Sum(c => c.Score), candidates, count);
+    }
+
+    public static PartyRun? TryBuildPartyRunUntilEmpty(
+        byte[] ewram,
+        uint ewramBase,
+        uint partyBase,
+        int maxSpecies,
+        PokemonDataLayout layout,
+        int minScore = 13)
+    {
+        if (partyBase < ewramBase) return null;
+        var startOffset = checked((int)(partyBase - ewramBase));
+        if (startOffset < 0 || startOffset + Gen3Constants.PartyMonSize > ewram.Length) return null;
+
+        var candidates = new List<PartyCandidate>();
+        for (var slot = 0; slot < Gen3Constants.PartySlots; slot++)
+        {
+            var offset = startOffset + slot * Gen3Constants.PartyMonSize;
+            if (offset + Gen3Constants.PartyMonSize > ewram.Length) break;
+            var raw = ewram.AsSpan(offset, Gen3Constants.PartyMonSize);
+            if (new PartyPokemon(raw, layout).IsEmpty) break;
+            var candidate = ScoreMon(partyBase + (uint)(slot * Gen3Constants.PartyMonSize), raw, maxSpecies, layout);
+            if (!candidate.ChecksumOk || candidate.Score < minScore || !IsStrongPartyCandidate(candidate, maxSpecies))
+                return candidates.Count == 0 ? null : new PartyRun(partyBase, candidates.Count, candidates.Sum(c => c.Score), candidates, candidates.Count);
+            candidates.Add(candidate);
+        }
+
+        return candidates.Count == 0
+            ? null
+            : new PartyRun(partyBase, candidates.Count, candidates.Sum(c => c.Score), candidates, candidates.Count);
     }
 
     private static bool IsUsablePartyRun(PartyRun run)

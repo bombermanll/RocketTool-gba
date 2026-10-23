@@ -10,6 +10,8 @@ public static class ProfileIsolationSelfTest
         VerifyShuiyinPlainBagQuantity(profile);
         VerifyShuiyinPhysicalPocketField(profile);
         VerifySpanishRocketFixedLiveLayouts(profile);
+        VerifySpanishRocket305SpeciesMask();
+        VerifySpanishRocket305Experience(profile);
         VerifyUnboundSection2ChecksumVariants();
         var adapter = GameRuntimeAdapterCatalog.ForProfile(profile);
 
@@ -135,6 +137,42 @@ public static class ProfileIsolationSelfTest
 
         if (Gen3SaveReader.InferSaveBagQuantityKey(saveBlock1) != quantityKey)
             throw new InvalidOperationException("西火稀疏存档背包的空槽数量密钥推断回归失败。");
+    }
+
+    private static void VerifySpanishRocket305Experience(GameProfile profile)
+    {
+        if (profile.Id != "spanish-rocket-305-cn") return;
+        var table = new PokemonExperienceTable(new ModifierDatabase(profile.DatabaseDirectory));
+        if (profile.Limits.MaxLevel != 150 ||
+            table.MaxLevelValue != 150 ||
+            table.ExperienceForLevel(9, 5) != 911 ||
+            table.LevelFromExperience(1151, 5) != 9 ||
+            table.ExperienceForLevel(150, 5) != 4218750)
+            throw new InvalidOperationException("3.0.5 经验表没有覆盖到 150 级，或戴鲁比的 9 级经验对不上。");
+    }
+
+    private static void VerifySpanishRocket305SpeciesMask()
+    {
+        const uint pid = 0x12345679;
+        const uint otId = 0x10203040;
+        var mon = PartyPokemon.Create(pid, otId, PokemonDataLayout.SpanishRocket305Encrypted);
+        mon.SetGrowth(species: 0x0801, item: 0x0802);
+        var info = mon.GetInfo();
+        if (info.Species != 1 || info.Item != 2 || info.Checksum != info.CalculatedChecksum)
+            throw new InvalidOperationException("3.0.5 种族/道具低 11 位读取或校验刷新失败。");
+        mon.SetCaughtBallCode(2);
+        if (mon.GetInfo().CaughtBallCode != 2 || mon.GetInfo().Checksum != mon.GetInfo().CalculatedChecksum)
+            throw new InvalidOperationException("3.0.5 捕获球写入后读回失败。");
+        if (PartyPokemon.SpanishRocket305AbilitySlot([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x60]) != 3
+            || PartyPokemon.SpanishRocket305AbilitySlot([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x20]) != 1)
+            throw new InvalidOperationException("3.0.5 特性槽位提取失败。");
+        mon.SetAbilitySlot(2);
+        if (mon.GetInfo().Ivs["ability"] != 2 || mon.GetInfo().Checksum != mon.GetInfo().CalculatedChecksum)
+            throw new InvalidOperationException("3.0.5 特性槽写入后读回失败。");
+        mon.SetAbilitySlot(0);
+        if (mon.GetInfo().Ivs["ability"] != 0)
+            throw new InvalidOperationException("3.0.5 特性槽没能写回 0。");
+
     }
 
     private static void VerifyUnboundSection2ChecksumVariants()

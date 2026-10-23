@@ -18,7 +18,7 @@ public sealed record Gen3SaveBagEntry(
     bool QuantityXor,
     string Note);
 
-public sealed record Gen3SaveTrainerInfo(byte[] NameBytes, uint OtId, uint Money, byte Gender = 0);
+public sealed record Gen3SaveTrainerInfo(byte[] NameBytes, uint OtId, uint Money, byte Gender = 0, ushort? Coins = null);
 
 public sealed record Gen3SaveReadResult(
     string FileName,
@@ -488,7 +488,15 @@ public static class Gen3SaveReader
         var money = ReadU32(saveBlock1, (int)profile.Memory.SaveBlock1MoneyOffset) ^ moneyKey;
         if (money > profile.Runtime.MaxTrainerMoney)
             throw new InvalidOperationException($"水银存档金钱字段解密为 {money}，超出当前 ROM 已确认范围。已停止读取，避免误写。");
-        var trainer = new Gen3SaveTrainerInfo(trainerName, trainerOtId, money);
+        ushort? coins = null;
+        if (profile.Runtime.CoinCase is { Enabled: true } coinCase)
+        {
+            var rawCoins = ReadU16(saveBlock1, coinCase.SaveBlock1Offset);
+            if (rawCoins > coinCase.Max)
+                throw new InvalidOperationException($"水银存档{coinCase.Name}为 {rawCoins}，超出已确认范围 0..{coinCase.Max}。已停止读取，避免误写。");
+            coins = rawCoins;
+        }
+        var trainer = new Gen3SaveTrainerInfo(trainerName, trainerOtId, money, Coins: coins);
 
         warnings.Add($"水银存档：使用 save index {best.SaveIndex}；队伍为 100 字节明文结构，箱子为 58 字节压缩结构，共 {profile.Memory.PcBoxCount} 箱。");
         warnings.Add("section 描述按当前 ROM 0x080DA1D4 / 0x0804C160 重组：SaveBlock2 0xF24、SaveBlock1 0x3D68、PC 0x83D0。");

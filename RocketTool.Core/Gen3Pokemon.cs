@@ -4,6 +4,7 @@ public enum PokemonDataLayout
 {
     Disabled,
     SpanishRocketEncrypted,
+    SpanishRocket305Encrypted,
     UnboundCfruPlainParty,
     UltimateEmerald55CfruPlainParty,
     UltimateEmerald55CfruPlainBox,
@@ -189,18 +190,24 @@ public sealed class PartyPokemon
         var misc = Subblock(dec, 3);
         var ivWord = ReadU32(misc, 4);
         var ivs = IvWordToDictionary(ivWord);
-        ivs["ability"] = AbilitySlotFromMisc(misc);
+        ivs["ability"] = _layout == PokemonDataLayout.SpanishRocket305Encrypted
+            ? SpanishRocket305AbilitySlot(misc)
+            : AbilitySlotFromMisc(misc);
         return new PartyMonInfo(
             Pid,
             OtId,
             NatureFromPid(Pid),
-            ReadGameNatureCode(growth),
-            ReadU16(growth, 0),
-            ReadU16(growth, 2),
+            _layout == PokemonDataLayout.SpanishRocket305Encrypted
+                ? NatureOverrideUsePid
+                : ReadGameNatureCode(growth),
+            MaskSpeciesOrItem(ReadU16(growth, 0)),
+            MaskSpeciesOrItem(ReadU16(growth, 2)),
             ReadExp(growth),
             growth[GrowthPpBonusesOffset],
             growth[GrowthFriendshipOffset],
-            (byte)(growth[GrowthCaughtBallOffset] & GrowthCaughtBallMask),
+            _layout == PokemonDataLayout.SpanishRocket305Encrypted
+                ? SpanishRocket305CaughtBall(growth)
+                : (byte)(growth[GrowthCaughtBallOffset] & GrowthCaughtBallMask),
             [ReadU16(attacks, 0), ReadU16(attacks, 2), ReadU16(attacks, 4), ReadU16(attacks, 6)],
             [attacks[8], attacks[9], attacks[10], attacks[11]],
             evs[..6].ToArray(),
@@ -256,6 +263,14 @@ public sealed class PartyPokemon
             return;
         }
         if (code is < 0 or > 0x1F) throw new ArgumentOutOfRangeException(nameof(code), "game nature code must be 0..31");
+        if (_layout == PokemonDataLayout.SpanishRocket305Encrypted)
+        {
+            // 3.0.5 keeps nature on PID % 25; the growth nature override word overlaps
+            // the caught-ball byte, so writing it here corrupts the ball field.
+            if (code != NatureOverrideUsePid)
+                throw new InvalidOperationException("3.0.5 的性格由 PID 决定，不能写性格覆盖码。");
+            return;
+        }
         var dec = Decrypted();
         var block = Subblock(dec, 0);
         SetGameNatureCode(block, code);
@@ -287,6 +302,17 @@ public sealed class PartyPokemon
                 throw new ArgumentOutOfRangeException(nameof(storedValue), "命运版球种存储值必须在 0..15 之间。");
             _raw[UnboundMiscOffset + 3] =
                 (byte)((_raw[UnboundMiscOffset + 3] & 0x87) | (storedValue << 3));
+            return;
+        }
+        if (_layout == PokemonDataLayout.SpanishRocket305Encrypted)
+        {
+            if (storedValue is 0 or > 0x3F)
+                throw new ArgumentOutOfRangeException(nameof(storedValue), "3.0.5 球种存储值必须在 1..63 之间。");
+            var rocketDec = Decrypted();
+            var rocketBlock = Subblock(rocketDec, 0);
+            rocketBlock[10] = (byte)((rocketBlock[10] & ~0x3F) | storedValue);
+            ReplaceSubblock(rocketDec, 0, rocketBlock);
+            SetDecrypted(rocketDec);
             return;
         }
         if (storedValue == 0)
@@ -398,7 +424,12 @@ public sealed class PartyPokemon
         var word = SetIvWord(ReadU32(block, 4), values);
         WriteU32(block, 4, word);
         if (values.TryGetValue("ability", out var abilitySlot))
-            SetAbilitySlotInMisc(block, abilitySlot);
+        {
+            if (_layout == PokemonDataLayout.SpanishRocket305Encrypted)
+                SetSpanishRocket305AbilitySlot(block, abilitySlot);
+            else
+                SetAbilitySlotInMisc(block, abilitySlot);
+        }
         ReplaceSubblock(dec, 3, block);
         SetDecrypted(dec);
     }
@@ -469,6 +500,15 @@ public sealed class PartyPokemon
     public void SetAbilitySlot(int abilitySlot, byte? genderRatio = null)
     {
         if (abilitySlot is not (0 or 1 or 2)) throw new ArgumentOutOfRangeException(nameof(abilitySlot), "ability slot must be 0..2");
+        if (_layout == PokemonDataLayout.SpanishRocket305Encrypted)
+        {
+            var dec = Decrypted();
+            var block = Subblock(dec, 3);
+            SetSpanishRocket305AbilitySlot(block, abilitySlot);
+            ReplaceSubblock(dec, 3, block);
+            SetDecrypted(dec);
+            return;
+        }
         if (_layout == PokemonDataLayout.UltimateEmerald55CfruPlainParty)
         {
             if (abilitySlot == 2)
@@ -543,6 +583,9 @@ public sealed class PartyPokemon
         Put16(0x62, CalculateOtherStat(stats.SpDefense, info.Ivs["spd"], info.Evs[5], info.Level, statNature, 4));
     }
 
+
+    private ushort MaskSpeciesOrItem(ushort value)
+        => _layout == PokemonDataLayout.SpanishRocket305Encrypted ? (ushort)(value & 0x7FF) : value;
 
     private static uint ReadExp(ReadOnlySpan<byte> growth)
         => ReadU32(growth, 4) & GrowthExpMask;
@@ -640,6 +683,18 @@ public sealed class PartyPokemon
 
     private static int AbilitySlotFromMisc(ReadOnlySpan<byte> misc)
         => misc[MiscAbilitySlotOffset] & MiscAbilitySlotMask;
+
+    internal static int SpanishRocket305AbilitySlot(ReadOnlySpan<byte> misc)
+        => (misc[11] >> 5) & 3;
+
+    internal static byte SpanishRocket305CaughtBall(ReadOnlySpan<byte> growth)
+        => (byte)(growth[10] & 0x3F);
+
+    private static void SetSpanishRocket305AbilitySlot(Span<byte> misc, int abilitySlot)
+    {
+        if (abilitySlot is not (0 or 1 or 2)) throw new ArgumentOutOfRangeException(nameof(abilitySlot), "ability slot must be 0..2");
+        misc[11] = (byte)((misc[11] & ~0x60) | (abilitySlot << 5));
+    }
 
     private int UnboundAbilitySlot(uint ivWord)
         => (ivWord & 0x80000000u) != 0 ? 2 : (int)(Pid & 1);

@@ -17,6 +17,7 @@ internal static class ProfileSaveScenarioCatalog
             PokemonShuiyin12RuntimeAdapter.StrategyId => PokemonShuiyin12SaveScenario.Instance,
             PokemonUltimateEmerald55RuntimeAdapter.StrategyId => PokemonUltimateEmerald55SaveScenario.Instance,
             OriginHeartGold40RuntimeAdapter.StrategyId => throw new NotSupportedException("起源心金 4.0 尚未验证存档结构，CLI 存档场景已禁用。"),
+            SpanishRocket305RuntimeAdapter.StrategyId => throw new NotSupportedException("西班牙火箭队 3.0.5 尚未验证存档结构，CLI 存档场景已禁用。"),
             var id => throw new NotSupportedException($"没有与运行时适配器 {id} 配套的 CLI 存档场景。")
         };
 }

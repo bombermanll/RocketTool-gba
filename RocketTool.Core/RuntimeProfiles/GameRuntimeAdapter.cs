@@ -25,6 +25,7 @@ public interface IGameRuntimeAdapter
     bool CanWrite(GameDataSurface surface, bool live);
     bool CanReadCaughtBall(GameDataSurface surface, bool live);
     bool CanWriteCaughtBall(GameDataSurface surface, bool live);
+    bool CanWriteAbilitySlot => true;
     void EnsureCanRead(GameDataSurface surface, bool live);
     void EnsureCanWrite(GameDataSurface surface, bool live);
     IReadOnlyList<GameProfileBagPocket> BagPockets(bool live);
@@ -35,6 +36,8 @@ public interface IGameRuntimeAdapter
     int RemapItemPocket(int pocket);
     int FallbackPocketOfItem(int item);
     GameProfileLiveBagArea? LiveBagArea(int pocket);
+    IReadOnlyList<BagSlot>? ReadLiveBag(MgbaBridgeClient bridge) => null;
+    string? EvolutionMethodKind(int method) => null;
     void InitializeImportedParty(PartyPokemon mon, byte level, byte trainerGender);
     void InitializeImportedBox(BoxPokemon mon, byte level, byte trainerGender);
 }
@@ -63,6 +66,8 @@ public abstract class GameRuntimeAdapterBase : IGameRuntimeAdapter
     public int MachinePocket => Profile.Runtime.Machines.Pocket;
     public string BridgeExperimentProfile => Profile.Runtime.BridgeExperimentProfile;
     public virtual string? SpeciesFormLabel(int species) => null;
+    public virtual string? EvolutionMethodKind(int method) => null;
+    public virtual IReadOnlyList<BagSlot>? ReadLiveBag(MgbaBridgeClient bridge) => null;
     public virtual void InitializeImportedParty(PartyPokemon mon, byte level, byte trainerGender) { }
     public virtual void InitializeImportedBox(BoxPokemon mon, byte level, byte trainerGender) { }
 
@@ -235,6 +240,7 @@ public static class GameRuntimeAdapterCatalog
         => profile.Strategies.Runtime switch
         {
             SpanishRocketRuntimeAdapter.StrategyId => new SpanishRocketRuntimeAdapter(profile),
+            SpanishRocket305RuntimeAdapter.StrategyId => new SpanishRocket305RuntimeAdapter(profile),
             PokemonUnboundRuntimeAdapter.StrategyId => new PokemonUnboundRuntimeAdapter(profile),
             PokemonDestinyRuntimeAdapter.StrategyId => new PokemonDestinyRuntimeAdapter(profile),
             PokemonRadicalRedRuntimeAdapter.StrategyId => new PokemonRadicalRedRuntimeAdapter(profile),

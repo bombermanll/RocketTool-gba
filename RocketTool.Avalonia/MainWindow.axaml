@@ -100,7 +100,7 @@
 
                             <Grid Grid.Column="1" RowDefinitions="Auto,*">
                                 <Border Background="#F7F2E8" Padding="20,18,20,12">
-                                    <Grid ColumnDefinitions="80,*,Auto,Auto" ColumnSpacing="12">
+                                    <Grid ColumnDefinitions="80,*,Auto" ColumnSpacing="12">
                                         <Border Width="72" Height="72" Background="#FFF9EE" CornerRadius="10" Padding="4" VerticalAlignment="Center">
                                             <Image x:Name="PartyDetailSpriteImage"
                                                    Stretch="Uniform"
@@ -132,8 +132,11 @@
                                                       IsCheckedChanged="OnSpritePreviewChanged" />
                                             <TextBlock x:Name="SelectedDetailText" Text="" IsVisible="False" />
                                         </StackPanel>
-                                        <Button x:Name="PartyDeleteButton" Grid.Column="2" Content="删除当前队伍精灵" HorizontalAlignment="Right" VerticalAlignment="Center" Click="OnPartyDeleteClicked" />
-                                        <Button x:Name="PartyApplyButton" Grid.Column="3" Content="写入当前精灵" HorizontalAlignment="Right" VerticalAlignment="Center" Click="OnApplyPokemonClicked" Classes="primary" />
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <Button x:Name="PartyRevertButton" Content="撤回" Click="OnPartyRevertClicked" />
+                                            <Button x:Name="PartyDeleteButton" Content="删除" Click="OnPartyDeleteClicked" />
+                                            <Button x:Name="PartyApplyButton" Content="保存修改" Click="OnApplyPokemonClicked" Classes="primary" />
+                                        </StackPanel>
                                     </Grid>
                                 </Border>
 
@@ -219,7 +222,7 @@
                                                 <ComboBox x:Name="PpUp4Box" Grid.Row="4" Grid.Column="2" />
                                                 <TextBlock x:Name="Move4MaxPpText" Grid.Row="4" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#102E4A" />
                                             </Grid>
-                                            <TextBlock x:Name="MoveNameText" Text="" Foreground="#6C6255" TextWrapping="Wrap" />
+                                            <TextBlock x:Name="MoveNameText" Text="" Foreground="#6C6255" TextWrapping="Wrap" IsVisible="False" />
                                         </StackPanel>
                                     </Border>
 
@@ -327,6 +330,16 @@
                                                 <Button x:Name="TrainerMoneyApplyButton" Grid.Row="1" Grid.Column="2" Content="写入金钱" Click="OnTrainerMoneyApplyClicked" Classes="primary" />
                                             </Grid>
                                             <TextBlock x:Name="TrainerMoneyStatusText" Text="未读取。" Foreground="#102E4A" TextWrapping="Wrap" />
+                                            <StackPanel x:Name="CoinCasePanel" Spacing="8" IsVisible="False">
+                                                <TextBlock x:Name="CoinCaseTitleText" Text="代币盒" FontSize="18" FontWeight="SemiBold" Foreground="#102E4A" />
+                                                <TextBlock Text="这是代币盒里的数量，不是训练家金钱。写入后需要保存。" Foreground="#6C6255" TextWrapping="Wrap" />
+                                                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+                                                    <TextBlock x:Name="CoinCaseLabelText" Text="当前代币" Classes="label" />
+                                                    <TextBox x:Name="CoinCaseBox" Grid.Row="1" />
+                                                    <Button x:Name="CoinCaseApplyButton" Grid.Row="1" Grid.Column="1" Content="保存修改" Click="OnCoinCaseApplyClicked" Classes="primary" />
+                                                </Grid>
+                                                <TextBlock x:Name="CoinCaseStatusText" Text="未读取。" Foreground="#102E4A" TextWrapping="Wrap" />
+                                            </StackPanel>
                                         </StackPanel>
                                     </Border>
                                 </Grid>
@@ -399,7 +412,7 @@
                             <ScrollViewer x:Name="BagRightScroll" Grid.Column="1" Padding="20,20,20,56" HorizontalScrollBarVisibility="Disabled">
                                 <StackPanel Spacing="16" Margin="0,0,0,96" MaxWidth="{Binding #BagRightScroll.Bounds.Width}">
                                     <TextBlock x:Name="BagEditorTitleText" Text="背包槽编辑" FontSize="24" FontWeight="Bold" Foreground="#102E4A" />
-                                    <TextBlock x:Name="BagEditorDescriptionText" Text="选中左侧口袋槽位后编辑。实时模式直接写入内存；存档模式修改待保存副本，并在保存后重新校验。" Foreground="#6C6255" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="BagEditorDescriptionText" Text="选中左侧口袋槽位后编辑。实时模式直接写入内存；存档模式点保存修改后，再用顶部保存写入文件。" Foreground="#6C6255" TextWrapping="Wrap" />
                                     <WrapPanel HorizontalAlignment="Right">
                                         <Button x:Name="BagGiveAllCurrentPocketButton" Content="获取当前分类全部" Margin="0,0,8,0" Click="OnBagGiveAllCurrentPocketClicked" />
                                         <Button x:Name="BagGiveAllTmsButton" Content="获取全部技能机" Margin="0,0,8,0" Click="OnBagGiveAllTmsClicked" />
@@ -412,12 +425,12 @@
                                                 <TextBlock Text="数量" Classes="label" Grid.Column="1" />
                                                 <local:SearchableChoiceBox x:Name="BagItemBox" Grid.Row="1" MinWidth="0" PlaceholderText="输入中文名搜索" />
                                                 <TextBox x:Name="BagQuantityBox" Grid.Row="1" Grid.Column="1" Width="96" />
-                                                <TextBlock Text="道具信息" Classes="label" Grid.Row="2" />
-                                                <TextBlock x:Name="BagItemNameText" Grid.Row="3" Grid.ColumnSpan="2" Text="选择候选槽后显示。" Foreground="#102E4A" TextWrapping="Wrap" />
+                                                <TextBlock Text="道具信息" Classes="label" Grid.Row="2" IsVisible="False" />
+                                                <TextBlock x:Name="BagItemNameText" Grid.Row="3" Grid.ColumnSpan="2" Text="选择候选槽后显示。" Foreground="#102E4A" TextWrapping="Wrap" IsVisible="False" />
                                                 <TextBlock Text="写入数量范围" Classes="label" Grid.Row="4" />
                                                 <TextBlock x:Name="BagQuantityLimitText" Grid.Row="5" Grid.ColumnSpan="2" Text="未选择道具" Foreground="#102E4A" TextWrapping="Wrap" />
-                                                <TextBlock Text="当前槽地址（只读）" Classes="label" Grid.Row="6" />
-                                                <TextBlock x:Name="BagAddressBox" Grid.Row="7" Grid.ColumnSpan="2" Text="未选择" Foreground="#6C6255" TextWrapping="Wrap" />
+                                                <TextBlock Text="当前槽地址（只读）" Classes="label" Grid.Row="6" IsVisible="False" />
+                                                <TextBlock x:Name="BagAddressBox" Grid.Row="7" Grid.ColumnSpan="2" Text="未选择" Foreground="#6C6255" TextWrapping="Wrap" IsVisible="False" />
                                             </Grid>
                                             <Grid RowDefinitions="Auto,Auto" RowSpacing="8">
                                                 <TextBlock Text="实时模式写入会直接生效；存档模式不会覆盖原文件。" Foreground="#6C6255" TextWrapping="Wrap" />
@@ -541,7 +554,7 @@
 
                             <Grid Grid.Column="1" RowDefinitions="Auto,*">
                                 <Border Background="#F7F2E8" Padding="20,18,36,12">
-                                    <Grid ColumnDefinitions="80,*,Auto,Auto" ColumnSpacing="12">
+                                    <Grid ColumnDefinitions="80,*,Auto" ColumnSpacing="12">
                                         <Border Width="72" Height="72" Background="#FFF9EE" CornerRadius="10" Padding="4" VerticalAlignment="Center">
                                             <Image x:Name="BoxDetailSpriteImage"
                                                    Stretch="Uniform"
@@ -572,8 +585,11 @@
                                                       IsVisible="False"
                                                       IsCheckedChanged="OnSpritePreviewChanged" />
                                         </StackPanel>
-                                        <Button x:Name="BoxDeleteButton" Grid.Column="2" Content="删除当前箱子精灵" HorizontalAlignment="Right" VerticalAlignment="Center" Click="OnBoxDeleteClicked" />
-                                        <Button x:Name="BoxApplyButton" Grid.Column="3" Content="写入当前箱子精灵" HorizontalAlignment="Right" VerticalAlignment="Center" Click="OnBoxApplyClicked" Classes="primary" />
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <Button x:Name="BoxRevertButton" Content="撤回" Click="OnBoxRevertClicked" />
+                                            <Button x:Name="BoxDeleteButton" Content="删除" Click="OnBoxDeleteClicked" />
+                                            <Button x:Name="BoxApplyButton" Content="保存修改" Click="OnBoxApplyClicked" Classes="primary" />
+                                        </StackPanel>
                                     </Grid>
                                 </Border>
 
@@ -627,7 +643,7 @@
                                                 <TextBlock Grid.Row="2" Text="范围 0..255。放入队伍后游戏约每 256 步检查一次；0 最多约 256 步孵化。" Foreground="#6C6255" FontSize="12" TextWrapping="Wrap" />
                                             </Grid>
                                             <TextBlock Text="箱子数据不保存当前HP、状态和直接等级；等级由经验决定。" Foreground="#6C6255" TextWrapping="Wrap" />
-                                            <TextBlock x:Name="BoxNameText" Text="选择箱子槽后显示。" Foreground="#102E4A" TextWrapping="Wrap" />
+                                            <TextBlock x:Name="BoxNameText" Text="选择箱子槽后显示。" Foreground="#102E4A" TextWrapping="Wrap" IsVisible="False" />
                                         </StackPanel>
                                     </Border>
                                     <Border Background="#FFF9EE" CornerRadius="14" Padding="14">
@@ -655,7 +671,7 @@
                                                 <ComboBox x:Name="BoxPpUp4Box" Grid.Row="4" Grid.Column="2" />
                                                 <TextBlock x:Name="BoxMove4MaxPpText" Grid.Row="4" Grid.Column="3" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#102E4A" />
                                             </Grid>
-                                            <TextBlock x:Name="BoxMoveDetailText" Text="" Foreground="#6C6255" TextWrapping="Wrap" />
+                                            <TextBlock x:Name="BoxMoveDetailText" Text="" Foreground="#6C6255" TextWrapping="Wrap" IsVisible="False" />
                                         </StackPanel>
                                     </Border>
 

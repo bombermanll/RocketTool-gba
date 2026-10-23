@@ -45,6 +45,7 @@ public sealed class Gen3SaveDocument
     private readonly Dictionary<int, (ushort ItemId, ushort Quantity)> _expectedBag = [];
     private byte[]? _expectedTrainerName;
     private uint? _expectedMoney;
+    private ushort? _expectedCoins;
     private readonly List<Gen3SaveBagEntry> _currentBag;
     private readonly GameProfile _profile;
     private readonly IReadOnlyDictionary<int, int> _itemPockets;
@@ -60,7 +61,8 @@ public sealed class Gen3SaveDocument
         Gen3SaveReadResult snapshot,
         GameProfile profile,
         IReadOnlyDictionary<int, int>? itemPockets,
-        IGen3SaveStrategy strategy)
+        IGen3SaveStrategy strategy,
+        string? writeBlockReason = null)
     {
         SourcePath = Path.GetFullPath(sourcePath);
         _originalRaw = raw.ToArray();
@@ -82,6 +84,8 @@ public sealed class Gen3SaveDocument
             WriteBlockReason = $"存档缺少 section {string.Join(",", missing)}。";
         else if (relaxed.Length > 0)
             WriteBlockReason = $"section {string.Join(",", relaxed)} 仅通过宽松模式读取，不能安全写回。";
+        else if (!string.IsNullOrEmpty(writeBlockReason))
+            WriteBlockReason = writeBlockReason;
         PartyWriteBlockReason = snapshot.PartyWriteBlockReason;
     }
 
@@ -96,7 +100,7 @@ public sealed class Gen3SaveDocument
     public int ModifiedPartyCount => _expectedParty.Count;
     public int ModifiedBoxCount => _expectedBoxes.Count;
     public int ModifiedBagCount => _expectedBag.Count;
-    public bool TrainerModified => _expectedTrainerName is not null || _expectedMoney.HasValue;
+    public bool TrainerModified => _expectedTrainerName is not null || _expectedMoney.HasValue || _expectedCoins.HasValue;
     public IReadOnlyList<Gen3SaveBagEntry> CurrentBag => _currentBag;
     public IReadOnlyList<Gen3SaveCorruptBoxEntry> CurrentCorruptBoxes => _currentCorruptBoxes;
     internal IReadOnlyDictionary<int, int> ItemPockets => _itemPockets;
@@ -112,9 +116,33 @@ public sealed class Gen3SaveDocument
     public void ReplaceTrainerMoney(uint money)
     {
         EnsureWritable();
-        EnsureProfileWrite(GameDataSurface.Trainer);
+        if (!_profile.Features.SaveTrainer.Write && !_profile.Features.SaveTrainerMoney.Write)
+            throw new InvalidOperationException("当前版本还没有验证存档金钱写入。");
         _strategy.ReplaceTrainerMoney(this, money);
         _expectedMoney = money;
+    }
+
+    public void ReplaceCoinCase(ushort coins)
+    {
+        var coinCase = Profile.Runtime.CoinCase;
+        if (!coinCase.Enabled)
+            throw new InvalidOperationException("当前版本没有已验证的代币盒字段。");
+        if (coins > coinCase.Max)
+            throw new InvalidOperationException($"{coinCase.Name}必须在 0..{coinCase.Max} 范围内。");
+        EnsureWritable();
+        EnsureProfileWrite(GameDataSurface.Trainer);
+        var stored = coins;
+        if (_profile.Memory.SaveBlock1CoinsOffset != 0 &&
+            coinCase.SaveBlock1Offset == (int)_profile.Memory.SaveBlock1CoinsOffset)
+        {
+            var key = ReadSectionU32(0, (int)_profile.Memory.SaveBlock2EncryptionKeyOffset);
+            stored = (ushort)(coins ^ (ushort)key);
+        }
+        Span<byte> value = stackalloc byte[2];
+        value[0] = (byte)stored;
+        value[1] = (byte)(stored >> 8);
+        WriteLogicalRange(SaveBlock1FirstSection, coinCase.SaveBlock1Offset, value);
+        _expectedCoins = coins;
     }
 
     public int PartySaveOffset(int slot)
@@ -419,15 +447,20 @@ public sealed class Gen3SaveDocument
     public Gen3SaveWriteResult SaveInPlaceWithBackup()
     {
         EnsureWritable();
-        if (!HasChanges)
-            throw new InvalidOperationException("当前存档没有待保存的修改。");
         if (!File.Exists(SourcePath))
             throw new FileNotFoundException("原存档文件已不存在，已取消保存。", SourcePath);
+        if (!HasChanges)
+        {
+            var existingBackup = SourcePath + ".bak";
+            return new Gen3SaveWriteResult(
+                Snapshot,
+                SourcePath,
+                File.Exists(existingBackup) ? existingBackup : null,
+                false);
+        }
 
         var currentSource = File.ReadAllBytes(SourcePath);
         var sourceTimestamps = FileTimestamps.Capture(SourcePath);
-        if (!currentSource.AsSpan().SequenceEqual(_originalRaw))
-            throw new InvalidOperationException("原存档在读取后已被其他程序修改。为避免覆盖新数据，请重新读取存档后再保存。");
 
         var temporary = CreateVerifiedTemporary(SourcePath);
         var backupPath = SourcePath + ".bak";
@@ -449,6 +482,7 @@ public sealed class Gen3SaveDocument
             File.Move(temporary, SourcePath, overwrite: true);
             sourceTimestamps.TryApply(SourcePath);
             var snapshot = _strategy.Open(SourcePath, _profile).Snapshot;
+            AcceptSavedFile();
             return new Gen3SaveWriteResult(snapshot, SourcePath, backupPath, backupCreated);
         }
         finally
@@ -458,6 +492,23 @@ public sealed class Gen3SaveDocument
             if (File.Exists(backupTemporary))
                 File.Delete(backupTemporary);
         }
+    }
+
+    private void AcceptSavedFile()
+    {
+        var saved = File.ReadAllBytes(SourcePath);
+        if (saved.Length == _raw.Length)
+            saved.CopyTo(_raw);
+        if (saved.Length == _originalRaw.Length)
+            saved.CopyTo(_originalRaw);
+        _touchedSectionIds.Clear();
+        _hasRawChanges = false;
+        _expectedParty.Clear();
+        _expectedBoxes.Clear();
+        _expectedBag.Clear();
+        _expectedTrainerName = null;
+        _expectedMoney = null;
+        _expectedCoins = null;
     }
 
     private string CreateVerifiedTemporary(string destination)
@@ -928,8 +979,8 @@ public sealed class Gen3SaveDocument
 
     private void VerifyExport(Gen3SaveDocument verified)
     {
-        if (!verified.CanWrite || verified.Snapshot.ValidSectionCount != SectionsPerSlot)
-            throw new InvalidOperationException($"导出后的 section 校验失败：{verified.WriteBlockReason ?? "有效 section 不足 14 个"}");
+        if (!verified.CanWrite || verified.Snapshot.ValidSectionCount != _strategy.ExpectedSectionCount)
+            throw new InvalidOperationException($"导出后的 section 校验失败：{verified.WriteBlockReason ?? $"有效 section 不是 {_strategy.ExpectedSectionCount} 个"}");
 
         foreach (var (slot, expected) in _expectedParty)
         {
@@ -987,6 +1038,8 @@ public sealed class Gen3SaveDocument
         }
         if (_expectedMoney.HasValue && verified.Snapshot.Trainer?.Money != _expectedMoney.Value)
             throw new InvalidOperationException("导出后的金钱校验失败。");
+        if (_expectedCoins.HasValue && verified.Snapshot.Trainer?.Coins != _expectedCoins.Value)
+            throw new InvalidOperationException("导出后的代币盒数量校验失败。");
     }
 
     private Gen3SaveBagEntry InsertMachine(ushort itemId, ushort quantity)
@@ -1242,7 +1295,7 @@ public sealed class Gen3SaveDocument
             throw new ArgumentOutOfRangeException(nameof(logicalOffset));
 
         var remaining = logicalOffset;
-        for (var sectionId = firstSectionId; sectionId < 14; sectionId++)
+        for (var sectionId = firstSectionId; sectionId < 32; sectionId++)
         {
             if (!_sections.TryGetValue(sectionId, out var section))
                 throw new InvalidOperationException($"定位需要 section {sectionId}，但当前存档中不存在。");
@@ -1257,7 +1310,7 @@ public sealed class Gen3SaveDocument
 
     private static int SectionPayloadLength(string checksumMode)
     {
-        if (checksumMode == "extended") return 0xFF4;
+        if (checksumMode is "extended" or "ff4") return 0xFF4;
         if (checksumMode.StartsWith("unbound-", StringComparison.Ordinal))
             return Convert.ToInt32(checksumMode["unbound-".Length..], 16);
         if (checksumMode.StartsWith("radical-red-", StringComparison.Ordinal))
@@ -1324,7 +1377,7 @@ public sealed class Gen3SaveDocument
                 Convert.ToInt32(mode["radical-red-".Length..], 16),
             var mode when mode.StartsWith("shuiyin-12-", StringComparison.Ordinal) =>
                 Convert.ToInt32(mode["shuiyin-12-".Length..], 16),
-            "extended" => SectionTrailerOffset,
+            "extended" or "ff4" => SectionTrailerOffset,
             var mode when mode.StartsWith("unbound-", StringComparison.Ordinal) =>
                 Convert.ToInt32(mode["unbound-".Length..], 16),
             "ultimate-emerald-55-constant" => 0,
