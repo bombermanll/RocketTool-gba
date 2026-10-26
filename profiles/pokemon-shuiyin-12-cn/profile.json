@@ -71,7 +71,7 @@
     "baseStats": {
       "offset": "0x176DFBC",
       "entrySize": 28,
-      "count": 1294
+      "count": 1554
     },
     "moves": {
       "offset": "0x1DFD2DF",
@@ -86,13 +86,13 @@
     "evolutions": {
       "offset": "0x1788F5A",
       "entrySize": 8,
-      "count": 1294,
+      "count": 1554,
       "entriesPerRecord": 16
     },
     "levelMoves": {
       "offset": "0x17C32BC",
       "entrySize": 4,
-      "count": 1294
+      "count": 1554
     },
     "experience": {
       "offset": "0x1E052C8",
@@ -107,7 +107,7 @@
     "machineCompatibility": {
       "offset": "0x1400494",
       "entrySize": 16,
-      "count": 1294
+      "count": 1554
     }
   },
   "graphics": {
@@ -124,14 +124,14 @@
     "itemIconTableOffset": "0x13C8100",
     "normalPaletteTableOffset": "0x17D64E0",
     "shinyPaletteTableOffset": "0x17E49E8",
-    "verifiedShinySpriteCount": 1293,
+    "verifiedShinySpriteCount": 1437,
     "verifiedItemIconCount": 749,
     "spriteIndexAdjustment": 0,
     "paletteIndexAdjustment": 0,
     "eggSpeciesId": 0
   },
   "limits": {
-    "maxSpecies": 1293,
+    "maxSpecies": 1553,
     "maxMove": 1023,
     "maxItem": 749,
     "maxAbility": 300,
@@ -139,7 +139,7 @@
     "maxBagQuantity": 999
   },
   "dataVerification": {
-    "visibleSpeciesCount": 1293,
+    "visibleSpeciesCount": 1446,
     "verifiedMenuIconCount": 1294
   },
   "features": {
@@ -197,111 +197,111 @@
       "choices": [
         {
           "itemId": 1,
-          "storedValue": 1
+          "storedValue": 0
         },
         {
           "itemId": 2,
-          "storedValue": 2
+          "storedValue": 1
         },
         {
           "itemId": 3,
-          "storedValue": 3
+          "storedValue": 2
         },
         {
           "itemId": 4,
-          "storedValue": 4
+          "storedValue": 3
         },
         {
           "itemId": 5,
-          "storedValue": 5
+          "storedValue": 4
         },
         {
           "itemId": 6,
-          "storedValue": 6
+          "storedValue": 5
         },
         {
           "itemId": 7,
-          "storedValue": 7
+          "storedValue": 6
         },
         {
           "itemId": 8,
-          "storedValue": 8
+          "storedValue": 7
         },
         {
           "itemId": 9,
-          "storedValue": 9
+          "storedValue": 8
         },
         {
           "itemId": 10,
-          "storedValue": 10
+          "storedValue": 9
         },
         {
           "itemId": 11,
-          "storedValue": 11
+          "storedValue": 10
         },
         {
           "itemId": 12,
-          "storedValue": 12
+          "storedValue": 11
         },
         {
           "itemId": 239,
-          "storedValue": 239
+          "storedValue": 15
         },
         {
           "itemId": 240,
-          "storedValue": 240
+          "storedValue": 12
         },
         {
           "itemId": 241,
-          "storedValue": 241
+          "storedValue": 13
         },
         {
           "itemId": 242,
-          "storedValue": 242
+          "storedValue": 14
         },
         {
           "itemId": 243,
-          "storedValue": 243
+          "storedValue": 17
         },
         {
           "itemId": 244,
-          "storedValue": 244
+          "storedValue": 18
         },
         {
           "itemId": 245,
-          "storedValue": 245
+          "storedValue": 19
         },
         {
           "itemId": 246,
-          "storedValue": 246
+          "storedValue": 20
         },
         {
           "itemId": 247,
-          "storedValue": 247
+          "storedValue": 21
         },
         {
           "itemId": 248,
-          "storedValue": 248
+          "storedValue": 22
         },
         {
           "itemId": 249,
-          "storedValue": 249
+          "storedValue": 23
         },
         {
           "itemId": 250,
-          "storedValue": 250
+          "storedValue": 24
         },
         {
           "itemId": 251,
-          "storedValue": 251
+          "storedValue": 25
         },
         {
           "itemId": 252,
-          "storedValue": 252
+          "storedValue": 26
         },
         {
           "itemId": 253,
-          "storedValue": 253
+          "storedValue": 16
         }
       ],
       "defaultItemId": 4,

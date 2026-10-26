@@ -127,8 +127,7 @@ public abstract class GameRuntimeAdapterBase : IGameRuntimeAdapter
     public int RemapItemPocket(int pocket)
         => Profile.Runtime.ItemPocketRemap.TryGetValue(pocket, out var remapped)
             ? remapped
-            : pocket is >= 1 and <= 8 &&
-              (IsConcreteBagPocket(pocket, true) || IsConcreteBagPocket(pocket, false))
+            : IsConcreteBagPocket(pocket, true) || IsConcreteBagPocket(pocket, false)
                 ? pocket
                 : Profile.Runtime.DefaultItemPocket;
 

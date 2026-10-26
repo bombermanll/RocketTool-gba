@@ -9015,13 +9015,13 @@ public partial class MainWindow : Window
 
         if (_db.Table("item_pockets").TryGetValue(item, out var pocketText) &&
             int.TryParse(pocketText, out var embeddedPocket) &&
-            embeddedPocket is >= 1 and <= 8)
+            embeddedPocket is >= 0 and <= 8)
             return _runtime.RemapItemPocket(embeddedPocket);
 
         try
         {
             var dataPocket = ReadItemData(item).Pocket;
-            return dataPocket is >= 1 and <= 8 ? _runtime.RemapItemPocket(dataPocket) : -1;
+            return dataPocket is >= 0 and <= 8 ? _runtime.RemapItemPocket(dataPocket) : -1;
         }
         catch
         {

@@ -44,7 +44,8 @@ internal sealed class SpanishRocket305SaveStrategy : IGen3SaveStrategy
 
     public ushort EncodeStoredQuantity(ushort quantity, ushort quantityKey) => (ushort)(quantity ^ quantityKey);
     public IEnumerable<Gen3SaveBagPhysicalPocket> CandidatePhysicalPockets(int pocket) => [];
-    public int? PocketOfItem(Gen3SaveDocument document, ushort itemId) => null;
+    public int? PocketOfItem(Gen3SaveDocument document, ushort itemId)
+        => document.ItemPockets.TryGetValue(itemId, out var pocket) ? pocket : null;
     public string PocketName(int pocket) => $"口袋{pocket}";
     public void WriteBagRange(Gen3SaveDocument document, int saveOffset, ReadOnlySpan<byte> data)
         => document.WriteLogicalRange(Gen3SaveDocument.SaveBlock1FirstSection, saveOffset, data);
@@ -180,7 +181,19 @@ internal static class SpanishRocket305SaveReader
             pair => new Gen3SaveSectionLayout(pair.Key, pair.Value.FileOffset, pair.Value.SaveIndex, "ff4"));
         return new Gen3SaveDocument(
             path, raw, layouts, PartyCountOffset, PartyOffset, snapshot, profile,
-            new Dictionary<int, int>(), SpanishRocket305SaveStrategy.Instance);
+            ReadItemPockets(profile), SpanishRocket305SaveStrategy.Instance);
+    }
+
+    private static Dictionary<int, int> ReadItemPockets(GameProfile profile)
+    {
+        var table = new ModifierDatabase(profile.DatabaseDirectory).Table("item_pockets");
+        var pockets = new Dictionary<int, int>();
+        foreach (var (item, text) in table)
+        {
+            if (int.TryParse(text, out var pocket) && pocket >= 0)
+                pockets[item] = pocket;
+        }
+        return pockets;
     }
 
     private static Dictionary<int, SaveSection> ReadSections(byte[] raw)
