@@ -11,6 +11,7 @@ internal interface IGen3SaveStrategy
     void WriteBoxPokemon(Gen3SaveDocument document, int globalSlot, ReadOnlySpan<byte> data);
     ushort EncodeStoredQuantity(ushort quantity, ushort quantityKey);
     ushort? AuthoritativeQuantityKey(Gen3SaveDocument document) => null;
+    bool RepacksMachinePocket(int pocket) => pocket == 7;
     IEnumerable<Gen3SaveBagPhysicalPocket> CandidatePhysicalPockets(int pocket);
     int? PocketOfItem(Gen3SaveDocument document, ushort itemId);
     string PocketName(int pocket);

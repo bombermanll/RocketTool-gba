@@ -29,6 +29,8 @@ public sealed class BoxPokemon
     public const int OtNameLength = 7;
     private const int GrowthPpBonusesOffset = 7;
     private const int GrowthFriendshipOffset = 8;
+    private int PpBonusOffset => _layout is PokemonDataLayout.UnboundCfruPlainParty or PokemonDataLayout.SpanishRocket305Encrypted ? 8 : GrowthPpBonusesOffset;
+    private int FriendshipOffset => _layout is PokemonDataLayout.UnboundCfruPlainParty or PokemonDataLayout.SpanishRocket305Encrypted ? 9 : GrowthFriendshipOffset;
     private const int GrowthCaughtBallOffset = 9;
     private const byte GrowthCaughtBallMask = 0x1F;
     private const int GrowthNatureOverrideWordOffset = 8;
@@ -113,7 +115,7 @@ public sealed class BoxPokemon
             return new BoxPokemon(raw, layout);
         }
 
-        raw[0x12] = 0x12;
+        raw[0x12] = layout == PokemonDataLayout.SpanishRocket305Encrypted ? (byte)0x07 : (byte)0x12;
         raw.AsSpan(OtNameOffset, OtNameLength).Fill(0xFF);
         var key = pid ^ otId;
         for (var i = 0x20; i < 0x50; i += 4)
@@ -194,20 +196,26 @@ public sealed class BoxPokemon
         return new BoxMonInfo(
             Pid,
             OtId,
-            NatureFromPid(Pid),
-            _layout == PokemonDataLayout.UnboundCfruPlainParty ? (byte)0x1A : ReadGameNatureCode(growth),
+            _layout == PokemonDataLayout.SpanishRocket305Encrypted
+                ? PartyPokemon.SpanishRocket305Nature(Pid, _raw[0x12])
+                : NatureFromPid(Pid),
+            _layout == PokemonDataLayout.UnboundCfruPlainParty || _layout == PokemonDataLayout.SpanishRocket305Encrypted
+                ? (byte)0x1A
+                : ReadGameNatureCode(growth),
             MaskSpeciesOrItem(ReadU16(growth, 0)),
             MaskSpeciesOrItem(ReadU16(growth, 2)),
             _layout == PokemonDataLayout.UnboundCfruPlainParty ? ReadU32(growth, 4) : ReadExp(growth),
-            growth[_layout == PokemonDataLayout.UnboundCfruPlainParty ? 8 : GrowthPpBonusesOffset],
-            growth[_layout == PokemonDataLayout.UnboundCfruPlainParty ? 9 : GrowthFriendshipOffset],
+            growth[PpBonusOffset],
+            growth[FriendshipOffset],
             _layout == PokemonDataLayout.SpanishRocketEncrypted
                 ? (byte)(growth[GrowthCaughtBallOffset] & GrowthCaughtBallMask)
                 : _layout == PokemonDataLayout.SpanishRocket305Encrypted
                     ? PartyPokemon.SpanishRocket305CaughtBall(growth)
                     : (byte)0,
             [ReadU16(attacks, 0), ReadU16(attacks, 2), ReadU16(attacks, 4), ReadU16(attacks, 6)],
-            [attacks[8], attacks[9], attacks[10], attacks[11]],
+            _layout == PokemonDataLayout.SpanishRocket305Encrypted
+                ? [PartyPokemon.SpanishRocket305VisiblePp(attacks[8]), PartyPokemon.SpanishRocket305VisiblePp(attacks[9]), PartyPokemon.SpanishRocket305VisiblePp(attacks[10]), PartyPokemon.SpanishRocket305VisiblePp(attacks[11])]
+                : [attacks[8], attacks[9], attacks[10], attacks[11]],
             evs[..6].ToArray(),
             ivs,
             ivWord,
@@ -249,8 +257,8 @@ public sealed class BoxPokemon
             if (_layout == PokemonDataLayout.UnboundCfruPlainParty) WriteU32(block, 4, exp.Value);
             else WriteExp(block, exp.Value);
         }
-        if (ppBonuses is not null) block[_layout == PokemonDataLayout.UnboundCfruPlainParty ? 8 : GrowthPpBonusesOffset] = ppBonuses.Value;
-        if (friendship is not null) block[_layout == PokemonDataLayout.UnboundCfruPlainParty ? 9 : GrowthFriendshipOffset] = friendship.Value;
+        if (ppBonuses is not null) block[PpBonusOffset] = ppBonuses.Value;
+        if (friendship is not null) block[FriendshipOffset] = friendship.Value;
         ReplaceSubblock(dec, 0, block);
         SetDecrypted(dec);
     }
@@ -264,6 +272,12 @@ public sealed class BoxPokemon
             return;
         }
         if (code is < 0 or > 0x1F) throw new ArgumentOutOfRangeException(nameof(code), "game nature code must be 0..31");
+        if (_layout == PokemonDataLayout.SpanishRocket305Encrypted)
+        {
+            if (code != NatureOverrideUsePid)
+                throw new InvalidOperationException("3.0.5 的性格由记录字节决定，不能写性格覆盖码。");
+            return;
+        }
         var dec = Decrypted();
         var block = Subblock(dec, 0);
         SetGameNatureCode(block, code);
@@ -345,6 +359,7 @@ public sealed class BoxPokemon
         if (speciesNameEntry.Length < NicknameLength)
             throw new ArgumentException($"Species name entry must contain at least {NicknameLength} bytes.", nameof(speciesNameEntry));
         speciesNameEntry[..NicknameLength].CopyTo(_raw.AsSpan(NicknameOffset, NicknameLength));
+        if (_layout == PokemonDataLayout.SpanishRocket305Encrypted) return;
         if (_layout == PokemonDataLayout.UnboundCfruPlainParty) _raw[0x12] = 2;
         else if (!IsCfruPlain80) _raw[0x12] = 0x12;
     }
@@ -377,7 +392,10 @@ public sealed class BoxPokemon
         for (var i = 0; i < Math.Min(4, moves.Count); i++)
             if (moves[i] is ushort move) WriteU16(block, i * 2, move);
         for (var i = 0; i < Math.Min(4, pp.Count); i++)
-            if (pp[i] is byte value) block[8 + i] = value;
+            if (pp[i] is byte value)
+                block[8 + i] = _layout == PokemonDataLayout.SpanishRocket305Encrypted
+                    ? PartyPokemon.SpanishRocket305StoredPp(block[8 + i], value)
+                    : value;
         ReplaceSubblock(dec, 1, block);
         SetDecrypted(dec);
     }
@@ -447,6 +465,12 @@ public sealed class BoxPokemon
     public void SetNature(int nature)
     {
         if (nature is < 0 or > 24) throw new ArgumentOutOfRangeException(nameof(nature), "nature must be 0..24");
+        if (_layout == PokemonDataLayout.SpanishRocket305Encrypted)
+        {
+            var mixed = (byte)(((uint)NatureFromPid(Pid) ^ (uint)nature) & 0x1F);
+            _raw[0x12] = (byte)((_raw[0x12] & 0x07) | (mixed << 3));
+            return;
+        }
         if (_layout == PokemonDataLayout.UnboundCfruPlainParty || IsCfruPlain80)
         {
             WriteU32(_raw, 0, FindPidWithNatureAndShinyState(Pid, OtId, nature, IsShiny));

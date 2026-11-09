@@ -1166,7 +1166,7 @@ public partial class MainWindow : Window
         BitConverter.GetBytes(ivWord).CopyTo(data, 0x38);
     }
 
-    private void StageNdsEdit(Action<OriginHeartGoldSave.OriginHeartGoldSaveEditor> extra)
+    private void StageNdsEdit(Action<OriginHeartGoldSave.OriginHeartGoldSaveEditor> extra, bool applyEditor = true)
     {
         if (!_profile.Features.SaveEditing)
             throw new InvalidOperationException("当前 NDS Profile 尚未正式开放存档写入；请使用副本做离线 round-trip 验证。 ");
@@ -1174,7 +1174,8 @@ public partial class MainWindow : Window
         var baseBytes = _ndsPendingSave ?? File.ReadAllBytes(_loadedSavePath);
         var edited = OriginHeartGoldSave.EditBytes(baseBytes, editor =>
         {
-            ApplyNdsEditor(editor);
+            if (applyEditor)
+                ApplyNdsEditor(editor);
             extra(editor);
         });
         _ndsPendingSave = edited;
@@ -2558,8 +2559,8 @@ public partial class MainWindow : Window
             await RunUiTask("添加存档背包道具", () =>
             {
                 var document = _loadedSave ?? throw new InvalidOperationException("请先读取存档。");
-                var selectedPocket = PhysicalBagPocket(SelectedChoiceId(BagPocketTabs) ?? 0);
-                if (selectedPocket <= 0)
+                var selectedPocket = PhysicalBagPocket(SelectedChoiceId(BagPocketTabs) ?? -1);
+                if (!IsConcreteBagPocket(selectedPocket))
                     selectedPocket = CurrentBagEditPocket();
                 if (!IsConcreteBagPocket(selectedPocket))
                     throw new InvalidOperationException("请先切换到具体背包分类。");
@@ -3702,10 +3703,21 @@ public partial class MainWindow : Window
                 ShowToast("请先选择图鉴宝可梦和存档。", success: false);
                 return;
             }
-            var slot = 0;
-            var imported = NdsDexImport(ndsRow.Id);
-            StageNdsEdit(editor => slot = editor.AppendParty((ushort)ndsRow.Id, imported.Experience, imported.Level, imported.Moves, imported.Pp, imported.Ivs));
-            SetWriteNotice($"已导入队伍第 {slot} 只：{ndsRow.DisplayName}。请点保存修改并备份。", success: true);
+            try
+            {
+                var slot = 0;
+                var imported = NdsDexImport(ndsRow.Id);
+                StageNdsEdit(
+                    editor => slot = editor.AppendParty((ushort)ndsRow.Id, imported.Experience, imported.Level, imported.Moves, imported.Pp, imported.Ivs),
+                    applyEditor: false);
+                MainTabs.SelectedItem = PartyTab;
+                PartyList.SelectedIndex = Math.Max(0, slot - 1);
+                SetWriteNotice($"已导入队伍第 {slot} 只：{ndsRow.DisplayName}。请点保存修改并备份。", success: true);
+            }
+            catch (Exception ex)
+            {
+                ShowToast(ex.Message, success: false);
+            }
             return;
         }
         var saveMode = _dataSourceMode == DataSourceMode.SaveFile;
@@ -3763,10 +3775,23 @@ public partial class MainWindow : Window
                 ShowToast("请先选择图鉴宝可梦和存档。", success: false);
                 return;
             }
-            var placed = (0, 0);
-            var imported = NdsDexImport(ndsRow.Id);
-            StageNdsEdit(editor => placed = editor.AppendBox((ushort)ndsRow.Id, imported.Experience, imported.Moves, imported.Pp, imported.Ivs));
-            SetWriteNotice($"已导入箱子 {placed.Item1}-{placed.Item2}：{ndsRow.DisplayName}。请点保存修改并备份。", success: true);
+            try
+            {
+                var placed = (0, 0);
+                var imported = NdsDexImport(ndsRow.Id);
+                StageNdsEdit(
+                    editor => placed = editor.AppendBox((ushort)ndsRow.Id, imported.Experience, imported.Moves, imported.Pp, imported.Ivs),
+                    applyEditor: false);
+                MainTabs.SelectedItem = BoxTab;
+                var importedRow = _boxRows.FirstOrDefault(row => row.Title.StartsWith($"箱{placed.Item1:00}-{placed.Item2:00}", StringComparison.Ordinal));
+                if (importedRow is not null)
+                    BoxList.SelectedItem = importedRow;
+                SetWriteNotice($"已导入箱子 {placed.Item1}-{placed.Item2}：{ndsRow.DisplayName}。请点保存修改并备份。", success: true);
+            }
+            catch (Exception ex)
+            {
+                ShowToast(ex.Message, success: false);
+            }
             return;
         }
         var saveMode = _dataSourceMode == DataSourceMode.SaveFile;
@@ -8999,7 +9024,9 @@ public partial class MainWindow : Window
     {
         if (!_db.Table("item_data").TryGetValue(item, out var raw)) return -1;
         var fields = raw.Split('\t');
-        if (fields.Length <= 8 || !int.TryParse(fields[8], out var romPocket)) return -1;
+        // item_data value keeps the duplicate id, then price/bytes, then field pocket at index 7.
+        // Index 8 is the battle pocket and must not be used for bag categories.
+        if (fields.Length <= 7 || !int.TryParse(fields[7], out var romPocket)) return -1;
         return romPocket is >= 0 and <= 7 ? _runtime.RemapItemPocket(romPocket) : -1;
     }
 

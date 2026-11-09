@@ -12,6 +12,7 @@ public static class ProfileIsolationSelfTest
         VerifySpanishRocketFixedLiveLayouts(profile);
         VerifySpanishRocket305SpeciesMask();
         VerifySpanishRocket305Experience(profile);
+        VerifySpanishRocket305SaveEdits(profile);
         VerifyUnboundSection2ChecksumVariants();
         var adapter = GameRuntimeAdapterCatalog.ForProfile(profile);
 
@@ -172,7 +173,86 @@ public static class ProfileIsolationSelfTest
         mon.SetAbilitySlot(0);
         if (mon.GetInfo().Ivs["ability"] != 0)
             throw new InvalidOperationException("3.0.5 特性槽没能写回 0。");
+        VerifySpanishRocket305NatureAndPp(mon);
+    }
 
+    private static void VerifySpanishRocket305NatureAndPp(PartyPokemon mon)
+    {
+        var before = mon.GetInfo();
+        var pid = mon.Pid;
+        var ball = before.CaughtBallCode;
+        mon.SetNature(3);
+        var afterNature = mon.GetInfo();
+        if (mon.Pid != pid || afterNature.CaughtBallCode != ball || afterNature.Nature != 3)
+            throw new InvalidOperationException("3.0.5 性格写入改了 PID 或球种，或没有按记录字节生效。");
+        if (PartyPokemon.SpanishRocket305StoredPp(0x80, 5) != 0x85 || PartyPokemon.SpanishRocket305VisiblePp(0x85) != 5)
+            throw new InvalidOperationException("3.0.5 当前 PP 没有保留最高位。");
+        mon.SetMoves([1, 2, 3, 4], [5, 6, 7, 8]);
+        mon.SetGrowth(ppBonuses: 0xE4, friendship: 70);
+        var after = mon.GetInfo();
+        if (after.Pp is not [5, 6, 7, 8] || after.PpBonuses != 0xE4 || after.Friendship != 70 || after.Checksum != after.CalculatedChecksum)
+            throw new InvalidOperationException("3.0.5 PP、PP提升或亲密度没有写到本版本的字段。");
+        if (after.CaughtBallCode != ball)
+            throw new InvalidOperationException("3.0.5 PP提升写入碰到了球种字节。");
+    }
+
+    private static void VerifySpanishRocket305SaveEdits(GameProfile profile)
+    {
+        if (profile.Id != "spanish-rocket-305-cn") return;
+        var sav = new[]
+        {
+            Path.GetFullPath(Path.Combine("rom", "西班牙火箭队v3.0.5.sav")),
+            Path.GetFullPath(Path.Combine("..", "rom", "西班牙火箭队v3.0.5.sav")),
+        }.FirstOrDefault(File.Exists);
+        if (sav is null) return;
+
+        var output = Path.Combine(Path.GetTempPath(), $"rocket305-save-{Guid.NewGuid():N}.sav");
+        try
+        {
+            var document = SpanishRocket305SaveStrategy.Instance.Open(sav, profile);
+            if (!document.CanWrite)
+                throw new InvalidOperationException($"3.0.5 测试存档不能写入：{document.WriteBlockReason}");
+            var source = document.Snapshot.Party.FirstOrDefault();
+            if (source is null) throw new InvalidOperationException("3.0.5 测试存档没有队伍。");
+            var mon = new PartyPokemon(source.Raw, PokemonDataLayout.SpanishRocket305Encrypted);
+            var pid = mon.Pid;
+            var ball = mon.GetInfo().CaughtBallCode;
+            var targetNature = mon.GetInfo().Nature == 3 ? 4 : 3;
+            mon.SetNature(targetNature);
+            mon.SetMoves(null, [5, null, null, null]);
+            mon.SetGrowth(ppBonuses: 0x01, friendship: mon.GetInfo().Friendship);
+            if (mon.Pid != pid || mon.GetInfo().CaughtBallCode != ball || mon.GetInfo().Nature != targetNature || mon.GetInfo().Pp[0] != 5)
+                throw new InvalidOperationException("3.0.5 存档精灵的性格或 PP 在写入前就没有按本版本字段生效。");
+            document.ReplacePartyPokemon(1, mon);
+
+            var bag = document.CurrentBag.FirstOrDefault(entry => entry.Quantity < profile.Limits.MaxBagQuantity);
+            if (bag is null) throw new InvalidOperationException("3.0.5 测试存档没有可改数量的背包格子。");
+            var nextQuantity = (ushort)(bag.Quantity == 1 ? 2 : bag.Quantity - 1);
+            document.ReplaceBagEntry(bag.SaveOffset, bag.ItemId, nextQuantity);
+            var freshItem = document.ItemPockets.FirstOrDefault(pair =>
+                pair.Key > 0 && pair.Key <= profile.Limits.MaxItem &&
+                pair.Value is >= 0 and <= 7 &&
+                document.CurrentBag.All(entry => entry.ItemId != pair.Key));
+            if (freshItem.Key == 0)
+                throw new InvalidOperationException("3.0.5 没有可用于存档添加测试的道具。");
+            document.AddBagItem(freshItem.Value, (ushort)freshItem.Key, 1);
+
+            var saved = document.SaveAs(output);
+            var reopened = SpanishRocket305SaveStrategy.Instance.Open(output, profile);
+            var readBack = reopened.Snapshot.Party[0].GetInfo();
+            if (readBack.Nature != targetNature || readBack.Pp[0] != 5 || readBack.PpBonuses != 0x01 || readBack.CaughtBallCode != ball)
+                throw new InvalidOperationException("3.0.5 存档重开后性格、PP 或球种不一致。");
+            if (reopened.Snapshot.Bag.All(entry => entry.SaveOffset != bag.SaveOffset || entry.Quantity != nextQuantity))
+                throw new InvalidOperationException("3.0.5 存档背包数量重开后不一致。");
+            if (reopened.Snapshot.Bag.All(entry => entry.ItemId != freshItem.Key || entry.Quantity != 1))
+                throw new InvalidOperationException("3.0.5 存档添加道具重开后没有读到。");
+            if (saved.ValidSectionCount != 28)
+                throw new InvalidOperationException("3.0.5 存档导出后 section 数量不对。");
+        }
+        finally
+        {
+            if (File.Exists(output)) File.Delete(output);
+        }
     }
 
     private static void VerifyUnboundSection2ChecksumVariants()

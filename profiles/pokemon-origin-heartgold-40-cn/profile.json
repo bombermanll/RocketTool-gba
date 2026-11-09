@@ -62,6 +62,7 @@
     "backSpriteAssetRoot": "Profiles/pokemon-origin-heartgold-40-cn/Pokemon/back",
     "shinyBackSpriteAssetRoot": "Profiles/pokemon-origin-heartgold-40-cn/Pokemon/shiny-back",
     "iconAssetRoot": "Profiles/pokemon-origin-heartgold-40-cn/Pokemon/icon",
+    "menuIconsVerified": true,
     "itemIconsVerified": true,
     "itemIconAssetRoot": "Profiles/pokemon-origin-heartgold-40-cn/Items",
     "frontSpriteTableOffset": "0x972C00",

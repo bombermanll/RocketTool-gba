@@ -316,7 +316,7 @@ public sealed class Gen3SaveDocument
                    ?? throw new InvalidOperationException("更新现有背包道具失败。");
         }
 
-        if (pocket == 7)
+        if (_strategy.RepacksMachinePocket(pocket))
             return InsertMachine(itemId, quantity);
 
         var physicalPockets = _strategy.CandidatePhysicalPockets(pocket).ToArray();

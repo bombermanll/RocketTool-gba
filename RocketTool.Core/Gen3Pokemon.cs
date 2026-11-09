@@ -121,7 +121,8 @@ public sealed class PartyPokemon
         WriteU32(raw, 0x04, otId);
         raw[0x12] = layout is PokemonDataLayout.UnboundCfruPlainParty
             or PokemonDataLayout.UltimateEmerald55CfruPlainParty
-            or PokemonDataLayout.DestinyCfruPlainParty ? (byte)2 : (byte)0x12;
+            or PokemonDataLayout.DestinyCfruPlainParty ? (byte)2
+            : layout == PokemonDataLayout.SpanishRocket305Encrypted ? (byte)0x07 : (byte)0x12;
         if (layout is PokemonDataLayout.UnboundCfruPlainParty
             or PokemonDataLayout.UltimateEmerald55CfruPlainParty
             or PokemonDataLayout.DestinyCfruPlainParty)
@@ -196,20 +197,22 @@ public sealed class PartyPokemon
         return new PartyMonInfo(
             Pid,
             OtId,
-            NatureFromPid(Pid),
+            _layout == PokemonDataLayout.SpanishRocket305Encrypted
+                ? SpanishRocket305Nature(Pid, _raw[0x12])
+                : NatureFromPid(Pid),
             _layout == PokemonDataLayout.SpanishRocket305Encrypted
                 ? NatureOverrideUsePid
                 : ReadGameNatureCode(growth),
             MaskSpeciesOrItem(ReadU16(growth, 0)),
             MaskSpeciesOrItem(ReadU16(growth, 2)),
             ReadExp(growth),
-            growth[GrowthPpBonusesOffset],
-            growth[GrowthFriendshipOffset],
+            growth[PpBonusOffset],
+            growth[FriendshipOffset],
             _layout == PokemonDataLayout.SpanishRocket305Encrypted
                 ? SpanishRocket305CaughtBall(growth)
                 : (byte)(growth[GrowthCaughtBallOffset] & GrowthCaughtBallMask),
             [ReadU16(attacks, 0), ReadU16(attacks, 2), ReadU16(attacks, 4), ReadU16(attacks, 6)],
-            [attacks[8], attacks[9], attacks[10], attacks[11]],
+            ReadCurrentPp(attacks),
             evs[..6].ToArray(),
             ivs,
             ivWord,
@@ -248,8 +251,8 @@ public sealed class PartyPokemon
         if (species is not null) WriteU16(block, 0, species.Value);
         if (item is not null) WriteU16(block, 2, item.Value);
         if (exp is not null) WriteExp(block, exp.Value);
-        if (ppBonuses is not null) block[GrowthPpBonusesOffset] = ppBonuses.Value;
-        if (friendship is not null) block[GrowthFriendshipOffset] = friendship.Value;
+        if (ppBonuses is not null) block[PpBonusOffset] = ppBonuses.Value;
+        if (friendship is not null) block[FriendshipOffset] = friendship.Value;
         ReplaceSubblock(dec, 0, block);
         SetDecrypted(dec);
     }
@@ -352,6 +355,7 @@ public sealed class PartyPokemon
         if (speciesNameEntry.Length < NicknameLength)
             throw new ArgumentException($"Species name entry must contain at least {NicknameLength} bytes.", nameof(speciesNameEntry));
         speciesNameEntry[..NicknameLength].CopyTo(_raw.AsSpan(NicknameOffset, NicknameLength));
+        if (_layout == PokemonDataLayout.SpanishRocket305Encrypted) return;
         _raw[0x12] = IsCfruPlain ? (byte)2 : (byte)0x12;
     }
 
@@ -378,7 +382,7 @@ public sealed class PartyPokemon
         if (pp is not null)
         {
             for (var i = 0; i < Math.Min(4, pp.Count); i++)
-                if (pp[i] is byte value) block[8 + i] = value;
+                if (pp[i] is byte value) block[8 + i] = StoredPp(block[8 + i], value);
         }
         ReplaceSubblock(dec, 1, block);
         SetDecrypted(dec);
@@ -437,6 +441,11 @@ public sealed class PartyPokemon
     public void SetNature(int nature)
     {
         if (nature is < 0 or > 24) throw new ArgumentOutOfRangeException(nameof(nature), "nature must be 0..24");
+        if (_layout == PokemonDataLayout.SpanishRocket305Encrypted)
+        {
+            SetSpanishRocket305Nature(nature);
+            return;
+        }
         if (IsCfruPlain)
         {
             Put32(0x00, FindPidWithNatureAndShinyState(Pid, OtId, nature, IsShiny));
@@ -689,6 +698,37 @@ public sealed class PartyPokemon
 
     internal static byte SpanishRocket305CaughtBall(ReadOnlySpan<byte> growth)
         => (byte)(growth[10] & 0x3F);
+
+    internal static int SpanishRocket305Nature(uint pid, byte headerByte)
+        => (int)((pid % 25) ^ (uint)(headerByte >> 3));
+
+    private int PpBonusOffset => _layout == PokemonDataLayout.SpanishRocket305Encrypted ? 8 : GrowthPpBonusesOffset;
+    private int FriendshipOffset => _layout == PokemonDataLayout.SpanishRocket305Encrypted ? 9 : GrowthFriendshipOffset;
+
+    private byte[] ReadCurrentPp(ReadOnlySpan<byte> attacks)
+        => _layout == PokemonDataLayout.SpanishRocket305Encrypted
+            ? [SpanishRocket305VisiblePp(attacks[8]), SpanishRocket305VisiblePp(attacks[9]), SpanishRocket305VisiblePp(attacks[10]), SpanishRocket305VisiblePp(attacks[11])]
+            : [attacks[8], attacks[9], attacks[10], attacks[11]];
+
+    private byte StoredPp(byte existing, byte value)
+        => _layout == PokemonDataLayout.SpanishRocket305Encrypted
+            ? SpanishRocket305StoredPp(existing, value)
+            : value;
+
+    internal static byte SpanishRocket305VisiblePp(byte stored) => (byte)(stored & 0x7F);
+
+    internal static byte SpanishRocket305StoredPp(byte existing, byte value)
+    {
+        if (value > 0x7F)
+            throw new ArgumentOutOfRangeException(nameof(value), "3.0.5 当前 PP 只使用低 7 位，必须在 0..127。");
+        return (byte)((existing & 0x80) | value);
+    }
+
+    private void SetSpanishRocket305Nature(int nature)
+    {
+        var mixed = (byte)(((uint)NatureFromPid(Pid) ^ (uint)nature) & 0x1F);
+        _raw[0x12] = (byte)((_raw[0x12] & 0x07) | (mixed << 3));
+    }
 
     private static void SetSpanishRocket305AbilitySlot(Span<byte> misc, int abilitySlot)
     {

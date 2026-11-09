@@ -4,6 +4,17 @@ internal sealed class SpanishRocket305SaveStrategy : IGen3SaveStrategy
 {
     public const string StrategyId = "spanish-rocket-305-save-v1";
     public static SpanishRocket305SaveStrategy Instance { get; } = new();
+    internal static readonly (int Pocket, string Name, int Offset, int Capacity)[] BagPockets =
+    [
+        (0, "道具", 0x4C0, 210),
+        (1, "药品", 0xE98, 65),
+        (2, "招式机", 0x990, 254),
+        (3, "重要物品", 0x808, 70),
+        (4, "精灵球", 0x920, 28),
+        (5, "战斗道具", 0xF9C, 210),
+        (6, "树果", 0xC88, 68),
+        (7, "进化石", 0x130C, 150),
+    ];
     public string Id => StrategyId;
     public int ExpectedSectionCount => 28;
 
@@ -43,10 +54,19 @@ internal sealed class SpanishRocket305SaveStrategy : IGen3SaveStrategy
     }
 
     public ushort EncodeStoredQuantity(ushort quantity, ushort quantityKey) => (ushort)(quantity ^ quantityKey);
-    public IEnumerable<Gen3SaveBagPhysicalPocket> CandidatePhysicalPockets(int pocket) => [];
+    public ushort? AuthoritativeQuantityKey(Gen3SaveDocument document)
+        => (ushort)document.ReadSectionU32(0, (int)document.Profile.Memory.SaveBlock2EncryptionKeyOffset);
+    public bool RepacksMachinePocket(int pocket) => false;
+    public IEnumerable<Gen3SaveBagPhysicalPocket> CandidatePhysicalPockets(int pocket)
+    {
+        foreach (var (id, name, offset, capacity) in SpanishRocket305SaveStrategy.BagPockets)
+            if (id == pocket)
+                yield return new Gen3SaveBagPhysicalPocket(name, offset, capacity, id, true);
+    }
     public int? PocketOfItem(Gen3SaveDocument document, ushort itemId)
         => document.ItemPockets.TryGetValue(itemId, out var pocket) ? pocket : null;
-    public string PocketName(int pocket) => $"口袋{pocket}";
+    public string PocketName(int pocket)
+        => SpanishRocket305SaveStrategy.BagPockets.FirstOrDefault(entry => entry.Pocket == pocket).Name ?? $"口袋{pocket}";
     public void WriteBagRange(Gen3SaveDocument document, int saveOffset, ReadOnlySpan<byte> data)
         => document.WriteLogicalRange(Gen3SaveDocument.SaveBlock1FirstSection, saveOffset, data);
 
@@ -68,17 +88,7 @@ internal static class SpanishRocket305SaveReader
     private const int PartyOffset = 0x238;
     private const int BoxSlots = 30;
 
-    private static readonly (int Pocket, int Offset, int Capacity)[] BagPockets =
-    [
-        (0, 0x4C0, 210),
-        (1, 0xE98, 65),
-        (2, 0x990, 254),
-        (3, 0x808, 70),
-        (4, 0x920, 28),
-        (5, 0xF9C, 210),
-        (6, 0xC88, 68),
-        (7, 0x130C, 150),
-    ];
+
 
     public static Gen3SaveDocument Open(string path, GameProfile profile)
     {
@@ -145,7 +155,7 @@ internal static class SpanishRocket305SaveReader
 
         var quantityKey = (ushort)key;
         var bag = new List<Gen3SaveBagEntry>();
-        foreach (var (pocket, offset, capacity) in BagPockets)
+        foreach (var (pocket, _, offset, capacity) in SpanishRocket305SaveStrategy.BagPockets)
         {
             var shown = 0;
             for (var slot = 0; slot < capacity; slot++)
@@ -167,7 +177,7 @@ internal static class SpanishRocket305SaveReader
             Coins: coins);
         var warnings = new List<string>
         {
-            "3.0.5 存档按 28 个 section、0xFF4 校验读取。写入仍关闭。",
+            "3.0.5 存档按 28 个 section、0xFF4 校验读取。",
             "队伍在存档块 1 +0x238，箱子从 section 5 起，背包偏移已用这份存档的珍珠、果汁牛奶和离洞绳对过。"
         };
         var snapshot = new Gen3SaveReadResult(
